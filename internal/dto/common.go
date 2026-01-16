@@ -73,3 +73,18 @@ const (
 	ErrCodeValidation          = "VALIDATION_ERROR"
 	ErrCodeInternalServerError = "INTERNAL_SERVER_ERROR"
 )
+
+// SimpleErrorResponse is used for simple error responses without wrapper
+type SimpleErrorResponse struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// PaginatedResponse is used for paginated list responses
+type PaginatedResponse struct {
+	Data       interface{} `json:"data"`
+	Page       int         `json:"page"`
+	PageSize   int         `json:"page_size"`
+	TotalCount int64       `json:"total_count"`
+	TotalPages int64       `json:"total_pages"`
+}

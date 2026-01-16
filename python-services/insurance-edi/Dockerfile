@@ -44,6 +44,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY python-services/insurance-edi/requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
+# Copy proto files and generate gRPC code
+COPY python-services/insurance-edi/proto/ ./proto/
+RUN mkdir -p generated && \
+    python -m grpc_tools.protoc \
+        -Iproto \
+        --python_out=generated \
+        --grpc_python_out=generated \
+        --pyi_out=generated \
+        proto/insurance.proto && \
+    sed -i 's/import insurance_pb2/from . import insurance_pb2/g' generated/insurance_pb2_grpc.py && \
+    touch generated/__init__.py
+
 # =============================================================================
 # Production Stage
 # =============================================================================
@@ -67,6 +79,9 @@ ENV PATH=/root/.local/bin:$PATH
 # Copy source code
 COPY --chown=kerp:kerp python-services/insurance-edi/ .
 COPY --chown=kerp:kerp python-services/shared/ ./shared/
+
+# Copy generated proto files from builder
+COPY --from=builder --chown=kerp:kerp /app/generated ./generated/
 
 # Expose ports
 EXPOSE 50052 9090

@@ -197,14 +197,33 @@ services:
     build:
       context: ../..
       dockerfile: python-services/insurance-edi/Dockerfile
+      target: production
     container_name: kerp-insurance-edi
     environment:
+      # Service
+      - ENVIRONMENT=staging
+      - GRPC_HOST=0.0.0.0
       - GRPC_PORT=50052
-      - REDIS_URL=redis://redis:6379
-      - CERT_PATH=/app/certs
+      - GRPC_MAX_WORKERS=10
       - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      # EDI Servers (국민연금, 건강보험, 고용산재)
+      - NPS_EDI_HOST=${NPS_EDI_HOST:-edi.nps.or.kr}
+      - NPS_EDI_PORT=${NPS_EDI_PORT:-9100}
+      - NHIS_EDI_HOST=${NHIS_EDI_HOST:-edi.nhis.or.kr}
+      - NHIS_EDI_PORT=${NHIS_EDI_PORT:-9100}
+      - EI_EDI_HOST=${EI_EDI_HOST:-edi.comwel.or.kr}
+      - EI_EDI_PORT=${EI_EDI_PORT:-9100}
+      # Encryption (ARIA-128)
+      - ARIA_ENCRYPTION_KEY=${ARIA_ENCRYPTION_KEY}
+      - CERT_PATH=/app/certs
     volumes:
       - edi_certs:/app/certs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc; ch=grpc.insecure_channel('localhost:50052'); grpc.channel_ready_future(ch).result(timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     depends_on:
       - redis
     networks:
