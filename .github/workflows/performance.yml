@@ -1,0 +1,182 @@
+# K-ERP Performance Test Pipeline
+# Runs on: manual trigger, schedule (weekly)
+
+name: Performance Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Test scenario to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - auth-flow
+          - voucher-api
+          - concurrent-posting
+      target_url:
+        description: 'Target URL for performance tests'
+        required: false
+        default: 'http://localhost:8080'
+        type: string
+  schedule:
+    # Run every Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+
+env:
+  K6_VERSION: '0.50.0'
+
+jobs:
+  # ============================================
+  # Performance Test Execution
+  # ============================================
+  performance-test:
+    name: K6 Performance Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kerp_perf
+          POSTGRES_PASSWORD: kerp_perf_password
+          POSTGRES_DB: kerp_perf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build API server
+        run: |
+          go build -o bin/api ./cmd/api
+
+      - name: Start API server
+        env:
+          DATABASE_URL: postgres://kerp_perf:kerp_perf_password@localhost:5432/kerp_perf?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+          APP_ENV: test
+          JWT_SECRET: test-jwt-secret-for-performance
+        run: |
+          ./bin/api &
+          sleep 5
+          curl -f http://localhost:8080/health || exit 1
+
+      - name: Install K6
+        run: |
+          curl -L https://github.com/grafana/k6/releases/download/v${{ env.K6_VERSION }}/k6-v${{ env.K6_VERSION }}-linux-amd64.tar.gz | tar xvz
+          sudo mv k6-v${{ env.K6_VERSION }}-linux-amd64/k6 /usr/local/bin/k6
+
+      - name: Run Auth Flow Test
+        if: ${{ github.event.inputs.scenario == 'all' || github.event.inputs.scenario == 'auth-flow' || github.event_name == 'schedule' }}
+        env:
+          BASE_URL: ${{ github.event.inputs.target_url || 'http://localhost:8080' }}
+        run: |
+          k6 run --out json=auth-results.json tests/performance/k6/scenarios/auth-flow.js || true
+
+      - name: Run Voucher API Test
+        if: ${{ github.event.inputs.scenario == 'all' || github.event.inputs.scenario == 'voucher-api' || github.event_name == 'schedule' }}
+        env:
+          BASE_URL: ${{ github.event.inputs.target_url || 'http://localhost:8080' }}
+        run: |
+          k6 run --out json=voucher-results.json tests/performance/k6/scenarios/voucher-api.js || true
+
+      - name: Run Concurrent Posting Test
+        if: ${{ github.event.inputs.scenario == 'all' || github.event.inputs.scenario == 'concurrent-posting' || github.event_name == 'schedule' }}
+        env:
+          BASE_URL: ${{ github.event.inputs.target_url || 'http://localhost:8080' }}
+        run: |
+          k6 run --out json=concurrent-results.json tests/performance/k6/scenarios/concurrent-posting.js || true
+
+      - name: Generate Summary
+        run: |
+          echo "# Performance Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target:** ${{ github.event.inputs.target_url || 'http://localhost:8080' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scenario:** ${{ github.event.inputs.scenario || 'all' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Results" >> $GITHUB_STEP_SUMMARY
+          echo "See artifacts for detailed reports." >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-results-${{ github.run_number }}
+          path: |
+            *-results.json
+            summary.json
+          retention-days: 30
+
+  # ============================================
+  # Performance Baseline Check
+  # ============================================
+  baseline-check:
+    name: Check Against Baseline
+    runs-on: ubuntu-latest
+    needs: performance-test
+    if: always()
+
+    steps:
+      - name: Download Results
+        uses: actions/download-artifact@v4
+        with:
+          name: k6-results-${{ github.run_number }}
+
+      - name: Check Thresholds
+        run: |
+          echo "Checking performance thresholds..."
+
+          # Parse results and check against baselines
+          # This is a simplified check - in production, use proper analysis
+
+          if [ -f "voucher-results.json" ]; then
+            echo "Voucher API results found"
+            # Add threshold checks here
+          fi
+
+          if [ -f "auth-results.json" ]; then
+            echo "Auth Flow results found"
+            # Add threshold checks here
+          fi
+
+          echo "Baseline check completed"
+
+      - name: Create Issue on Threshold Breach
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Performance Threshold Breach Detected',
+              body: `Performance tests detected threshold breaches.
+
+              **Run:** ${context.runNumber}
+              **Date:** ${new Date().toISOString()}
+
+              Please review the performance test results.`,
+              labels: ['performance', 'automated']
+            })

@@ -12,6 +12,15 @@ interface LoginResponse {
   tokens: AuthTokens;
 }
 
+// Backend response format (snake_case)
+interface BackendLoginResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  user: User;
+}
+
 interface RegisterResponse {
   user: User;
   tokens: AuthTokens;
@@ -22,20 +31,26 @@ export const authService = {
    * Login with email and password
    */
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
-    const response = await apiClient.post<LoginResponse>(
+    const response = await apiClient.post<BackendLoginResponse>(
       "/auth/login",
       credentials
     );
 
     if (response.success) {
-      setTokens(response.data.tokens);
+      // Map snake_case backend response to camelCase frontend format
+      const tokens: AuthTokens = {
+        accessToken: response.data.access_token,
+        refreshToken: response.data.refresh_token,
+      };
+      setTokens(tokens);
       localStorage.setItem(
         STORAGE_KEYS.user,
         JSON.stringify(response.data.user)
       );
+      return { user: response.data.user, tokens };
     }
 
-    return response.data;
+    throw new Error("Login failed");
   },
 
   /**
