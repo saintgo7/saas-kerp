@@ -40,12 +40,18 @@ services:
       dockerfile: deployments/docker/Dockerfile.api
     container_name: kerp-api
     environment:
-      - APP_ENV=staging
-      - DATABASE_URL=postgres://kerp:${DB_PASSWORD:-kerp123}@postgres:5432/kerp?sslmode=disable
-      - REDIS_URL=redis://redis:6379
-      - NATS_URL=nats://nats:4222
-      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
-      - LOG_LEVEL=info
+      - KERP_APP_ENV=staging
+      - KERP_DATABASE_HOST=postgres
+      - KERP_DATABASE_PORT=5432
+      - KERP_DATABASE_NAME=kerp
+      - KERP_DATABASE_USER=kerp
+      - KERP_DATABASE_PASSWORD=${DB_PASSWORD:-kerp123}
+      - KERP_DATABASE_SSLMODE=disable
+      - KERP_REDIS_HOST=redis
+      - KERP_REDIS_PORT=6379
+      - KERP_NATS_URL=nats://nats:4222
+      - KERP_JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
+      - KERP_LOG_LEVEL=info
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.api.rule=Host(`erp.abada.kr`) && PathPrefix(`/api`)"
@@ -69,10 +75,16 @@ services:
       dockerfile: deployments/docker/Dockerfile.worker
     container_name: kerp-worker
     environment:
-      - APP_ENV=staging
-      - DATABASE_URL=postgres://kerp:${DB_PASSWORD:-kerp123}@postgres:5432/kerp?sslmode=disable
-      - REDIS_URL=redis://redis:6379
-      - NATS_URL=nats://nats:4222
+      - KERP_APP_ENV=staging
+      - KERP_DATABASE_HOST=postgres
+      - KERP_DATABASE_PORT=5432
+      - KERP_DATABASE_NAME=kerp
+      - KERP_DATABASE_USER=kerp
+      - KERP_DATABASE_PASSWORD=${DB_PASSWORD:-kerp123}
+      - KERP_DATABASE_SSLMODE=disable
+      - KERP_REDIS_HOST=redis
+      - KERP_REDIS_PORT=6379
+      - KERP_NATS_URL=nats://nats:4222
     depends_on:
       postgres:
         condition: service_healthy
