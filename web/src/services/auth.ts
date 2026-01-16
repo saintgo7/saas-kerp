@@ -31,14 +31,20 @@ export const authService = {
    * Login with email and password
    */
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
+    console.log("[AUTH] Login called with:", credentials.email);
+
     const response = await apiClient.post<BackendLoginResponse>(
       "/auth/login",
       credentials
     );
 
+    console.log("[AUTH] API response:", JSON.stringify(response, null, 2));
+
     // axios interceptor handles errors, so if we reach here, the request succeeded
     // response is ApiResponse<BackendLoginResponse> with { success, data, meta }
     const data = response.data;
+
+    console.log("[AUTH] Extracted data:", JSON.stringify(data, null, 2));
 
     // Map snake_case backend response to camelCase frontend format
     const tokens: AuthTokens = {
@@ -46,7 +52,12 @@ export const authService = {
       refreshToken: data.refresh_token,
       expiresAt: Date.now() + data.expires_in * 1000,
     };
+
+    console.log("[AUTH] Tokens to save:", JSON.stringify(tokens, null, 2));
+
     setTokens(tokens);
+
+    console.log("[AUTH] Tokens saved, returning user:", data.user);
 
     return { user: data.user, tokens };
   },
