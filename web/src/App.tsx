@@ -1,35 +1,148 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import { useAuthStore } from "@/stores";
 
-function App() {
-  const [count, setCount] = useState(0)
+// Layouts
+import { MainLayout, AuthLayout } from "@/components/layout";
 
-  return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+// Auth Pages
+import { LoginPage, RegisterPage } from "@/pages/auth";
+
+// Main Pages
+import { DashboardPage } from "@/pages/dashboard";
+import { VoucherListPage } from "@/pages/accounting";
+import { InvoiceListPage } from "@/pages/invoice";
+import { EmployeeListPage } from "@/pages/hr";
+
+// Create QueryClient
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+// Protected Route Component
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuthStore();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
 }
 
-export default App
+// Public Route Component (redirect to dashboard if authenticated)
+function PublicRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuthStore();
+
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+// Placeholder component for routes not yet implemented
+function ComingSoon({ title }: { title: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-[60vh] text-center">
+      <h1 className="text-2xl font-bold mb-2">{title}</h1>
+      <p className="text-muted-foreground">이 페이지는 준비 중입니다.</p>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Routes>
+          {/* Public Routes */}
+          <Route
+            element={
+              <PublicRoute>
+                <AuthLayout />
+              </PublicRoute>
+            }
+          >
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ComingSoon title="비밀번호 찾기" />} />
+          </Route>
+
+          {/* Protected Routes */}
+          <Route
+            element={
+              <ProtectedRoute>
+                <MainLayout />
+              </ProtectedRoute>
+            }
+          >
+            {/* Dashboard */}
+            <Route path="/dashboard" element={<DashboardPage />} />
+
+            {/* Accounting */}
+            <Route path="/accounting/voucher" element={<VoucherListPage />} />
+            <Route path="/accounting/voucher/new" element={<ComingSoon title="전표 작성" />} />
+            <Route path="/accounting/voucher/:id" element={<ComingSoon title="전표 상세" />} />
+            <Route path="/accounting/ledger" element={<ComingSoon title="원장 조회" />} />
+            <Route path="/accounting/trial-balance" element={<ComingSoon title="시산표" />} />
+            <Route path="/accounting/financial-statements" element={<ComingSoon title="재무제표" />} />
+            <Route path="/accounting/accounts" element={<ComingSoon title="계정과목 관리" />} />
+
+            {/* Invoice */}
+            <Route path="/invoice/list" element={<InvoiceListPage />} />
+            <Route path="/invoice/issue" element={<ComingSoon title="세금계산서 발행" />} />
+            <Route path="/invoice/received" element={<ComingSoon title="매입 관리" />} />
+            <Route path="/invoice/hometax" element={<ComingSoon title="홈택스 연동" />} />
+            <Route path="/invoice/:id" element={<ComingSoon title="세금계산서 상세" />} />
+
+            {/* HR */}
+            <Route path="/hr/employee" element={<EmployeeListPage />} />
+            <Route path="/hr/employee/new" element={<ComingSoon title="직원 등록" />} />
+            <Route path="/hr/employee/:id" element={<ComingSoon title="직원 상세" />} />
+            <Route path="/hr/department" element={<ComingSoon title="부서 관리" />} />
+            <Route path="/hr/payroll" element={<ComingSoon title="급여 관리" />} />
+            <Route path="/hr/insurance" element={<ComingSoon title="4대보험" />} />
+            <Route path="/hr/attendance" element={<ComingSoon title="근태 관리" />} />
+
+            {/* Inventory */}
+            <Route path="/inventory/products" element={<ComingSoon title="품목 관리" />} />
+            <Route path="/inventory/stock" element={<ComingSoon title="재고 현황" />} />
+            <Route path="/inventory/purchase" element={<ComingSoon title="구매 관리" />} />
+            <Route path="/inventory/sales" element={<ComingSoon title="판매 관리" />} />
+
+            {/* Reports */}
+            <Route path="/reports/sales" element={<ComingSoon title="매출 분석" />} />
+            <Route path="/reports/expense" element={<ComingSoon title="비용 분석" />} />
+            <Route path="/reports/hr" element={<ComingSoon title="인사 현황" />} />
+            <Route path="/reports/custom" element={<ComingSoon title="맞춤 보고서" />} />
+
+            {/* Settings */}
+            <Route path="/settings" element={<ComingSoon title="설정" />} />
+            <Route path="/settings/company" element={<ComingSoon title="회사 정보" />} />
+            <Route path="/settings/users" element={<ComingSoon title="사용자 관리" />} />
+            <Route path="/settings/permissions" element={<ComingSoon title="권한 관리" />} />
+            <Route path="/settings/integrations" element={<ComingSoon title="연동 설정" />} />
+            <Route path="/settings/profile" element={<ComingSoon title="내 프로필" />} />
+          </Route>
+
+          {/* Redirect root to dashboard */}
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+          {/* 404 */}
+          <Route path="*" element={<ComingSoon title="페이지를 찾을 수 없습니다" />} />
+        </Routes>
+      </BrowserRouter>
+      <ReactQueryDevtools initialIsOpen={false} />
+    </QueryClientProvider>
+  );
+}
+
+export default App;
