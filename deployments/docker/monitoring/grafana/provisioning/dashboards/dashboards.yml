@@ -1,0 +1,16 @@
+# Grafana Dashboard Provisioning
+# K-ERP SaaS Monitoring
+
+apiVersion: 1
+
+providers:
+  - name: 'K-ERP Dashboards'
+    orgId: 1
+    folder: 'K-ERP'
+    folderUid: 'kerp'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

@@ -1,0 +1,81 @@
+# Prometheus Configuration
+# K-ERP SaaS Monitoring
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'kerp-monitor'
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Traefik metrics
+  - job_name: 'traefik'
+    static_configs:
+      - targets: ['traefik:8080']
+
+  # Go API Server
+  - job_name: 'kerp-api'
+    static_configs:
+      - targets: ['api:8080']
+    metrics_path: /metrics
+
+  # Go Worker
+  - job_name: 'kerp-worker'
+    static_configs:
+      - targets: ['worker:8080']
+    metrics_path: /metrics
+
+  # Node Exporter (Host metrics)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # PostgreSQL Exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Redis Exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # NATS Monitoring
+  - job_name: 'nats'
+    static_configs:
+      - targets: ['nats:8222']
+    metrics_path: /metrics
+
+  # MinIO metrics
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['minio:9000']
+    metrics_path: /minio/v2/metrics/cluster
+
+  # Python Tax Scraper (gRPC)
+  - job_name: 'tax-scraper'
+    static_configs:
+      - targets: ['tax-scraper:9090']
+    metrics_path: /metrics
+
+  # Python Insurance EDI (gRPC)
+  - job_name: 'insurance-edi'
+    static_configs:
+      - targets: ['insurance-edi:9090']
+    metrics_path: /metrics

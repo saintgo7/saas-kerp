@@ -1,0 +1,36 @@
+# gRPC
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+grpcio-health-checking>=1.60.0
+grpcio-reflection>=1.60.0
+
+# Browser Automation
+playwright>=1.40.0
+
+# Configuration
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# Logging
+structlog>=23.2.0
+
+# HTTP Client
+httpx>=0.25.0
+
+# Encryption (SEED/ARIA for Korean government)
+cryptography>=41.0.0
+pycryptodome>=3.19.0
+
+# Cache
+redis>=5.0.0
+
+# Async
+asyncio>=3.4.3
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+ruff>=0.1.0
+mypy>=1.7.0

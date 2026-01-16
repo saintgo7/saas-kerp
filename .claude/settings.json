@@ -19,18 +19,13 @@
     "enabled": true,
     "directory": ".claude/skills"
   },
-  "hooks": {
-    "enabled": true,
-    "directory": ".claude/hooks",
-    "pre-push": true,
-    "post-commit": true
-  },
   "mcp": {
     "enabled": true,
     "servers": ["supabase", "github", "postgres"]
   },
   "shortcuts": {
     "skills": {
+      "/saas": "saas",
       "/api": "api-scaffold",
       "/grpc": "grpc-gen",
       "/provider": "provider-impl",

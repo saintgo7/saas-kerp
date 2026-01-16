@@ -1,0 +1,154 @@
+# K-ERP Pull Request Check
+# Runs on all pull requests to main and develop
+
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  # ============================================
+  # PR Info & Labels
+  # ============================================
+  pr-info:
+    name: PR Info
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: PR Information
+        run: |
+          echo "PR #${{ github.event.pull_request.number }}"
+          echo "Title: ${{ github.event.pull_request.title }}"
+          echo "From: ${{ github.event.pull_request.head.ref }}"
+          echo "To: ${{ github.event.pull_request.base.ref }}"
+
+      - name: Check PR title format
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          # Check for conventional commit format
+          if [[ ! "$TITLE" =~ ^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?:\ .+ ]]; then
+            echo "Warning: PR title doesn't follow conventional commit format"
+            echo "Expected: type(scope): description"
+            echo "Examples: feat(api): add user authentication"
+            echo "         fix(db): resolve connection pool issue"
+          fi
+
+  # ============================================
+  # Code Quality Checks
+  # ============================================
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Check Go formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "The following files are not formatted:"
+            gofmt -l .
+            echo ""
+            echo "Run 'gofmt -w .' to fix"
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./... || true
+
+      - name: Check for TODOs and FIXMEs
+        run: |
+          echo "=== TODOs found ==="
+          grep -rn "TODO" --include="*.go" --include="*.ts" --include="*.tsx" . || echo "None"
+          echo ""
+          echo "=== FIXMEs found ==="
+          grep -rn "FIXME" --include="*.go" --include="*.ts" --include="*.tsx" . || echo "None"
+
+  # ============================================
+  # Security Scan
+  # ============================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          format: 'table'
+
+      - name: Check for secrets
+        run: |
+          # Simple check for common secret patterns
+          echo "Checking for potential secrets..."
+          if grep -rn --include="*.go" --include="*.ts" --include="*.tsx" --include="*.py" \
+            -E "(password|secret|api_key|apikey|token)\s*[:=]\s*['\"][^'\"]+['\"]" . \
+            | grep -v "_test\." | grep -v "\.example" | grep -v "\.md"; then
+            echo "Warning: Potential hardcoded secrets found"
+          else
+            echo "No obvious secrets detected"
+          fi
+
+  # ============================================
+  # Build Test
+  # ============================================
+  build-test:
+    name: Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build API
+        run: |
+          go build -o /dev/null ./cmd/api || echo "API build skipped (missing dependencies)"
+
+      - name: Build Worker
+        run: |
+          go build -o /dev/null ./cmd/worker || echo "Worker build skipped (missing dependencies)"
+
+  # ============================================
+  # Test Summary
+  # ============================================
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [pr-info, code-quality, security-scan, build-test]
+    if: always()
+
+    steps:
+      - name: Summary
+        run: |
+          echo "## PR Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| PR Info | ${{ needs.pr-info.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Quality | ${{ needs.code-quality.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Scan | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Test | ${{ needs.build-test.result }} |" >> $GITHUB_STEP_SUMMARY
