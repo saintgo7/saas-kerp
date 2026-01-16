@@ -53,6 +53,8 @@ services:
       - KERP_NATS_URL=nats://nats:4222
       - KERP_JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
       - KERP_LOG_LEVEL=info
+    ports:
+      - "8080:8080"  # Temporary direct access (bypass Traefik)
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.api.rule=Host(`erp.abada.kr`) && PathPrefix(`/api`)"
@@ -95,14 +97,16 @@ services:
       - kerp-network
     restart: unless-stopped
 
-  # React Frontend (Next.js)
+  # React Frontend (Vite)
   web:
     build:
       context: ../..
       dockerfile: deployments/docker/Dockerfile.web
+      args:
+        VITE_API_URL: http://erp.abada.kr:8080/api
     container_name: kerp-web
-    environment:
-      - NEXT_PUBLIC_API_URL=https://erp.abada.kr/api
+    ports:
+      - "3000:3000"  # Temporary direct access (bypass Traefik)
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.web.rule=Host(`erp.abada.kr`)"
