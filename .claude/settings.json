@@ -1,8 +1,10 @@
 {
   "project": {
     "name": "K-ERP SaaS",
+    "version": "0.2.0",
     "type": "fullstack",
-    "language": "ko"
+    "language": "ko",
+    "architecture": "go-python-hybrid"
   },
   "models": {
     "default": "claude-sonnet-4-20250514",
@@ -28,12 +30,66 @@
     "servers": ["supabase", "github", "postgres"]
   },
   "shortcuts": {
-    "/dw": "deploy-wsl",
-    "/qf": "quick-feature",
-    "/db": "db-migrate",
-    "/go": "@go-fast",
-    "/react": "@react-fast",
-    "/ops": "@devops-deploy"
+    "skills": {
+      "/api": "api-scaffold",
+      "/grpc": "grpc-gen",
+      "/provider": "provider-impl",
+      "/sqlc": "sqlc-query",
+      "/py": "py-service",
+      "/test": "test-gen",
+      "/db": "db-migrate",
+      "/qf": "quick-feature",
+      "/deploy": "deploy-wsl"
+    },
+    "agents": {
+      "@go": "go-fast",
+      "@react": "react-fast",
+      "@ops": "devops-deploy",
+      "@py": "python-grpc",
+      "@acc": "accounting",
+      "@tax": "tax-invoice",
+      "@hr": "hr-payroll",
+      "@db": "db-design"
+    }
+  },
+  "techStack": {
+    "go": {
+      "version": "1.22+",
+      "framework": "gin",
+      "orm": ["gorm", "sqlc"],
+      "grpc": "grpc-go"
+    },
+    "python": {
+      "version": "3.11+",
+      "grpc": "grpcio",
+      "crypto": "pycryptodome",
+      "scraping": "playwright"
+    },
+    "database": {
+      "primary": "postgresql-16",
+      "cache": "redis-7",
+      "queue": "nats-jetstream"
+    },
+    "frontend": {
+      "framework": "react-18",
+      "language": "typescript",
+      "build": "vite",
+      "ui": "shadcn-ui"
+    }
+  },
+  "services": {
+    "go-api": {
+      "port": 8080,
+      "description": "Main REST API Server"
+    },
+    "python-scraper": {
+      "port": 50051,
+      "description": "Tax Invoice Scraper (gRPC)"
+    },
+    "python-edi": {
+      "port": 50052,
+      "description": "Insurance EDI Service (gRPC)"
+    }
   },
   "environment": {
     "development": {

@@ -1,418 +1,243 @@
-# 11. CI/CD 파이프라인
+# K-ERP v0.2 - CI/CD 파이프라인
 
-## 개요
-
-K-ERP 시스템의 지속적 통합(CI) 및 지속적 배포(CD) 파이프라인 설계.
-GitHub Actions를 기반으로 빌드, 테스트, 배포 자동화.
-
-### 파이프라인 아키텍처
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                         GitHub Actions                            │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐         │
-│  │  Lint   │──▶│  Test   │──▶│  Build  │──▶│  Push   │         │
-│  └─────────┘   └─────────┘   └─────────┘   └─────────┘         │
-│       │             │             │             │                │
-│       ▼             ▼             ▼             ▼                │
-│  golangci-lint  go test     Docker Build    Docker Hub          │
-│  eslint         jest        ARM64/AMD64     / ECR               │
-│                                                                   │
-├──────────────────────────────────────────────────────────────────┤
-│                         Deployment                                │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐           │
-│  │ Development │──▶│   Staging   │──▶│ Production  │           │
-│  │   (auto)    │   │   (auto)    │   │  (manual)   │           │
-│  └─────────────┘   └─────────────┘   └─────────────┘           │
-│                                                                   │
-└──────────────────────────────────────────────────────────────────┘
-```
+**문서 버전**: 0.2.0
+**작성일**: 2026-01-16
+**상태**: 검토 대기
 
 ---
 
-## 1. 브랜치 전략
+## 목차
 
-### Git Flow 기반 브랜치 모델
+1. [CI/CD 개요](#1-cicd-개요)
+2. [GitHub Actions 워크플로우](#2-github-actions-워크플로우)
+3. [Go 빌드 파이프라인](#3-go-빌드-파이프라인)
+4. [Python 빌드 파이프라인](#4-python-빌드-파이프라인)
+5. [배포 파이프라인](#5-배포-파이프라인)
+
+---
+
+## 1. CI/CD 개요
+
+### 1.1 전체 파이프라인 아키텍처
 
 ```
-main ─────────────────────────────────────────────▶ Production
-  │
-  └─── release/v1.2.0 ────────────────────────────▶ Staging
-         │
-         └─── develop ────────────────────────────▶ Development
-                │
-                ├─── feature/ACC-123-voucher-api
-                ├─── feature/HR-456-payroll
-                └─── hotfix/fix-login-bug
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         CI/CD Pipeline Architecture                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Developer                                                                  │
+│      │                                                                      │
+│      ▼                                                                      │
+│  ┌─────────┐    ┌─────────────────────────────────────────────────────┐   │
+│  │  Push   │───▶│                  GitHub Actions                      │   │
+│  │  to Git │    │  ┌─────────────────────────────────────────────────┐│   │
+│  └─────────┘    │  │ PR Checks (feature/*, bugfix/*)                 ││   │
+│                 │  │  - Lint (Go + Python)                            ││   │
+│                 │  │  - Unit Tests                                    ││   │
+│                 │  │  - Security Scan                                 ││   │
+│                 │  └─────────────────────────────────────────────────┘│   │
+│                 │                         │                            │   │
+│                 │                         ▼                            │   │
+│                 │  ┌─────────────────────────────────────────────────┐│   │
+│                 │  │ Merge to develop                                ││   │
+│                 │  │  - Build Docker Images                          ││   │
+│                 │  │  - Integration Tests                            ││   │
+│                 │  │  - Push to Dev Registry                         ││   │
+│                 │  │  - Deploy to Dev                                ││   │
+│                 │  └─────────────────────────────────────────────────┘│   │
+│                 │                         │                            │   │
+│                 │                         ▼                            │   │
+│                 │  ┌─────────────────────────────────────────────────┐│   │
+│                 │  │ Merge to main                                   ││   │
+│                 │  │  - Build Production Images                      ││   │
+│                 │  │  - E2E Tests                                    ││   │
+│                 │  │  - Push to Prod Registry                        ││   │
+│                 │  │  - Deploy to Staging                            ││   │
+│                 │  │  - Manual Approval                              ││   │
+│                 │  │  - Deploy to Production                         ││   │
+│                 │  └─────────────────────────────────────────────────┘│   │
+│                 └─────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 브랜치별 배포 환경
+### 1.2 브랜치 전략
 
-| 브랜치 | 환경 | 배포 방식 | 승인 |
-|--------|------|----------|------|
-| `feature/*` | - | PR 빌드만 | - |
-| `develop` | Development | 자동 | - |
-| `release/*` | Staging | 자동 | - |
-| `main` | Production | 수동 | 필요 |
-| `hotfix/*` | Staging → Production | 반자동 | 필요 |
+| 브랜치 | 용도 | 배포 대상 | 보호 규칙 |
+|--------|------|-----------|-----------|
+| main | 운영 코드 | Production | PR 필수, 2인 승인 |
+| develop | 개발 통합 | Development | PR 필수, 1인 승인 |
+| feature/* | 기능 개발 | - | - |
+| bugfix/* | 버그 수정 | - | - |
+| hotfix/* | 긴급 수정 | Production | PR 필수, 1인 승인 |
+| release/* | 릴리스 준비 | Staging | PR 필수, 2인 승인 |
 
 ---
 
 ## 2. GitHub Actions 워크플로우
 
-### 2.1 PR 검증 워크플로우
+### 2.1 PR Checks 워크플로우
 
 ```yaml
-# .github/workflows/pr-check.yml
-name: PR Check
+# .github/workflows/pr-checks.yml
+name: PR Checks
 
 on:
   pull_request:
-    branches: [develop, main, 'release/**']
+    branches: [main, develop]
     types: [opened, synchronize, reopened]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   GO_VERSION: '1.22'
-  NODE_VERSION: '20'
+  PYTHON_VERSION: '3.11'
 
 jobs:
-  # ==================== Go Backend ====================
-  backend-lint:
-    name: Backend Lint
+  # Go 린트 및 테스트
+  go-checks:
+    name: Go Checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: golangci-lint
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
-          version: v1.57
+          version: v1.55.2
           args: --timeout=5m
-          working-directory: ./backend
-
-  backend-test:
-    name: Backend Test
-    runs-on: ubuntu-latest
-    needs: backend-lint
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: kerp_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: Run migrations
-        working-directory: ./backend
-        run: |
-          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
-          migrate -path db/migrations -database "postgres://test:test@localhost:5432/kerp_test?sslmode=disable" up
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/kerp_test?sslmode=disable
 
       - name: Run tests
-        working-directory: ./backend
         run: |
           go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/kerp_test?sslmode=disable
-          REDIS_URL: redis://localhost:6379
-          GO_ENV: test
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
-          file: ./backend/coverage.out
-          flags: backend
-          fail_ci_if_error: false
+          file: ./coverage.out
+          flags: go
 
-  backend-security:
-    name: Backend Security Scan
+  # Python 린트 및 테스트
+  python-checks:
+    name: Python Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python-services
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run ruff (linter)
+        run: ruff check .
+
+      - name: Run mypy (type check)
+        run: mypy .
+
+      - name: Run pytest
+        run: |
+          pytest --cov=. --cov-report=xml -v
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: python-services/coverage.xml
+          flags: python
+
+  # 보안 스캔
+  security-scan:
+    name: Security Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Gosec Security Scanner
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Run gosec
         uses: securego/gosec@master
         with:
-          args: -exclude-generated ./backend/...
+          args: ./...
 
-      - name: Run govulncheck
-        uses: golang/govulncheck-action@v1
-        with:
-          go-version-input: ${{ env.GO_VERSION }}
-          work-dir: ./backend
+      - name: Run Bandit (Python)
+        run: |
+          pip install bandit
+          bandit -r python-services/ -ll
 
-  # ==================== Frontend ====================
-  frontend-lint:
-    name: Frontend Lint
+  # Proto 파일 검증
+  proto-check:
+    name: Proto Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Buf
+        uses: bufbuild/buf-setup-action@v1
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: ./web/package-lock.json
+          version: 'latest'
 
-      - name: Install dependencies
-        working-directory: ./web
-        run: npm ci
+      - name: Buf lint
+        run: buf lint
 
-      - name: ESLint
-        working-directory: ./web
-        run: npm run lint
-
-      - name: TypeScript Check
-        working-directory: ./web
-        run: npm run type-check
-
-  frontend-test:
-    name: Frontend Test
-    runs-on: ubuntu-latest
-    needs: frontend-lint
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: ./web/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./web
-        run: npm ci
-
-      - name: Run tests
-        working-directory: ./web
-        run: npm run test:coverage
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./web/coverage/lcov.info
-          flags: frontend
-          fail_ci_if_error: false
-
-  frontend-build:
-    name: Frontend Build
-    runs-on: ubuntu-latest
-    needs: [frontend-lint, frontend-test]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: ./web/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./web
-        run: npm ci
-
-      - name: Build
-        working-directory: ./web
-        run: npm run build
-        env:
-          VITE_API_URL: /api
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-build
-          path: ./web/dist
-          retention-days: 1
+      - name: Buf breaking
+        run: buf breaking --against '.git#branch=main'
 ```
 
-### 2.2 CI/CD 메인 파이프라인
+### 2.2 Build 워크플로우
 
 ```yaml
-# .github/workflows/ci-cd.yml
-name: CI/CD Pipeline
+# .github/workflows/build.yml
+name: Build
 
 on:
   push:
-    branches:
-      - develop
-      - 'release/**'
-      - main
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Deployment environment'
-        required: true
-        type: choice
-        options:
-          - development
-          - staging
-          - production
+    branches: [develop, main]
 
 env:
-  GO_VERSION: '1.22'
-  NODE_VERSION: '20'
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  GO_VERSION: '1.22'
+  PYTHON_VERSION: '3.11'
 
 jobs:
-  # ==================== Build ====================
-  build-backend:
-    name: Build Backend
+  build-go:
+    name: Build Go Services
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Generate version
-        id: version
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          else
-            VERSION=$(git describe --tags --always --dirty)
-          fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: Build binary
-        working-directory: ./backend
-        run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-            -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" \
-            -o ../bin/api-amd64 ./cmd/api
-
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-            -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" \
-            -o ../bin/api-arm64 ./cmd/api
-
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-            -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" \
-            -o ../bin/worker-amd64 ./cmd/worker
-
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-            -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" \
-            -o ../bin/worker-arm64 ./cmd/worker
-
-      - name: Upload binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-binaries
-          path: ./bin/
-          retention-days: 1
-
-  build-frontend:
-    name: Build Frontend
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: ./web/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./web
-        run: npm ci
-
-      - name: Build
-        working-directory: ./web
-        run: npm run build
-        env:
-          VITE_API_URL: /api
-
-      - name: Upload build
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-build
-          path: ./web/dist
-          retention-days: 1
-
-  # ==================== Docker ====================
-  docker-build:
-    name: Build Docker Images
-    runs-on: ubuntu-latest
-    needs: [build-backend, build-frontend]
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        service: [api-server, worker]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download backend binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-binaries
-          path: ./bin/
-
-      - name: Download frontend build
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-build
-          path: ./web/dist/
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Container Registry
+      - name: Login to Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -423,1065 +248,671 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
           tags: |
             type=ref,event=branch
             type=sha,prefix=
-            type=raw,value=${{ needs.build-backend.outputs.version }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      # API Server Image
-      - name: Build and push API image
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./deployments/docker/Dockerfile.api
-          platforms: linux/amd64,linux/arm64
+          file: deployments/docker/${{ matrix.service }}/Dockerfile
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ needs.build-backend.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Worker Image
-      - name: Build and push Worker image
+  build-python:
+    name: Build Python Services
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service: [tax-scraper, insurance-edi]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./deployments/docker/Dockerfile.worker
-          platforms: linux/amd64,linux/arm64
+          context: python-services
+          file: python-services/${{ matrix.service }}/Dockerfile
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ needs.build-backend.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ==================== Deploy ====================
-  deploy-development:
-    name: Deploy to Development
+  integration-tests:
+    name: Integration Tests
+    needs: [build-go, build-python]
     runs-on: ubuntu-latest
-    needs: docker-build
-    if: github.ref == 'refs/heads/develop'
-    environment:
-      name: development
-      url: https://dev.kerp.example.com
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.29.0'
-
-      - name: Configure kubectl
-        run: |
-          echo "${{ secrets.KUBE_CONFIG_DEV }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-
-      - name: Deploy to Kubernetes
-        run: |
-          kubectl set image deployment/kerp-api \
-            api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} \
-            -n kerp-dev
-
-          kubectl set image deployment/kerp-worker \
-            worker=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }} \
-            -n kerp-dev
-
-          kubectl rollout status deployment/kerp-api -n kerp-dev --timeout=300s
-          kubectl rollout status deployment/kerp-worker -n kerp-dev --timeout=300s
-
-      - name: Notify Slack
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          fields: repo,message,commit,author,action,eventName,workflow
+    services:
+      postgres:
+        image: postgres:16-alpine
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
-        if: always()
-
-  deploy-staging:
-    name: Deploy to Staging
-    runs-on: ubuntu-latest
-    needs: docker-build
-    if: startsWith(github.ref, 'refs/heads/release/')
-    environment:
-      name: staging
-      url: https://staging.kerp.example.com
+          POSTGRES_DB: kerp_test
+          POSTGRES_USER: kerp
+          POSTGRES_PASSWORD: kerp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+        options: --jetstream
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          version: 'v1.29.0'
+          go-version: ${{ env.GO_VERSION }}
 
-      - name: Configure kubectl
-        run: |
-          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-
-      - name: Deploy to Kubernetes
-        run: |
-          kubectl set image deployment/kerp-api \
-            api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }} \
-            -n kerp-staging
-
-          kubectl set image deployment/kerp-worker \
-            worker=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker:${{ github.sha }} \
-            -n kerp-staging
-
-          kubectl rollout status deployment/kerp-api -n kerp-staging --timeout=300s
-          kubectl rollout status deployment/kerp-worker -n kerp-staging --timeout=300s
-
-      - name: Run smoke tests
-        run: |
-          chmod +x ./scripts/smoke-test.sh
-          ./scripts/smoke-test.sh https://staging.kerp.example.com
-
-  deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: docker-build
-    if: github.ref == 'refs/heads/main'
-    environment:
-      name: production
-      url: https://kerp.example.com
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.29.0'
-
-      - name: Configure kubectl
-        run: |
-          echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-
-      - name: Blue-Green Deployment
-        run: |
-          # 새 버전 배포 (Green)
-          kubectl apply -f deployments/k8s/production/deployment-green.yaml
-
-          # 헬스체크 대기
-          kubectl rollout status deployment/kerp-api-green -n kerp-prod --timeout=300s
-
-          # 트래픽 전환
-          kubectl patch service kerp-api -n kerp-prod \
-            -p '{"spec":{"selector":{"version":"green"}}}'
-
-          # 이전 버전 정리 (Blue)
-          kubectl scale deployment/kerp-api-blue --replicas=0 -n kerp-prod
-
-      - name: Notify on success
-        uses: 8398a7/action-slack@v3
-        with:
-          status: success
-          fields: repo,message,commit,author
-          text: '🚀 Production deployment successful!'
+      - name: Run integration tests
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
-
-      - name: Notify on failure
-        uses: 8398a7/action-slack@v3
-        with:
-          status: failure
-          fields: repo,message,commit,author
-          text: '❌ Production deployment failed!'
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
-        if: failure()
-```
-
-### 2.3 핫픽스 워크플로우
-
-```yaml
-# .github/workflows/hotfix.yml
-name: Hotfix Pipeline
-
-on:
-  push:
-    branches:
-      - 'hotfix/**'
-
-jobs:
-  hotfix-deploy:
-    name: Hotfix Deployment
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Extract hotfix version
-        id: version
+          DATABASE_URL: postgres://kerp:kerp_test@localhost:5432/kerp_test?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+          NATS_URL: nats://localhost:4222
         run: |
-          BRANCH_NAME=${GITHUB_REF#refs/heads/}
-          VERSION=${BRANCH_NAME#hotfix/}
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-      - name: Build and test
-        run: |
-          cd backend && go test ./...
-          cd ../web && npm ci && npm run test
-
-      - name: Build Docker images
-        run: |
-          docker build -t kerp-api:hotfix-${{ steps.version.outputs.version }} \
-            -f deployments/docker/Dockerfile.api .
-
-      - name: Deploy to Staging
-        run: |
-          echo "Deploying hotfix to staging..."
-          # Staging deployment logic
-
-      - name: Create PR to main
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: hotfix/${{ steps.version.outputs.version }}
-          base: main
-          title: "Hotfix: ${{ steps.version.outputs.version }}"
-          body: |
-            ## Hotfix Release
-            Version: ${{ steps.version.outputs.version }}
-
-            ### Changes
-            ${{ github.event.head_commit.message }}
-
-            ### Checklist
-            - [ ] Staging tested
-            - [ ] Production approved
+          go test -v -tags=integration ./tests/integration/...
 ```
 
 ---
 
-## 3. Docker 구성
+## 3. Go 빌드 파이프라인
 
-### 3.1 API 서버 Dockerfile
+### 3.1 Dockerfile
 
 ```dockerfile
-# deployments/docker/Dockerfile.api
-FROM gcr.io/distroless/static-debian12:nonroot
-
-LABEL org.opencontainers.image.source="https://github.com/your-org/k-erp"
-LABEL org.opencontainers.image.description="K-ERP API Server"
-
-# 아키텍처에 따른 바이너리 선택
-ARG TARGETARCH
-COPY bin/api-${TARGETARCH} /app/api
-COPY web/dist /app/static
+# deployments/docker/api-server/Dockerfile
+# Build stage
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-USER nonroot:nonroot
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates tzdata
+
+# Cache dependencies
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source
+COPY . .
+
+# Build with optimizations
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s -X main.Version=${VERSION:-dev} -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -o /bin/api ./cmd/api
+
+# Runtime stage
+FROM alpine:3.19
+
+# Security: non-root user
+RUN addgroup -g 1000 kerp && \
+    adduser -u 1000 -G kerp -s /bin/sh -D kerp
+
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /app
+
+COPY --from=builder /bin/api /app/api
+COPY --from=builder /app/db/migrations /app/migrations
+
+RUN chown -R kerp:kerp /app
+
+USER kerp
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["/app/api"]
 ```
 
-### 3.2 Worker Dockerfile
+### 3.2 Makefile
+
+```makefile
+# Makefile
+.PHONY: all build test lint clean docker-build docker-push
+
+VERSION ?= $(shell git describe --tags --always --dirty)
+BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -ldflags "-w -s -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
+
+GO_FILES := $(shell find . -name '*.go' -not -path "./vendor/*")
+
+# Build
+build:
+	CGO_ENABLED=0 go build $(LDFLAGS) -o bin/api ./cmd/api
+	CGO_ENABLED=0 go build $(LDFLAGS) -o bin/worker ./cmd/worker
+
+build-linux:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o bin/api-linux ./cmd/api
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o bin/worker-linux ./cmd/worker
+
+# Test
+test:
+	go test -v -race -cover ./...
+
+test-integration:
+	go test -v -tags=integration ./tests/integration/...
+
+test-coverage:
+	go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+	go tool cover -html=coverage.out -o coverage.html
+
+# Lint
+lint:
+	golangci-lint run ./...
+
+# Code generation
+generate:
+	go generate ./...
+
+sqlc:
+	sqlc generate
+
+proto:
+	buf generate
+
+swagger:
+	swag init -g cmd/api/main.go -o api/docs
+
+# Database
+migrate-up:
+	migrate -path db/migrations -database "$(DATABASE_URL)" up
+
+migrate-down:
+	migrate -path db/migrations -database "$(DATABASE_URL)" down 1
+
+migrate-create:
+	migrate create -ext sql -dir db/migrations -seq $(name)
+
+# Docker
+docker-build:
+	docker build -f deployments/docker/api-server/Dockerfile -t kerp/api:$(VERSION) .
+	docker build -f deployments/docker/worker/Dockerfile -t kerp/worker:$(VERSION) .
+
+docker-push:
+	docker push kerp/api:$(VERSION)
+	docker push kerp/worker:$(VERSION)
+
+# Development
+dev-up:
+	docker-compose up -d
+
+dev-down:
+	docker-compose down
+
+dev-logs:
+	docker-compose logs -f
+
+# Clean
+clean:
+	rm -rf bin/
+	rm -f coverage.out coverage.html
+```
+
+---
+
+## 4. Python 빌드 파이프라인
+
+### 4.1 Dockerfile
 
 ```dockerfile
-# deployments/docker/Dockerfile.worker
-FROM gcr.io/distroless/static-debian12:nonroot
-
-LABEL org.opencontainers.image.source="https://github.com/your-org/k-erp"
-LABEL org.opencontainers.image.description="K-ERP Background Worker"
-
-ARG TARGETARCH
-COPY bin/worker-${TARGETARCH} /app/worker
+# python-services/tax-scraper/Dockerfile
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-USER nonroot:nonroot
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-ENTRYPOINT ["/app/worker"]
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Runtime stage
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    chromium-driver \
+    fonts-nanum \
+    fonts-nanum-coding \
+    && rm -rf /var/lib/apt/lists/*
+
+# Security: non-root user
+RUN groupadd -g 1000 kerp && \
+    useradd -u 1000 -g kerp -s /bin/bash -m kerp
+
+# Copy virtual environment
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Playwright browsers
+RUN playwright install chromium
+
+# Copy source
+COPY shared/ /app/shared/
+COPY tax-scraper/src/ /app/src/
+
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+
+RUN chown -R kerp:kerp /app
+
+USER kerp
+
+EXPOSE 50051
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import grpc; channel = grpc.insecure_channel('localhost:50051'); grpc.channel_ready_future(channel).result(timeout=5)" || exit 1
+
+CMD ["python", "-m", "src.main"]
 ```
 
-### 3.3 Docker Compose (로컬 개발)
+### 4.2 pyproject.toml
 
-```yaml
-# docker-compose.yml
-version: '3.8'
+```toml
+# python-services/pyproject.toml
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
-services:
-  api:
-    build:
-      context: .
-      dockerfile: deployments/docker/Dockerfile.api
-    ports:
-      - "8080:8080"
-    environment:
-      - DATABASE_URL=postgres://kerp:kerp@postgres:5432/kerp?sslmode=disable
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      - POPBILL_LINK_ID=${POPBILL_LINK_ID}
-      - POPBILL_SECRET_KEY=${POPBILL_SECRET_KEY}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+[project]
+name = "kerp-python-services"
+version = "0.2.0"
+description = "K-ERP Python microservices"
+requires-python = ">=3.11"
 
-  worker:
-    build:
-      context: .
-      dockerfile: deployments/docker/Dockerfile.worker
-    environment:
-      - DATABASE_URL=postgres://kerp:kerp@postgres:5432/kerp?sslmode=disable
-      - REDIS_URL=redis://redis:6379
-      - NATS_URL=nats://nats:4222
-    depends_on:
-      - postgres
-      - redis
-      - nats
+dependencies = [
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+    "playwright>=1.40.0",
+    "pycryptodome>=3.19.0",
+    "cryptography>=41.0.0",
+    "httpx>=0.26.0",
+    "pydantic>=2.5.0",
+    "python-dotenv>=1.0.0",
+    "structlog>=24.1.0",
+]
 
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: kerp
-      POSTGRES_PASSWORD: kerp
-      POSTGRES_DB: kerp
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kerp"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.1.9",
+    "mypy>=1.8.0",
+    "bandit>=1.7.6",
+]
 
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 
-  nats:
-    image: nats:2.10-alpine
-    command: ["--jetstream", "--store_dir=/data"]
-    volumes:
-      - nats-data:/data
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
 
-volumes:
-  postgres-data:
-  redis-data:
-  nats-data:
-```
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-v --cov --cov-report=term-missing"
 
----
-
-## 4. Kubernetes 매니페스트
-
-### 4.1 Deployment
-
-```yaml
-# deployments/k8s/base/deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: kerp-api
-  labels:
-    app: kerp
-    component: api
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: kerp
-      component: api
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
-  template:
-    metadata:
-      labels:
-        app: kerp
-        component: api
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
-    spec:
-      serviceAccountName: kerp-api
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65534
-        fsGroup: 65534
-
-      containers:
-        - name: api
-          image: ghcr.io/your-org/k-erp-api:latest
-          imagePullPolicy: Always
-
-          ports:
-            - name: http
-              containerPort: 8080
-              protocol: TCP
-
-          env:
-            - name: GO_ENV
-              value: production
-            - name: PORT
-              value: "8080"
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: kerp-secrets
-                  key: database-url
-            - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: kerp-secrets
-                  key: redis-url
-            - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: kerp-secrets
-                  key: jwt-secret
-
-          resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-
-          readinessProbe:
-            httpGet:
-              path: /health/ready
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-
-          livenessProbe:
-            httpGet:
-              path: /health/live
-              port: http
-            initialDelaySeconds: 15
-            periodSeconds: 20
-            timeoutSeconds: 5
-            failureThreshold: 3
-
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
-
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app: kerp
-                    component: api
-                topologyKey: kubernetes.io/hostname
-
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: topology.kubernetes.io/zone
-          whenUnsatisfiable: ScheduleAnyway
-          labelSelector:
-            matchLabels:
-              app: kerp
-              component: api
-```
-
-### 4.2 Service
-
-```yaml
-# deployments/k8s/base/service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: kerp-api
-  labels:
-    app: kerp
-    component: api
-spec:
-  type: ClusterIP
-  ports:
-    - name: http
-      port: 80
-      targetPort: http
-      protocol: TCP
-  selector:
-    app: kerp
-    component: api
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: kerp-api-headless
-  labels:
-    app: kerp
-    component: api
-spec:
-  type: ClusterIP
-  clusterIP: None
-  ports:
-    - name: http
-      port: 80
-      targetPort: http
-  selector:
-    app: kerp
-    component: api
-```
-
-### 4.3 Ingress
-
-```yaml
-# deployments/k8s/base/ingress.yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: kerp-ingress
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/rate-limit: "100"
-    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-spec:
-  tls:
-    - hosts:
-        - kerp.example.com
-      secretName: kerp-tls
-  rules:
-    - host: kerp.example.com
-      http:
-        paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: kerp-api
-                port:
-                  number: 80
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: kerp-web
-                port:
-                  number: 80
-```
-
-### 4.4 HPA (Horizontal Pod Autoscaler)
-
-```yaml
-# deployments/k8s/base/hpa.yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: kerp-api-hpa
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: kerp-api
-  minReplicas: 3
-  maxReplicas: 20
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80
-  behavior:
-    scaleDown:
-      stabilizationWindowSeconds: 300
-      policies:
-        - type: Percent
-          value: 10
-          periodSeconds: 60
-    scaleUp:
-      stabilizationWindowSeconds: 0
-      policies:
-        - type: Percent
-          value: 100
-          periodSeconds: 15
-        - type: Pods
-          value: 4
-          periodSeconds: 15
-      selectPolicy: Max
-```
-
-### 4.5 PodDisruptionBudget
-
-```yaml
-# deployments/k8s/base/pdb.yaml
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: kerp-api-pdb
-spec:
-  minAvailable: 2
-  selector:
-    matchLabels:
-      app: kerp
-      component: api
+[tool.coverage.run]
+source = ["src", "shared"]
+omit = ["tests/*", "*_pb2.py", "*_pb2_grpc.py"]
 ```
 
 ---
 
-## 5. 환경별 구성 (Kustomize)
+## 5. 배포 파이프라인
 
-### 5.1 Development 오버레이
-
-```yaml
-# deployments/k8s/overlays/development/kustomization.yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-
-namespace: kerp-dev
-
-resources:
-  - ../../base
-
-replicas:
-  - name: kerp-api
-    count: 1
-
-images:
-  - name: ghcr.io/your-org/k-erp-api
-    newTag: develop
-
-patchesStrategicMerge:
-  - deployment-patch.yaml
-
-configMapGenerator:
-  - name: kerp-config
-    literals:
-      - LOG_LEVEL=debug
-      - ENABLE_SWAGGER=true
-```
+### 5.1 Deploy 워크플로우
 
 ```yaml
-# deployments/k8s/overlays/development/deployment-patch.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: kerp-api
-spec:
-  template:
-    spec:
-      containers:
-        - name: api
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 200m
-              memory: 256Mi
-```
-
-### 5.2 Production 오버레이
-
-```yaml
-# deployments/k8s/overlays/production/kustomization.yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-
-namespace: kerp-prod
-
-resources:
-  - ../../base
-  - network-policy.yaml
-
-replicas:
-  - name: kerp-api
-    count: 5
-
-images:
-  - name: ghcr.io/your-org/k-erp-api
-    newTag: v1.0.0
-
-patchesStrategicMerge:
-  - deployment-patch.yaml
-
-configMapGenerator:
-  - name: kerp-config
-    literals:
-      - LOG_LEVEL=info
-      - ENABLE_SWAGGER=false
-```
-
----
-
-## 6. 시크릿 관리
-
-### 6.1 Sealed Secrets 사용
-
-```yaml
-# deployments/k8s/secrets/sealed-secret.yaml
-apiVersion: bitnami.com/v1alpha1
-kind: SealedSecret
-metadata:
-  name: kerp-secrets
-  namespace: kerp-prod
-spec:
-  encryptedData:
-    database-url: AgBy8h...  # 암호화된 값
-    redis-url: AgCT9x...
-    jwt-secret: AgDK2m...
-    popbill-link-id: AgEQ5n...
-    popbill-secret-key: AgFR3p...
-```
-
-### 6.2 External Secrets Operator 사용
-
-```yaml
-# deployments/k8s/secrets/external-secret.yaml
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: kerp-secrets
-  namespace: kerp-prod
-spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    kind: ClusterSecretStore
-    name: aws-secrets-manager
-  target:
-    name: kerp-secrets
-    creationPolicy: Owner
-  data:
-    - secretKey: database-url
-      remoteRef:
-        key: kerp/production
-        property: database_url
-    - secretKey: redis-url
-      remoteRef:
-        key: kerp/production
-        property: redis_url
-    - secretKey: jwt-secret
-      remoteRef:
-        key: kerp/production
-        property: jwt_secret
-```
-
----
-
-## 7. 품질 게이트
-
-### 7.1 품질 기준
-
-```yaml
-# .github/quality-gates.yml
-quality_gates:
-  code_coverage:
-    backend:
-      minimum: 80
-      target: 90
-    frontend:
-      minimum: 70
-      target: 85
-
-  security:
-    critical_vulnerabilities: 0
-    high_vulnerabilities: 0
-    medium_vulnerabilities: 5
-
-  performance:
-    build_time_seconds: 300
-    docker_image_size_mb: 100
-
-  lint:
-    errors: 0
-    warnings: 10
-```
-
-### 7.2 품질 게이트 검증 스크립트
-
-```bash
-#!/bin/bash
-# scripts/quality-gate.sh
-
-set -e
-
-echo "Running Quality Gates..."
-
-# 1. 코드 커버리지 체크
-BACKEND_COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
-if (( $(echo "$BACKEND_COVERAGE < 80" | bc -l) )); then
-    echo "❌ Backend coverage ($BACKEND_COVERAGE%) is below threshold (80%)"
-    exit 1
-fi
-echo "✅ Backend coverage: $BACKEND_COVERAGE%"
-
-# 2. 보안 취약점 체크
-CRITICAL=$(cat security-report.json | jq '.Critical // 0')
-HIGH=$(cat security-report.json | jq '.High // 0')
-if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
-    echo "❌ Security vulnerabilities found: Critical=$CRITICAL, High=$HIGH"
-    exit 1
-fi
-echo "✅ No critical/high security vulnerabilities"
-
-# 3. Docker 이미지 크기 체크
-IMAGE_SIZE=$(docker images kerp-api --format "{{.Size}}" | head -1)
-echo "✅ Docker image size: $IMAGE_SIZE"
-
-echo "All quality gates passed! ✅"
-```
-
----
-
-## 8. 롤백 전략
-
-### 8.1 자동 롤백 스크립트
-
-```bash
-#!/bin/bash
-# scripts/rollback.sh
-
-set -e
-
-NAMESPACE=${1:-kerp-prod}
-DEPLOYMENT=${2:-kerp-api}
-
-echo "Starting rollback for $DEPLOYMENT in $NAMESPACE..."
-
-# 현재 버전 기록
-CURRENT_IMAGE=$(kubectl get deployment $DEPLOYMENT -n $NAMESPACE \
-    -o jsonpath='{.spec.template.spec.containers[0].image}')
-echo "Current image: $CURRENT_IMAGE"
-
-# 이전 버전으로 롤백
-kubectl rollout undo deployment/$DEPLOYMENT -n $NAMESPACE
-
-# 롤백 완료 대기
-kubectl rollout status deployment/$DEPLOYMENT -n $NAMESPACE --timeout=300s
-
-# 새 버전 확인
-NEW_IMAGE=$(kubectl get deployment $DEPLOYMENT -n $NAMESPACE \
-    -o jsonpath='{.spec.template.spec.containers[0].image}')
-echo "Rolled back to: $NEW_IMAGE"
-
-# Slack 알림
-curl -X POST -H 'Content-type: application/json' \
-    --data "{\"text\":\"🔄 Rollback completed: $DEPLOYMENT from $CURRENT_IMAGE to $NEW_IMAGE\"}" \
-    $SLACK_WEBHOOK_URL
-
-echo "Rollback completed successfully!"
-```
-
-### 8.2 GitHub Actions 롤백 워크플로우
-
-```yaml
-# .github/workflows/rollback.yml
-name: Production Rollback
+# .github/workflows/deploy.yml
+name: Deploy
 
 on:
-  workflow_dispatch:
-    inputs:
-      revision:
-        description: 'Revision to rollback to (leave empty for previous)'
-        required: false
-      reason:
-        description: 'Reason for rollback'
-        required: true
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
+    branches: [develop, main]
+
+env:
+  REGISTRY: ghcr.io
+  CLUSTER_NAME: kerp-cluster
 
 jobs:
-  rollback:
-    name: Rollback Production
+  deploy-dev:
+    name: Deploy to Development
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop' }}
     runs-on: ubuntu-latest
-    environment:
-      name: production-rollback
+    environment: development
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure kubectl
-        run: |
-          echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > $HOME/.kube/config
+        uses: azure/k8s-set-context@v3
+        with:
+          kubeconfig: ${{ secrets.KUBE_CONFIG_DEV }}
 
-      - name: Perform rollback
+      - name: Deploy to dev
         run: |
-          if [ -n "${{ github.event.inputs.revision }}" ]; then
-            kubectl rollout undo deployment/kerp-api \
-              --to-revision=${{ github.event.inputs.revision }} \
-              -n kerp-prod
-          else
-            kubectl rollout undo deployment/kerp-api -n kerp-prod
-          fi
+          kubectl set image deployment/api-server \
+            api-server=${{ env.REGISTRY }}/${{ github.repository }}/api-server:${{ github.sha }} \
+            -n kerp-dev
+          kubectl set image deployment/worker \
+            worker=${{ env.REGISTRY }}/${{ github.repository }}/worker:${{ github.sha }} \
+            -n kerp-dev
+          kubectl set image deployment/tax-scraper \
+            tax-scraper=${{ env.REGISTRY }}/${{ github.repository }}/tax-scraper:${{ github.sha }} \
+            -n kerp-dev
+          kubectl set image deployment/insurance-edi \
+            insurance-edi=${{ env.REGISTRY }}/${{ github.repository }}/insurance-edi:${{ github.sha }} \
+            -n kerp-dev
 
-          kubectl rollout status deployment/kerp-api -n kerp-prod --timeout=300s
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/api-server -n kerp-dev --timeout=5m
+          kubectl rollout status deployment/worker -n kerp-dev --timeout=5m
+          kubectl rollout status deployment/tax-scraper -n kerp-dev --timeout=5m
+          kubectl rollout status deployment/insurance-edi -n kerp-dev --timeout=5m
+
+  deploy-staging:
+    name: Deploy to Staging
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v3
+        with:
+          kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+      - name: Deploy to staging
+        run: |
+          kubectl apply -k deployments/k8s/overlays/staging/
+
+      - name: Run E2E tests
+        run: |
+          npm install
+          npx playwright test --project=staging
+
+  deploy-prod:
+    name: Deploy to Production
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://api.kerp.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v3
+        with:
+          kubeconfig: ${{ secrets.KUBE_CONFIG_PROD }}
+
+      - name: Blue-Green deployment
+        run: |
+          # Create new (green) deployment
+          kubectl apply -k deployments/k8s/overlays/prod/
+
+          # Wait for green to be ready
+          kubectl rollout status deployment/api-server-green -n kerp --timeout=10m
+
+          # Switch traffic to green
+          kubectl patch service api-server -n kerp \
+            -p '{"spec":{"selector":{"version":"green"}}}'
+
+          # Verify green is healthy
+          sleep 30
+          curl -sf https://api.kerp.io/health || exit 1
+
+          # Scale down blue
+          kubectl scale deployment/api-server-blue --replicas=0 -n kerp
 
       - name: Notify Slack
-        uses: 8398a7/action-slack@v3
+        if: always()
+        uses: slackapi/slack-github-action@v1.24.0
         with:
-          status: custom
-          custom_payload: |
+          payload: |
             {
-              "text": "🔄 Production Rollback Executed",
-              "attachments": [{
-                "color": "warning",
-                "fields": [
-                  {"title": "Triggered by", "value": "${{ github.actor }}", "short": true},
-                  {"title": "Reason", "value": "${{ github.event.inputs.reason }}", "short": true}
-                ]
-              }]
+              "text": "Production deployment ${{ job.status }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Production Deployment*\nStatus: ${{ job.status }}\nCommit: ${{ github.sha }}"
+                  }
+                }
+              ]
             }
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+```
+
+### 5.2 Helm Chart 구조
+
+```yaml
+# deployments/helm/kerp/Chart.yaml
+apiVersion: v2
+name: kerp
+description: K-ERP Helm chart
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+
+dependencies:
+  - name: postgresql
+    version: "14.0.0"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+  - name: redis
+    version: "18.0.0"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+```
+
+```yaml
+# deployments/helm/kerp/values.yaml
+global:
+  imageRegistry: ghcr.io
+  imagePullSecrets:
+    - name: ghcr-secret
+
+apiServer:
+  replicaCount: 3
+  image:
+    repository: kerp/api-server
+    tag: latest
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+
+worker:
+  replicaCount: 2
+  image:
+    repository: kerp/worker
+    tag: latest
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+taxScraper:
+  replicaCount: 2
+  image:
+    repository: kerp/tax-scraper
+    tag: latest
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+insuranceEdi:
+  replicaCount: 2
+  image:
+    repository: kerp/insurance-edi
+    tag: latest
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+postgresql:
+  enabled: false  # Use external in production
+
+redis:
+  enabled: false  # Use external in production
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: api.kerp.io
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: kerp-tls
+      hosts:
+        - api.kerp.io
+```
+
+### 5.3 Rollback 워크플로우
+
+```yaml
+# .github/workflows/rollback.yml
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to rollback'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      version:
+        description: 'Version to rollback to (e.g., v0.2.1)'
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    name: Rollback ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version }}
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v3
+        with:
+          kubeconfig: ${{ secrets[format('KUBE_CONFIG_{0}', upper(github.event.inputs.environment))] }}
+
+      - name: Rollback deployment
+        run: |
+          kubectl rollout undo deployment/api-server -n kerp-${{ github.event.inputs.environment }}
+          kubectl rollout undo deployment/worker -n kerp-${{ github.event.inputs.environment }}
+          kubectl rollout undo deployment/tax-scraper -n kerp-${{ github.event.inputs.environment }}
+          kubectl rollout undo deployment/insurance-edi -n kerp-${{ github.event.inputs.environment }}
+
+      - name: Verify rollback
+        run: |
+          kubectl rollout status deployment/api-server -n kerp-${{ github.event.inputs.environment }} --timeout=5m
+
+      - name: Notify team
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "Rollback completed for ${{ github.event.inputs.environment }} to ${{ github.event.inputs.version }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 ```
 
 ---
 
-## 9. 스크립트
-
-### 9.1 스모크 테스트
-
-```bash
-#!/bin/bash
-# scripts/smoke-test.sh
-
-BASE_URL=${1:-http://localhost:8080}
-MAX_RETRIES=30
-RETRY_INTERVAL=5
-
-echo "Running smoke tests against $BASE_URL"
-
-# 헬스체크 대기
-for i in $(seq 1 $MAX_RETRIES); do
-    if curl -sf "$BASE_URL/health/ready" > /dev/null; then
-        echo "✅ Health check passed"
-        break
-    fi
-
-    if [ $i -eq $MAX_RETRIES ]; then
-        echo "❌ Health check failed after $MAX_RETRIES retries"
-        exit 1
-    fi
-
-    echo "Waiting for service... ($i/$MAX_RETRIES)"
-    sleep $RETRY_INTERVAL
-done
-
-# API 엔드포인트 테스트
-test_endpoint() {
-    local endpoint=$1
-    local expected_status=${2:-200}
-
-    status=$(curl -sf -o /dev/null -w "%{http_code}" "$BASE_URL$endpoint")
-
-    if [ "$status" -eq "$expected_status" ]; then
-        echo "✅ $endpoint -> $status"
-        return 0
-    else
-        echo "❌ $endpoint -> $status (expected $expected_status)"
-        return 1
-    fi
-}
-
-FAILED=0
-
-test_endpoint "/health/live" 200 || FAILED=$((FAILED+1))
-test_endpoint "/health/ready" 200 || FAILED=$((FAILED+1))
-test_endpoint "/api/v1/version" 200 || FAILED=$((FAILED+1))
-test_endpoint "/api/v1/auth/login" 401 || FAILED=$((FAILED+1))  # 인증 필요 확인
-
-if [ $FAILED -gt 0 ]; then
-    echo "❌ Smoke tests failed: $FAILED failures"
-    exit 1
-fi
-
-echo "✅ All smoke tests passed!"
-```
-
-### 9.2 DB 마이그레이션 스크립트
-
-```bash
-#!/bin/bash
-# scripts/migrate.sh
-
-set -e
-
-ACTION=${1:-up}
-DATABASE_URL=${DATABASE_URL:-"postgres://kerp:kerp@localhost:5432/kerp?sslmode=disable"}
-
-# migrate 도구 설치 확인
-if ! command -v migrate &> /dev/null; then
-    echo "Installing golang-migrate..."
-    go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
-fi
-
-echo "Running migrations ($ACTION)..."
-
-case $ACTION in
-    up)
-        migrate -path db/migrations -database "$DATABASE_URL" up
-        ;;
-    down)
-        migrate -path db/migrations -database "$DATABASE_URL" down 1
-        ;;
-    drop)
-        migrate -path db/migrations -database "$DATABASE_URL" drop -f
-        ;;
-    version)
-        migrate -path db/migrations -database "$DATABASE_URL" version
-        ;;
-    create)
-        NAME=${2:-"migration"}
-        migrate create -ext sql -dir db/migrations -seq "$NAME"
-        ;;
-    *)
-        echo "Usage: $0 {up|down|drop|version|create <name>}"
-        exit 1
-        ;;
-esac
-
-echo "Migration completed!"
-```
-
----
-
-## 10. 체크리스트
-
-### CI/CD 구축 체크리스트
-
-- [ ] GitHub Actions 워크플로우 설정
-- [ ] PR 검증 파이프라인 (lint, test, security)
-- [ ] Docker 멀티 아키텍처 빌드 (amd64, arm64)
-- [ ] 컨테이너 레지스트리 설정 (GHCR)
-- [ ] Kubernetes 매니페스트 작성
-- [ ] Kustomize 환경별 오버레이
-- [ ] Sealed Secrets / External Secrets 설정
-- [ ] HPA 설정 (오토스케일링)
-- [ ] PodDisruptionBudget 설정
-- [ ] 롤백 워크플로우
-- [ ] 스모크 테스트 스크립트
-- [ ] Slack 알림 연동
-
-### 환경별 확인사항
-
-| 환경 | URL | 배포 방식 | 승인 |
-|------|-----|----------|------|
-| Development | dev.kerp.example.com | 자동 (develop 브랜치) | 불필요 |
-| Staging | staging.kerp.example.com | 자동 (release 브랜치) | 불필요 |
-| Production | kerp.example.com | 수동 (main 브랜치) | 필요 |
+**다음 문서**: [12_API_설계_상세.md](./12_API_설계_상세.md)
