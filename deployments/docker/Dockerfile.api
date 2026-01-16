@@ -47,7 +47,7 @@ COPY . .
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s -X main.Version=${VERSION}" \
-    -o /app/api \
+    -o /app/server \
     ./cmd/api
 
 # =============================================================================
@@ -65,7 +65,7 @@ RUN addgroup -g 1000 kerp && \
     adduser -u 1000 -G kerp -s /bin/sh -D kerp
 
 # Copy binary from builder
-COPY --from=builder /app/api /app/api
+COPY --from=builder /app/server /app/server
 
 # Copy migrations (if exists)
 COPY --from=builder /app/db/migrations /app/db/migrations
@@ -84,4 +84,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the application
-ENTRYPOINT ["/app/api"]
+ENTRYPOINT ["/app/server"]
