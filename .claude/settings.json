@@ -1,0 +1,51 @@
+{
+  "project": {
+    "name": "K-ERP SaaS",
+    "type": "fullstack",
+    "language": "ko"
+  },
+  "models": {
+    "default": "claude-sonnet-4-20250514",
+    "fast": "claude-sonnet-4-20250514",
+    "complex": "claude-opus-4-5-20251101"
+  },
+  "agents": {
+    "enabled": true,
+    "directory": ".claude/agents"
+  },
+  "skills": {
+    "enabled": true,
+    "directory": ".claude/skills"
+  },
+  "hooks": {
+    "enabled": true,
+    "directory": ".claude/hooks",
+    "pre-push": true,
+    "post-commit": true
+  },
+  "mcp": {
+    "enabled": true,
+    "servers": ["supabase", "github", "postgres"]
+  },
+  "shortcuts": {
+    "/dw": "deploy-wsl",
+    "/qf": "quick-feature",
+    "/db": "db-migrate",
+    "/go": "@go-fast",
+    "/react": "@react-fast",
+    "/ops": "@devops-deploy"
+  },
+  "environment": {
+    "development": {
+      "host": "localhost",
+      "database": "kerp_dev"
+    },
+    "staging": {
+      "host": "61.245.248.246",
+      "port": 5022,
+      "user": "blackpc",
+      "path": "/home/blackpc/saas-kerp",
+      "domain": "erp.abada.kr"
+    }
+  }
+}

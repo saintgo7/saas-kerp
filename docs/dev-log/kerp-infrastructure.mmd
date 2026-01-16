@@ -1,0 +1,57 @@
+graph TB
+    CLIENT[Clients]
+    ALB[Load Balancer]
+    INGRESS[NGINX Ingress]
+
+    subgraph EKS
+        API1[Go API Pod 1]
+        API2[Go API Pod 2]
+        API3[Go API Pod 3]
+        WORKER[Worker Pods]
+        TAX[Tax Scraper]
+        EDI[Insurance EDI]
+    end
+
+    subgraph DataLayer
+        PG[(PostgreSQL)]
+        REDIS[(Redis)]
+        NATS[NATS]
+    end
+
+    S3[(S3 Storage)]
+
+    subgraph Monitoring
+        CW[CloudWatch]
+        GRAFANA[Grafana]
+    end
+
+    subgraph External
+        POPBILL[Popbill API]
+        GOVT[Government EDI]
+    end
+
+    subgraph DR
+        PG_DR[(PostgreSQL DR)]
+        S3_DR[(S3 DR)]
+    end
+
+    CLIENT --> ALB
+    ALB --> INGRESS
+    INGRESS --> API1
+    INGRESS --> API2
+    INGRESS --> API3
+    API1 --> TAX
+    API1 --> EDI
+    API1 --> NATS
+    NATS --> WORKER
+    API1 --> PG
+    API2 --> PG
+    API3 --> PG
+    API1 --> REDIS
+    API1 --> S3
+    TAX --> POPBILL
+    EDI --> GOVT
+    EKS --> CW
+    CW --> GRAFANA
+    PG -.-> PG_DR
+    S3 -.-> S3_DR

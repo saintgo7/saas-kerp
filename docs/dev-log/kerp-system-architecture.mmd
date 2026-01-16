@@ -1,0 +1,75 @@
+graph TB
+    subgraph Client
+        WEB[Web App]
+        MOBILE[Mobile App]
+        PARTNER[Partner API]
+    end
+
+    subgraph Gateway
+        NGINX[NGINX Ingress]
+        AUTH[JWT Auth]
+    end
+
+    subgraph GoBackend
+        HANDLER[HTTP Handlers]
+        SERVICE[Business Logic]
+        REPO[Repository Layer]
+    end
+
+    subgraph Modules
+        ACC[Accounting]
+        HR[HR Payroll]
+        INV[Inventory]
+        SALES[Sales]
+    end
+
+    subgraph Background
+        BATCH[Batch Jobs]
+        ASYNC[Async Worker]
+    end
+
+    subgraph PythonSvc
+        TAX[Tax Scraper]
+        EDI[Insurance EDI]
+    end
+
+    subgraph DataStore
+        PG[(PostgreSQL)]
+        REDIS[(Redis)]
+        MINIO[(MinIO)]
+        MEILI[Meilisearch]
+    end
+
+    NATS[NATS JetStream]
+
+    subgraph External
+        POPBILL[Popbill]
+        GOVT[Government EDI]
+    end
+
+    subgraph Monitor
+        PROM[Prometheus]
+        GRAFANA[Grafana]
+    end
+
+    WEB --> NGINX
+    MOBILE --> NGINX
+    PARTNER --> NGINX
+    NGINX --> AUTH
+    AUTH --> HANDLER
+    HANDLER --> SERVICE
+    SERVICE --> REPO
+    SERVICE --> Modules
+    SERVICE --> NATS
+    NATS --> ASYNC
+    BATCH --> REPO
+    SERVICE -.-> TAX
+    SERVICE -.-> EDI
+    REPO --> PG
+    REPO --> REDIS
+    SERVICE --> MINIO
+    SERVICE --> MEILI
+    TAX --> POPBILL
+    EDI --> GOVT
+    GoBackend --> PROM
+    PROM --> GRAFANA
