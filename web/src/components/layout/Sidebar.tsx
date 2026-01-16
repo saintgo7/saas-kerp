@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useUIStore, useAuthStore } from "@/stores";
 import { MAIN_MENU } from "@/constants";
+import { Logo, LogoIcon } from "@/components/common";
 import type { MenuItem, UserRole } from "@/types";
 
 // Icon mapping
@@ -192,12 +193,13 @@ export function Sidebar() {
       >
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-4 border-b">
-          {!sidebarCollapsed && (
-            <Link to="/dashboard" className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <span className="text-primary-foreground font-bold">K</span>
-              </div>
-              <span className="font-bold text-lg">K-ERP</span>
+          {!sidebarCollapsed ? (
+            <Link to="/dashboard" className="flex items-center">
+              <Logo size="md" />
+            </Link>
+          ) : (
+            <Link to="/dashboard" className="flex items-center justify-center w-full">
+              <LogoIcon size="md" />
             </Link>
           )}
           <button

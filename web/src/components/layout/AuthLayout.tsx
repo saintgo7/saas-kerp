@@ -4,13 +4,14 @@ export function AuthLayout() {
   return (
     <div className="min-h-screen flex">
       {/* Left side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-primary p-12 flex-col justify-between">
+      <div className="hidden lg:flex lg:w-1/2 bg-slate-900 p-12 flex-col justify-between">
         <div>
-          <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-2xl">K</span>
-            </div>
-            <span className="text-white font-bold text-2xl">K-ERP</span>
+          <div className="flex items-center">
+            <img
+              src="/images/logo-dark.png"
+              alt="K-ERP"
+              className="h-12 w-auto"
+            />
           </div>
         </div>
 
@@ -27,20 +28,20 @@ export function AuthLayout() {
           </p>
 
           <div className="grid grid-cols-2 gap-4 pt-6">
-            <div className="bg-white/10 rounded-xl p-4">
-              <p className="text-white/60 text-sm">지원 기업 수</p>
+            <div className="bg-sky-500/20 rounded-xl p-4 border border-sky-500/30">
+              <p className="text-sky-300 text-sm">지원 기업 수</p>
               <p className="text-white text-2xl font-bold">1,200+</p>
             </div>
-            <div className="bg-white/10 rounded-xl p-4">
-              <p className="text-white/60 text-sm">처리 전표 수</p>
+            <div className="bg-sky-500/20 rounded-xl p-4 border border-sky-500/30">
+              <p className="text-sky-300 text-sm">처리 전표 수</p>
               <p className="text-white text-2xl font-bold">50만+</p>
             </div>
-            <div className="bg-white/10 rounded-xl p-4">
-              <p className="text-white/60 text-sm">세금계산서 발행</p>
+            <div className="bg-sky-500/20 rounded-xl p-4 border border-sky-500/30">
+              <p className="text-sky-300 text-sm">세금계산서 발행</p>
               <p className="text-white text-2xl font-bold">100만+</p>
             </div>
-            <div className="bg-white/10 rounded-xl p-4">
-              <p className="text-white/60 text-sm">고객 만족도</p>
+            <div className="bg-sky-500/20 rounded-xl p-4 border border-sky-500/30">
+              <p className="text-sky-300 text-sm">고객 만족도</p>
               <p className="text-white text-2xl font-bold">98%</p>
             </div>
           </div>

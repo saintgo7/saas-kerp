@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Eye, EyeOff } from "lucide-react";
 import { Button, Input, Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui";
+import { Logo } from "@/components/common";
 import { useAuthStore } from "@/stores";
 import { toast } from "@/stores/ui";
 
@@ -80,10 +81,8 @@ export function RegisterPage() {
   return (
     <Card>
       <CardHeader className="text-center">
-        <div className="flex justify-center mb-4 lg:hidden">
-          <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-2xl">K</span>
-          </div>
+        <div className="flex justify-center mb-4">
+          <Logo size="xl" />
         </div>
         <CardTitle className="text-2xl">회원가입</CardTitle>
         <CardDescription>
