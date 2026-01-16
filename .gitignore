@@ -86,3 +86,4 @@ ENV/
 # Local development
 .local/
 .claude/settings.local.json
+docs/design/
