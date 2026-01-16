@@ -1,0 +1,248 @@
+// Tax Invoice Service Protocol Buffer Definition
+// K-ERP SaaS - Phase 5: Tax/Hometax Integration
+
+syntax = "proto3";
+
+package kerp.tax.v1;
+
+option go_package = "github.com/kerp/api/proto/tax/v1;taxv1";
+
+import "google/protobuf/timestamp.proto";
+
+// TaxInvoiceService provides operations for Korean tax invoice management
+// through integration with the National Tax Service (Hometax) system.
+service TaxInvoiceService {
+  // Login to Hometax with certificate or credentials
+  rpc Login(LoginRequest) returns (LoginResponse);
+
+  // Logout and invalidate session
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+  // Retrieve tax invoices from Hometax
+  rpc GetTaxInvoices(GetTaxInvoicesRequest) returns (GetTaxInvoicesResponse);
+
+  // Issue a new tax invoice via Hometax
+  rpc IssueTaxInvoice(IssueTaxInvoiceRequest) returns (IssueTaxInvoiceResponse);
+
+  // Cancel an issued tax invoice
+  rpc CancelTaxInvoice(CancelTaxInvoiceRequest) returns (CancelTaxInvoiceResponse);
+
+  // Get status of a specific tax invoice
+  rpc GetTaxInvoiceStatus(GetTaxInvoiceStatusRequest) returns (GetTaxInvoiceStatusResponse);
+
+  // Stream real-time invoice notifications
+  rpc StreamInvoiceNotifications(StreamNotificationsRequest) returns (stream InvoiceNotification);
+}
+
+// Authentication type for Hometax login
+enum AuthType {
+  AUTH_TYPE_UNSPECIFIED = 0;
+  AUTH_TYPE_CERTIFICATE = 1;  // NPKI certificate
+  AUTH_TYPE_SIMPLE_AUTH = 2;  // Simple authentication (ARS, etc.)
+  AUTH_TYPE_ID_PASSWORD = 3;  // ID/Password
+}
+
+// Tax invoice type
+enum InvoiceType {
+  INVOICE_TYPE_UNSPECIFIED = 0;
+  INVOICE_TYPE_SALES = 1;      // Sales invoice (issued)
+  INVOICE_TYPE_PURCHASE = 2;   // Purchase invoice (received)
+}
+
+// Tax invoice status
+enum InvoiceStatus {
+  INVOICE_STATUS_UNSPECIFIED = 0;
+  INVOICE_STATUS_DRAFT = 1;
+  INVOICE_STATUS_ISSUED = 2;
+  INVOICE_STATUS_TRANSMITTED = 3;  // Sent to NTS
+  INVOICE_STATUS_CONFIRMED = 4;    // Confirmed by NTS
+  INVOICE_STATUS_CANCELLED = 5;
+}
+
+// Login request message
+message LoginRequest {
+  // Business registration number (10 digits)
+  string business_number = 1;
+
+  // Authentication type
+  AuthType auth_type = 2;
+
+  // Certificate password (for certificate auth)
+  optional string cert_password = 3;
+
+  // Certificate data in base64 (for certificate auth)
+  optional bytes cert_data = 4;
+
+  // User ID (for ID/password auth)
+  optional string user_id = 5;
+
+  // Password (for ID/password auth)
+  optional string password = 6;
+
+  // Company ID for multi-tenant isolation
+  string company_id = 7;
+}
+
+// Login response message
+message LoginResponse {
+  bool success = 1;
+  string session_id = 2;
+  string expires_at = 3;  // ISO 8601 timestamp
+  string company_name = 4;
+  string error_message = 5;
+  string error_code = 6;
+}
+
+// Logout request message
+message LogoutRequest {
+  string session_id = 1;
+}
+
+// Logout response message
+message LogoutResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// Get tax invoices request
+message GetTaxInvoicesRequest {
+  string session_id = 1;
+  string start_date = 2;  // YYYY-MM-DD
+  string end_date = 3;    // YYYY-MM-DD
+  optional InvoiceType invoice_type = 4;
+  optional string business_number = 5;  // Filter by counterparty
+  optional int64 min_amount = 6;
+  optional int64 max_amount = 7;
+  int32 page = 8;
+  int32 page_size = 9;
+}
+
+// Get tax invoices response
+message GetTaxInvoicesResponse {
+  bool success = 1;
+  repeated TaxInvoice invoices = 2;
+  int32 total_count = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+  string error_message = 6;
+}
+
+// Tax invoice message
+message TaxInvoice {
+  // Invoice identification
+  string invoice_number = 1;
+  string issue_date = 2;  // YYYY-MM-DD
+  InvoiceType invoice_type = 3;
+  InvoiceStatus status = 4;
+
+  // Supplier (seller) information
+  string supplier_business_number = 10;
+  string supplier_name = 11;
+  string supplier_ceo_name = 12;
+  string supplier_address = 13;
+  string supplier_business_type = 14;
+  string supplier_business_item = 15;
+  string supplier_email = 16;
+
+  // Buyer (purchaser) information
+  string buyer_business_number = 20;
+  string buyer_name = 21;
+  string buyer_ceo_name = 22;
+  string buyer_address = 23;
+  string buyer_business_type = 24;
+  string buyer_business_item = 25;
+  string buyer_email = 26;
+
+  // Amount information (in KRW, no decimal)
+  int64 supply_amount = 30;   // Total supply amount (before tax)
+  int64 tax_amount = 31;      // VAT amount
+  int64 total_amount = 32;    // Total amount (supply + tax)
+
+  // Items
+  repeated TaxInvoiceItem items = 40;
+
+  // NTS (National Tax Service) information
+  string nts_confirm_number = 50;  // National Tax Service confirmation number
+  string nts_transmitted_at = 51;  // ISO 8601 timestamp
+
+  // Metadata
+  string remarks = 60;
+  string created_at = 61;
+  string updated_at = 62;
+}
+
+// Tax invoice item
+message TaxInvoiceItem {
+  int32 sequence = 1;
+  string supply_date = 2;  // YYYY-MM-DD
+  string description = 3;
+  string specification = 4;
+  int32 quantity = 5;
+  int64 unit_price = 6;
+  int64 amount = 7;
+  int64 tax_amount = 8;
+  string remarks = 9;
+}
+
+// Issue tax invoice request
+message IssueTaxInvoiceRequest {
+  string session_id = 1;
+  TaxInvoice invoice = 2;
+  bool transmit_immediately = 3;  // Send to NTS immediately
+}
+
+// Issue tax invoice response
+message IssueTaxInvoiceResponse {
+  bool success = 1;
+  string invoice_number = 2;
+  string issue_date = 3;
+  string nts_confirm_number = 4;
+  string error_message = 5;
+  string error_code = 6;
+}
+
+// Cancel tax invoice request
+message CancelTaxInvoiceRequest {
+  string session_id = 1;
+  string invoice_number = 2;
+  string cancel_reason = 3;
+}
+
+// Cancel tax invoice response
+message CancelTaxInvoiceResponse {
+  bool success = 1;
+  string cancelled_at = 2;
+  string error_message = 3;
+}
+
+// Get tax invoice status request
+message GetTaxInvoiceStatusRequest {
+  string session_id = 1;
+  string invoice_number = 2;
+}
+
+// Get tax invoice status response
+message GetTaxInvoiceStatusResponse {
+  bool success = 1;
+  string invoice_number = 2;
+  InvoiceStatus status = 3;
+  string nts_confirm_number = 4;
+  string last_updated = 5;
+  string error_message = 6;
+}
+
+// Stream notifications request
+message StreamNotificationsRequest {
+  string session_id = 1;
+  repeated InvoiceType invoice_types = 2;  // Filter by types
+}
+
+// Invoice notification
+message InvoiceNotification {
+  string notification_id = 1;
+  string invoice_number = 2;
+  InvoiceType invoice_type = 3;
+  InvoiceStatus status = 4;
+  string message = 5;
+  string timestamp = 6;
+}

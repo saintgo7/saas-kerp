@@ -1,0 +1,75 @@
+// Common Protocol Buffer Definitions
+// K-ERP SaaS - Shared Types
+
+syntax = "proto3";
+
+package kerp.common.v1;
+
+option go_package = "github.com/kerp/api/proto/common/v1;commonv1";
+
+import "google/protobuf/timestamp.proto";
+
+// Standard error response
+message Error {
+  string code = 1;
+  string message = 2;
+  map<string, string> details = 3;
+}
+
+// Pagination request
+message PaginationRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string sort_by = 3;
+  bool sort_desc = 4;
+}
+
+// Pagination response
+message PaginationResponse {
+  int32 page = 1;
+  int32 page_size = 2;
+  int32 total_count = 3;
+  int32 total_pages = 4;
+  bool has_next = 5;
+  bool has_prev = 6;
+}
+
+// Date range
+message DateRange {
+  string start_date = 1;  // YYYY-MM-DD
+  string end_date = 2;    // YYYY-MM-DD
+}
+
+// Money amount (Korean Won)
+message Money {
+  int64 amount = 1;       // Amount in KRW (no decimal)
+  string currency = 2;    // Currency code (default: KRW)
+}
+
+// Business entity information
+message BusinessEntity {
+  string business_number = 1;   // 10-digit business registration number
+  string company_name = 2;
+  string ceo_name = 3;
+  string address = 4;
+  string business_type = 5;
+  string business_item = 6;
+  string phone = 7;
+  string fax = 8;
+  string email = 9;
+}
+
+// Audit information
+message AuditInfo {
+  string created_by = 1;
+  google.protobuf.Timestamp created_at = 2;
+  string updated_by = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+// Multi-tenant context
+message TenantContext {
+  string company_id = 1;
+  string user_id = 2;
+  string session_id = 3;
+}
