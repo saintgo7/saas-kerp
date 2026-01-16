@@ -16,6 +16,7 @@ services:
       - "8080:8080"  # Dashboard (internal only in production)
     environment:
       - ACME_EMAIL=${ACME_EMAIL:-admin@abada.kr}
+      - DOCKER_API_VERSION=1.44
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
