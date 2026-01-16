@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/saintgo7/saas-kerp/internal/auth"
 	"github.com/saintgo7/saas-kerp/internal/config"
@@ -131,9 +132,7 @@ func initLogger(cfg *config.Config) (*zap.Logger, error) {
 
 	if cfg.IsDevelopment() {
 		zapCfg = zap.NewDevelopmentConfig()
-		zapCfg.EncoderConfig.EncodeLevel = zap.LevelEncoderFunc(func(l zap.Level, enc zap.PrimitiveArrayEncoder) {
-			enc.AppendString(l.CapitalString())
-		})
+		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	} else {
 		zapCfg = zap.NewProductionConfig()
 	}

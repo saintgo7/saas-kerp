@@ -15,11 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
+COPY python-services/insurance-edi/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
-COPY . .
+COPY python-services/insurance-edi/ .
+COPY python-services/shared/ ./shared/
 
 # Expose ports
 EXPOSE 50052 9090
@@ -40,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
+COPY python-services/insurance-edi/requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # =============================================================================
@@ -64,7 +65,8 @@ COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
 
 # Copy source code
-COPY --chown=kerp:kerp . .
+COPY --chown=kerp:kerp python-services/insurance-edi/ .
+COPY --chown=kerp:kerp python-services/shared/ ./shared/
 
 # Expose ports
 EXPOSE 50052 9090
