@@ -41,6 +41,7 @@ export const authService = {
       const tokens: AuthTokens = {
         accessToken: response.data.access_token,
         refreshToken: response.data.refresh_token,
+        expiresAt: Date.now() + response.data.expires_in * 1000,
       };
       setTokens(tokens);
       localStorage.setItem(
