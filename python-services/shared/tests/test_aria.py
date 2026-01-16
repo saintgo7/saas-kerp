@@ -9,7 +9,7 @@ Validates:
 - Round-trip encryption
 """
 import pytest
-from python_services.shared.crypto.aria import ARIACipher, ARIAModeCBC
+from shared.crypto.aria import ARIACipher, ARIAModeCBC
 
 
 class TestARIACipher:
