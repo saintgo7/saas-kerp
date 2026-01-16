@@ -10,51 +10,20 @@ import (
 
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/grpcclient"
+	"github.com/saintgo7/saas-kerp/internal/repository"
 )
 
-// TaxInvoiceRepository defines the interface for tax invoice data access.
-type TaxInvoiceRepository interface {
-	Create(ctx context.Context, invoice *domain.TaxInvoice) error
-	GetByID(ctx context.Context, companyID, id uuid.UUID) (*domain.TaxInvoice, error)
-	GetByNumber(ctx context.Context, companyID uuid.UUID, number string, invoiceType domain.TaxInvoiceType) (*domain.TaxInvoice, error)
-	List(ctx context.Context, filter *TaxInvoiceFilter) ([]*domain.TaxInvoice, int64, error)
-	Update(ctx context.Context, invoice *domain.TaxInvoice) error
-	UpdateStatus(ctx context.Context, companyID, id uuid.UUID, status domain.TaxInvoiceStatus, userID *uuid.UUID) error
-	Delete(ctx context.Context, companyID, id uuid.UUID) error
-
-	// Items
-	CreateItem(ctx context.Context, item *domain.TaxInvoiceItem) error
-	ListItems(ctx context.Context, companyID, invoiceID uuid.UUID) ([]*domain.TaxInvoiceItem, error)
-	DeleteItems(ctx context.Context, companyID, invoiceID uuid.UUID) error
-
-	// History
-	CreateHistory(ctx context.Context, history *domain.TaxInvoiceHistory) error
-	ListHistory(ctx context.Context, companyID, invoiceID uuid.UUID) ([]*domain.TaxInvoiceHistory, error)
-
-	// Summary
-	GetSummary(ctx context.Context, companyID uuid.UUID, startDate, endDate time.Time) (*domain.TaxInvoiceSummary, error)
-}
-
-// TaxInvoiceFilter defines filter criteria for listing tax invoices.
-type TaxInvoiceFilter struct {
-	CompanyID      uuid.UUID
-	StartDate      *time.Time
-	EndDate        *time.Time
-	InvoiceType    *domain.TaxInvoiceType
-	Status         *domain.TaxInvoiceStatus
-	BusinessNumber *string
-	Page           int
-	PageSize       int
-}
+// TaxInvoiceFilter is re-exported from repository for convenience
+type TaxInvoiceFilter = repository.TaxInvoiceFilter
 
 // TaxInvoiceService provides business logic for tax invoice operations.
 type TaxInvoiceService struct {
-	repo       TaxInvoiceRepository
+	repo       repository.TaxInvoiceRepository
 	grpcClient *grpcclient.TaxInvoiceClient
 }
 
 // NewTaxInvoiceService creates a new tax invoice service.
-func NewTaxInvoiceService(repo TaxInvoiceRepository, grpcClient *grpcclient.TaxInvoiceClient) *TaxInvoiceService {
+func NewTaxInvoiceService(repo repository.TaxInvoiceRepository, grpcClient *grpcclient.TaxInvoiceClient) *TaxInvoiceService {
 	return &TaxInvoiceService{
 		repo:       repo,
 		grpcClient: grpcClient,

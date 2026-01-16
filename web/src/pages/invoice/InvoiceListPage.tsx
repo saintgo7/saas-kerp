@@ -3,14 +3,12 @@ import { Link } from "react-router-dom";
 import {
   Plus,
   Search,
-  Filter,
   Download,
   Upload,
   Send,
   MoreHorizontal,
   Eye,
   Edit,
-  Trash2,
 } from "lucide-react";
 import {
   Button,
@@ -28,7 +26,7 @@ import {
   TableCell,
 } from "@/components/ui";
 import { formatCurrency, formatDate, formatBusinessNumber } from "@/lib/utils";
-import { INVOICE_STATUS, INVOICE_TYPES } from "@/constants";
+import { INVOICE_STATUS } from "@/constants";
 import type { InvoiceStatus } from "@/types";
 
 // Mock data

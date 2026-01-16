@@ -9,7 +9,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/saintgo7/saas-kerp/internal/domain"
-	"github.com/saintgo7/saas-kerp/internal/service"
 )
 
 // taxInvoiceRepositoryGorm implements TaxInvoiceRepository using GORM
@@ -18,7 +17,7 @@ type taxInvoiceRepositoryGorm struct {
 }
 
 // NewTaxInvoiceRepositoryGorm creates a new TaxInvoiceRepository with GORM
-func NewTaxInvoiceRepositoryGorm(db *gorm.DB) service.TaxInvoiceRepository {
+func NewTaxInvoiceRepositoryGorm(db *gorm.DB) TaxInvoiceRepository {
 	return &taxInvoiceRepositoryGorm{db: db}
 }
 
@@ -58,7 +57,7 @@ func (r *taxInvoiceRepositoryGorm) GetByNumber(ctx context.Context, companyID uu
 }
 
 // List retrieves tax invoices with filtering
-func (r *taxInvoiceRepositoryGorm) List(ctx context.Context, filter *service.TaxInvoiceFilter) ([]*domain.TaxInvoice, int64, error) {
+func (r *taxInvoiceRepositoryGorm) List(ctx context.Context, filter *TaxInvoiceFilter) ([]*domain.TaxInvoice, int64, error) {
 	query := r.db.WithContext(ctx).Model(&domain.TaxInvoice{}).
 		Where("company_id = ?", filter.CompanyID)
 

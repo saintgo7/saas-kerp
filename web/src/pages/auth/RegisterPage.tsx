@@ -29,9 +29,7 @@ const registerSchema = z
         "비밀번호는 대문자, 소문자, 숫자를 포함해야 합니다."
       ),
     confirmPassword: z.string(),
-    agreeTerms: z.literal(true, {
-      errorMap: () => ({ message: "이용약관에 동의해주세요." }),
-    }),
+    agreeTerms: z.boolean().refine((val) => val === true, "이용약관에 동의해주세요."),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "비밀번호가 일치하지 않습니다.",
@@ -51,7 +49,6 @@ export function RegisterPage() {
     handleSubmit,
     formState: { errors },
     trigger,
-    getValues,
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
   });
