@@ -76,7 +76,7 @@ http:
     api-service:
       loadBalancer:
         servers:
-          - url: "http://api:8080"
+          - url: "http://kerp-api:8080"
         healthCheck:
           path: /health
           interval: 10s
@@ -85,8 +85,8 @@ http:
     frontend-service:
       loadBalancer:
         servers:
-          - url: "http://web:3000"
+          - url: "http://kerp-web:3000"
         healthCheck:
-          path: /
+          path: /health
           interval: 30s
           timeout: 5s
