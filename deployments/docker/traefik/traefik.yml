@@ -30,10 +30,11 @@ entryPoints:
 
 # Providers
 providers:
-  docker:
-    endpoint: "unix:///var/run/docker.sock"
-    exposedByDefault: false
-    network: kerp-network
+  # Docker provider disabled due to API version incompatibility
+  # docker:
+  #   endpoint: "unix:///var/run/docker.sock"
+  #   exposedByDefault: false
+  #   network: kerp-network
 
   file:
     directory: "/etc/traefik/dynamic"

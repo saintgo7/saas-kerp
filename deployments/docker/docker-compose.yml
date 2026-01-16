@@ -18,7 +18,7 @@ services:
       - ACME_EMAIL=${ACME_EMAIL:-admin@abada.kr}
       - DOCKER_API_VERSION=1.44
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Docker socket removed - using file-based configuration only
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
       - letsencrypt_data:/letsencrypt
