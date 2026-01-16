@@ -8,27 +8,39 @@ import (
 
 	"github.com/saintgo7/saas-kerp/internal/auth"
 	appctx "github.com/saintgo7/saas-kerp/internal/context"
+	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/handler/response"
+	"github.com/saintgo7/saas-kerp/internal/repository"
+	"github.com/saintgo7/saas-kerp/internal/service"
 )
 
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
 	*BaseHandler
-	jwtService *auth.JWTService
+	jwtService  *auth.JWTService
+	authService *service.AuthService
 }
 
 // NewAuthHandler creates a new auth handler
 func NewAuthHandler(db *gorm.DB, redis *redis.Client, logger *zap.Logger, jwtService *auth.JWTService) *AuthHandler {
+	// Initialize repositories
+	userRepo := repository.NewUserRepository(db)
+	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
+
+	// Initialize auth service
+	authService := service.NewAuthService(userRepo, refreshTokenRepo, jwtService, logger)
+
 	return &AuthHandler{
 		BaseHandler: NewBaseHandler(db, redis, logger),
 		jwtService:  jwtService,
+		authService: authService,
 	}
 }
 
 // LoginRequest represents a login request
 type LoginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=8"`
+	Password string `json:"password" binding:"required,min=6"`
 }
 
 // LoginResponse represents a login response
@@ -48,13 +60,26 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement login logic in Phase 4 (service layer)
-	// This is a placeholder that shows the API structure
-
-	response.OK(c, gin.H{
-		"message": "Login endpoint - implementation pending (Phase 4)",
-		"email":   req.Email,
+	result, err := h.authService.Login(c.Request.Context(), service.LoginInput{
+		Email:    req.Email,
+		Password: req.Password,
 	})
+	if err != nil {
+		switch err {
+		case domain.ErrInvalidCredentials:
+			response.Unauthorized(c, "Invalid email or password")
+		case domain.ErrUserInactive:
+			response.Forbidden(c, "User account is inactive")
+		case domain.ErrUserLocked:
+			response.Forbidden(c, "User account is locked")
+		default:
+			h.Logger.Error("login failed", zap.Error(err))
+			response.InternalError(c, "Login failed")
+		}
+		return
+	}
+
+	response.OK(c, result)
 }
 
 // RefreshRequest represents a token refresh request
@@ -70,17 +95,34 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement refresh logic in Phase 4 (service layer)
-
-	response.OK(c, gin.H{
-		"message": "Refresh endpoint - implementation pending (Phase 4)",
+	result, err := h.authService.Refresh(c.Request.Context(), service.RefreshInput{
+		RefreshToken: req.RefreshToken,
 	})
+	if err != nil {
+		switch err {
+		case domain.ErrRefreshTokenNotFound:
+			response.Unauthorized(c, "Invalid refresh token")
+		case domain.ErrRefreshTokenExpired:
+			response.Unauthorized(c, "Refresh token expired")
+		default:
+			h.Logger.Error("refresh failed", zap.Error(err))
+			response.InternalError(c, "Token refresh failed")
+		}
+		return
+	}
+
+	response.OK(c, result)
 }
 
 // Logout handles user logout
 // POST /api/v1/auth/logout
 func (h *AuthHandler) Logout(c *gin.Context) {
-	// TODO: Implement logout logic (invalidate refresh token)
+	userID := appctx.GetUserID(c)
+
+	if err := h.authService.Logout(c.Request.Context(), userID); err != nil {
+		h.Logger.Warn("logout: failed to revoke tokens", zap.Error(err))
+		// Don't fail the logout
+	}
 
 	response.OK(c, gin.H{
 		"message": "Logged out successfully",
@@ -129,8 +171,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement password change logic in Phase 4
-
+	// TODO: Implement password change logic
 	response.OK(c, gin.H{
 		"message": "Password changed successfully",
 	})
@@ -164,10 +205,9 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement registration logic in Phase 4
-
+	// TODO: Implement registration logic
 	response.Created(c, gin.H{
-		"message": "Registration endpoint - implementation pending (Phase 4)",
+		"message": "Registration endpoint - implementation pending",
 		"email":   req.Email,
 	})
 }
@@ -185,7 +225,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement forgot password logic in Phase 4
+	// TODO: Implement forgot password logic
 
 	// Always return success to prevent email enumeration
 	response.OK(c, gin.H{
