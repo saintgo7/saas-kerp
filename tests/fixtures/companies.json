@@ -1,0 +1,26 @@
+{
+  "companies": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "business_number": "1234567890",
+      "name": "Test Company A",
+      "representative": "Hong Gildong",
+      "business_type": "Manufacturing",
+      "business_category": "Electronics",
+      "address": "Seoul, Korea",
+      "phone": "02-1234-5678",
+      "email": "test@companya.com"
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "business_number": "9876543210",
+      "name": "Test Company B",
+      "representative": "Kim Cheolsu",
+      "business_type": "Service",
+      "business_category": "IT Consulting",
+      "address": "Busan, Korea",
+      "phone": "051-9876-5432",
+      "email": "test@companyb.com"
+    }
+  ]
+}
