@@ -1,0 +1,228 @@
+syntax = "proto3";
+
+package taxinvoice;
+
+option go_package = "github.com/saintgo7/saas-kerp/pkg/grpcclient/taxinvoice";
+
+// TaxInvoiceService provides tax invoice scraping and management operations
+service TaxInvoiceService {
+    // Issue a tax invoice to Hometax/Popbill
+    rpc Issue(IssueRequest) returns (IssueResponse);
+
+    // Cancel an issued tax invoice
+    rpc Cancel(CancelRequest) returns (CancelResponse);
+
+    // Search tax invoices from Hometax
+    rpc Search(SearchRequest) returns (SearchResponse);
+
+    // Get tax invoice details by NTS confirmation number
+    rpc GetByNtsNumber(GetByNtsNumberRequest) returns (TaxInvoice);
+
+    // Sync tax invoices from Hometax to local database
+    rpc Sync(SyncRequest) returns (SyncResponse);
+
+    // Check service health
+    rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// Issue request for creating a tax invoice
+message IssueRequest {
+    string company_id = 1;
+    TaxInvoiceData invoice_data = 2;
+    CertificateInfo certificate = 3;
+}
+
+// Issue response
+message IssueResponse {
+    bool success = 1;
+    string nts_confirm_number = 2;  // National Tax Service confirmation number
+    string issue_date = 3;
+    string message = 4;
+    string error_code = 5;
+}
+
+// Cancel request
+message CancelRequest {
+    string company_id = 1;
+    string nts_confirm_number = 2;
+    string cancel_reason = 3;
+    CertificateInfo certificate = 4;
+}
+
+// Cancel response
+message CancelResponse {
+    bool success = 1;
+    string message = 2;
+    string error_code = 3;
+}
+
+// Search request for querying tax invoices
+message SearchRequest {
+    string company_id = 1;
+    string start_date = 2;  // YYYY-MM-DD
+    string end_date = 3;    // YYYY-MM-DD
+    InvoiceType invoice_type = 4;
+    InvoiceDirection direction = 5;
+    string partner_business_number = 6;
+    int32 page = 7;
+    int32 page_size = 8;
+    CertificateInfo certificate = 9;
+}
+
+// Search response
+message SearchResponse {
+    bool success = 1;
+    repeated TaxInvoice invoices = 2;
+    int32 total_count = 3;
+    int32 page = 4;
+    int32 page_size = 5;
+    string message = 6;
+    string error_code = 7;
+}
+
+// Get by NTS number request
+message GetByNtsNumberRequest {
+    string company_id = 1;
+    string nts_confirm_number = 2;
+    CertificateInfo certificate = 3;
+}
+
+// Sync request
+message SyncRequest {
+    string company_id = 1;
+    string start_date = 2;
+    string end_date = 3;
+    CertificateInfo certificate = 4;
+}
+
+// Sync response
+message SyncResponse {
+    bool success = 1;
+    int32 synced_count = 2;
+    int32 new_count = 3;
+    int32 updated_count = 4;
+    string message = 5;
+    string error_code = 6;
+}
+
+// Health check request
+message HealthRequest {}
+
+// Health check response
+message HealthResponse {
+    bool healthy = 1;
+    string version = 2;
+    string uptime = 3;
+    map<string, string> details = 4;
+}
+
+// Tax invoice data structure
+message TaxInvoiceData {
+    // Basic info
+    string invoice_number = 1;
+    InvoiceType invoice_type = 2;
+    IssuanceType issuance_type = 3;
+    string issue_date = 4;  // YYYY-MM-DD
+
+    // Supplier (seller) info
+    string supplier_business_number = 5;
+    string supplier_name = 6;
+    string supplier_representative = 7;
+    string supplier_address = 8;
+    string supplier_business_type = 9;
+    string supplier_business_category = 10;
+    string supplier_email = 11;
+
+    // Buyer info
+    string buyer_business_number = 12;
+    string buyer_name = 13;
+    string buyer_representative = 14;
+    string buyer_address = 15;
+    string buyer_business_type = 16;
+    string buyer_business_category = 17;
+    string buyer_email = 18;
+
+    // Amounts
+    double supply_amount = 19;  // Total supply amount
+    double tax_amount = 20;     // VAT amount
+    double total_amount = 21;   // Total = supply + tax
+
+    // Items
+    repeated TaxInvoiceItem items = 22;
+
+    // Additional
+    string remarks = 23;
+    string payment_method = 24;
+}
+
+// Tax invoice item
+message TaxInvoiceItem {
+    int32 line_number = 1;
+    string supply_date = 2;     // YYYY-MM-DD
+    string item_name = 3;
+    string specification = 4;
+    double quantity = 5;
+    double unit_price = 6;
+    double supply_amount = 7;
+    double tax_amount = 8;
+    string remarks = 9;
+}
+
+// Full tax invoice (response)
+message TaxInvoice {
+    string id = 1;
+    string nts_confirm_number = 2;
+    TaxInvoiceData data = 3;
+    InvoiceStatus status = 4;
+    string issued_at = 5;
+    string synced_at = 6;
+}
+
+// Certificate information for authentication
+message CertificateInfo {
+    CertificateType cert_type = 1;
+    string cert_path = 2;       // Path to certificate file
+    string cert_password = 3;   // Encrypted password
+    string user_id = 4;         // For simple auth
+    string user_password = 5;   // For simple auth (encrypted)
+}
+
+// Enums
+enum InvoiceType {
+    INVOICE_TYPE_UNSPECIFIED = 0;
+    INVOICE_TYPE_STANDARD = 1;          // Regular tax invoice
+    INVOICE_TYPE_MODIFIED = 2;          // Modified tax invoice
+    INVOICE_TYPE_ZERO_RATE = 3;         // Zero-rated
+}
+
+enum IssuanceType {
+    ISSUANCE_TYPE_UNSPECIFIED = 0;
+    ISSUANCE_TYPE_NORMAL = 1;           // Normal issuance
+    ISSUANCE_TYPE_DELEGATION = 2;       // Delegated issuance
+    ISSUANCE_TYPE_ELECTRONIC = 3;       // Electronic issuance
+}
+
+enum InvoiceDirection {
+    INVOICE_DIRECTION_UNSPECIFIED = 0;
+    INVOICE_DIRECTION_SALES = 1;        // Outgoing (sales)
+    INVOICE_DIRECTION_PURCHASE = 2;     // Incoming (purchase)
+}
+
+enum InvoiceStatus {
+    INVOICE_STATUS_UNSPECIFIED = 0;
+    INVOICE_STATUS_DRAFT = 1;
+    INVOICE_STATUS_ISSUED = 2;
+    INVOICE_STATUS_SENT = 3;
+    INVOICE_STATUS_ACCEPTED = 4;
+    INVOICE_STATUS_REJECTED = 5;
+    INVOICE_STATUS_CANCELLED = 6;
+}
+
+enum CertificateType {
+    CERTIFICATE_TYPE_UNSPECIFIED = 0;
+    CERTIFICATE_TYPE_SIGNKOREA = 1;     // SignKorea certificate
+    CERTIFICATE_TYPE_YESSIGN = 2;       // YesSign certificate
+    CERTIFICATE_TYPE_SIMPLE = 3;        // Simple login (ID/PW)
+    CERTIFICATE_TYPE_KAKAO = 4;         // Kakao authentication
+    CERTIFICATE_TYPE_NAVER = 5;         // Naver authentication
+}
