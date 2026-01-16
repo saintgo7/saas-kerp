@@ -36,22 +36,19 @@ export const authService = {
       credentials
     );
 
-    if (response.success) {
-      // Map snake_case backend response to camelCase frontend format
-      const tokens: AuthTokens = {
-        accessToken: response.data.access_token,
-        refreshToken: response.data.refresh_token,
-        expiresAt: Date.now() + response.data.expires_in * 1000,
-      };
-      setTokens(tokens);
-      localStorage.setItem(
-        STORAGE_KEYS.user,
-        JSON.stringify(response.data.user)
-      );
-      return { user: response.data.user, tokens };
-    }
+    // axios interceptor handles errors, so if we reach here, the request succeeded
+    // response is ApiResponse<BackendLoginResponse> with { success, data, meta }
+    const data = response.data;
 
-    throw new Error("Login failed");
+    // Map snake_case backend response to camelCase frontend format
+    const tokens: AuthTokens = {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + data.expires_in * 1000,
+    };
+    setTokens(tokens);
+
+    return { user: data.user, tokens };
   },
 
   /**
