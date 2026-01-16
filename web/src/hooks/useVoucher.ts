@@ -59,7 +59,7 @@ export function useVouchers(params: VoucherListParams = {}) {
         total: number;
         page: number;
         limit: number;
-      }>("/api/v1/vouchers", { params });
+      }>("/vouchers", { params });
       return data;
     },
   });
@@ -70,7 +70,7 @@ export function useVoucher(id: string) {
   return useQuery({
     queryKey: voucherKeys.detail(id),
     queryFn: async () => {
-      const { data } = await api.get<Voucher>(`/api/v1/vouchers/${id}`);
+      const { data } = await api.get<Voucher>(`/vouchers/${id}`);
       return data;
     },
     enabled: !!id,
@@ -83,7 +83,7 @@ export function useCreateVoucher() {
 
   return useMutation({
     mutationFn: async (input: CreateVoucherInput) => {
-      const { data } = await api.post<Voucher>("/api/v1/vouchers", input);
+      const { data } = await api.post<Voucher>("/vouchers", input);
       return data;
     },
     onSuccess: () => {
@@ -105,7 +105,7 @@ export function useUpdateVoucher() {
       id,
       ...input
     }: CreateVoucherInput & { id: string }) => {
-      const { data } = await api.put<Voucher>(`/api/v1/vouchers/${id}`, input);
+      const { data } = await api.put<Voucher>(`/vouchers/${id}`, input);
       return data;
     },
     onSuccess: (data) => {
@@ -125,7 +125,7 @@ export function useDeleteVoucher() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/v1/vouchers/${id}`);
+      await api.delete(`/vouchers/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: voucherKeys.lists() });
@@ -143,7 +143,7 @@ export function useApproveVoucher() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { data } = await api.post<Voucher>(`/api/v1/vouchers/${id}/approve`);
+      const { data } = await api.post<Voucher>(`/vouchers/${id}/approve`);
       return data;
     },
     onSuccess: (data) => {

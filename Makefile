@@ -1,6 +1,7 @@
 .PHONY: help build run test test-unit test-integration test-coverage test-security test-all \
         test-frontend test-e2e test-python generate-mocks lint clean \
-        dev-up dev-down test-up test-down migrate-up migrate-down
+        dev-up dev-down test-up test-down migrate-up migrate-down \
+        perf-auth perf-voucher perf-concurrent perf-all perf-smoke
 
 # Variables
 GO := go
@@ -126,6 +127,21 @@ migrate-down:
 migrate-create:
 	@read -p "Migration name: " name; \
 	$(GO) run ./cmd/migrate create $$name
+
+# Performance Testing
+perf-auth:
+	k6 run tests/performance/k6/scenarios/auth-flow.js
+
+perf-voucher:
+	k6 run tests/performance/k6/scenarios/voucher-api.js
+
+perf-concurrent:
+	k6 run tests/performance/k6/scenarios/concurrent-posting.js
+
+perf-all: perf-auth perf-voucher perf-concurrent
+
+perf-smoke:
+	k6 run --vus 5 --duration 30s tests/performance/k6/scenarios/auth-flow.js
 
 # Clean
 clean:
