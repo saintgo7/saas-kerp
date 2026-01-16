@@ -1,0 +1,29 @@
+# Grafana Datasources
+# K-ERP SaaS Monitoring
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: "15s"
+
+  - name: PostgreSQL
+    type: postgres
+    url: postgres:5432
+    database: kerp
+    user: kerp
+    secureJsonData:
+      password: ${DB_PASSWORD:-kerp123}
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 5
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+    editable: false

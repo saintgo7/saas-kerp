@@ -1,29 +1,37 @@
 version: '3.8'
 
 # K-ERP SaaS Docker Compose
-# Cloudflare Flexible SSL (HTTP origin)
+# Production/Staging with Let's Encrypt SSL
 
 services:
-  # API Gateway (Traefik)
+  # =============================================================================
+  # API Gateway (Traefik) with Let's Encrypt
+  # =============================================================================
   traefik:
     image: traefik:v3.0
     container_name: kerp-traefik
-    command:
-      - "--api.dashboard=true"
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--accesslog=true"
-      - "--log.level=INFO"
     ports:
       - "80:80"
-      - "8080:8080"  # Dashboard
+      - "443:443"
+      - "8080:8080"  # Dashboard (internal only in production)
+    environment:
+      - ACME_EMAIL=${ACME_EMAIL:-admin@abada.kr}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - letsencrypt_data:/letsencrypt
     networks:
       - kerp-network
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      # Dashboard
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.erp.abada.kr`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dashboard.middlewares=dashboard-auth@file"
 
   # Go API Server
   api:
@@ -165,12 +173,151 @@ services:
       - kerp-network
     restart: unless-stopped
 
+  # Python Tax Scraper (gRPC) - Hometax Integration
+  tax-scraper:
+    build:
+      context: ../..
+      dockerfile: python-services/tax-scraper/Dockerfile
+    container_name: kerp-tax-scraper
+    environment:
+      - GRPC_PORT=50051
+      - REDIS_URL=redis://redis:6379
+      - CERT_PATH=/app/certs
+      - LOG_LEVEL=info
+    volumes:
+      - tax_certs:/app/certs
+    depends_on:
+      - redis
+    networks:
+      - kerp-network
+    restart: unless-stopped
+
+  # Python Insurance EDI (gRPC) - 4대보험 Integration
+  insurance-edi:
+    build:
+      context: ../..
+      dockerfile: python-services/insurance-edi/Dockerfile
+    container_name: kerp-insurance-edi
+    environment:
+      - GRPC_PORT=50052
+      - REDIS_URL=redis://redis:6379
+      - CERT_PATH=/app/certs
+      - LOG_LEVEL=info
+    volumes:
+      - edi_certs:/app/certs
+    depends_on:
+      - redis
+    networks:
+      - kerp-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # Monitoring Stack
+  # =============================================================================
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: kerp-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.erp.abada.kr`)"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.prometheus.middlewares=dashboard-auth@file,internal-only@file"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+    networks:
+      - kerp-network
+    restart: unless-stopped
+
+  # Grafana - Visualization
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: kerp-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=https://grafana.erp.abada.kr
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.erp.abada.kr`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    depends_on:
+      - prometheus
+    networks:
+      - kerp-network
+    restart: unless-stopped
+
+  # Node Exporter - Host Metrics
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: kerp-node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - kerp-network
+    restart: unless-stopped
+
+  # PostgreSQL Exporter
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: kerp-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgres://kerp:${DB_PASSWORD:-kerp123}@postgres:5432/kerp?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - kerp-network
+    restart: unless-stopped
+
+  # Redis Exporter
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.56.0
+    container_name: kerp-redis-exporter
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    depends_on:
+      - redis
+    networks:
+      - kerp-network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
   nats_data:
   minio_data:
   meili_data:
+  tax_certs:
+  edi_certs:
+  prometheus_data:
+  grafana_data:
+  letsencrypt_data:
 
 networks:
   kerp-network:

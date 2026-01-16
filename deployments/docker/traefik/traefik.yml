@@ -1,0 +1,76 @@
+# Traefik Static Configuration
+# K-ERP SaaS Reverse Proxy
+
+# API and Dashboard
+api:
+  dashboard: true
+  insecure: false  # Secure in production
+
+# Entry Points
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - security-headers@file
+
+  traefik:
+    address: ":8080"
+
+# Providers
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: kerp-network
+
+  file:
+    directory: "/etc/traefik/dynamic"
+    watch: true
+
+# Certificate Resolvers (Let's Encrypt)
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "${ACME_EMAIL:-admin@example.com}"
+      storage: /letsencrypt/acme.json
+      httpChallenge:
+        entryPoint: web
+
+  letsencrypt-staging:
+    acme:
+      email: "${ACME_EMAIL:-admin@example.com}"
+      storage: /letsencrypt/acme-staging.json
+      caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
+      httpChallenge:
+        entryPoint: web
+
+# Logging
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
+  filters:
+    statusCodes:
+      - "400-499"
+      - "500-599"
+
+# Metrics (Prometheus)
+metrics:
+  prometheus:
+    entryPoint: traefik
+    addServicesLabels: true
+    addEntryPointsLabels: true

@@ -1,0 +1,100 @@
+# Traefik Dynamic Configuration - Middlewares
+# Security headers, rate limiting, compression
+
+http:
+  middlewares:
+    # Security Headers
+    security-headers:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customFrameOptionsValue: "SAMEORIGIN"
+        customResponseHeaders:
+          X-Robots-Tag: "noindex, nofollow"
+          server: ""
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=()"
+
+    # Rate Limiting - API
+    rate-limit-api:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1m
+
+    # Rate Limiting - Login (stricter)
+    rate-limit-login:
+      rateLimit:
+        average: 5
+        burst: 3
+        period: 1m
+
+    # Rate Limiting - General
+    rate-limit-general:
+      rateLimit:
+        average: 200
+        burst: 100
+        period: 1m
+
+    # Compression
+    compress:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+
+    # Strip API prefix
+    strip-api-prefix:
+      stripPrefix:
+        prefixes:
+          - "/api"
+
+    # Add CORS headers
+    cors-headers:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Requested-With
+        accessControlAllowOriginList:
+          - "https://erp.abada.kr"
+          - "http://localhost:3000"
+        accessControlMaxAge: 86400
+        addVaryHeader: true
+
+    # Basic Auth for Dashboard
+    dashboard-auth:
+      basicAuth:
+        users:
+          # admin:admin (change in production!)
+          # Generate with: htpasswd -nb admin password
+          - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+
+    # IP Whitelist for internal services
+    internal-only:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+
+    # Retry on failure
+    retry:
+      retry:
+        attempts: 3
+        initialInterval: 100ms
+
+    # Circuit Breaker
+    circuit-breaker:
+      circuitBreaker:
+        expression: "NetworkErrorRatio() > 0.5 || ResponseCodeRatio(500, 600, 0, 600) > 0.5"

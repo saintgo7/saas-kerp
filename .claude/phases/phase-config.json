@@ -4,75 +4,107 @@
       "name": "Infrastructure & DevOps",
       "agent": "@ops",
       "terminal": 1,
+      "branch": "phase/1-infra",
       "status": "pending",
       "focus": ["Docker", "CI/CD", "Nginx", "SSL", "Monitoring"],
-      "files": ["deployments/", ".github/workflows/"],
+      "files": ["deployments/", ".github/workflows/", "docker-compose*.yml", "Dockerfile*"],
+      "shared_files": [],
       "remote_path": "/home/blackpc/saas-kerp"
     },
     "2": {
       "name": "Database & Schema",
       "agent": "@db",
       "terminal": 2,
+      "branch": "phase/2-database",
       "status": "pending",
       "focus": ["PostgreSQL", "Migrations", "RLS", "Index"],
-      "files": ["db/migrations/", "db/queries/"],
+      "files": ["db/migrations/", "db/queries/", "db/seed/"],
+      "shared_files": [],
       "remote_path": "/home/blackpc/saas-kerp"
     },
     "3": {
       "name": "Go Core API",
       "agent": "@go",
       "terminal": 3,
+      "branch": "phase/3-go-core",
       "status": "pending",
       "focus": ["Router", "Middleware", "Auth", "GORM"],
-      "files": ["cmd/api/", "internal/middleware/", "internal/handler/"],
+      "files": ["cmd/api/", "internal/middleware/", "internal/handler/", "internal/config/"],
+      "shared_files": ["go.mod", "go.sum"],
       "remote_path": "/home/blackpc/saas-kerp"
     },
     "4": {
       "name": "Go Business Modules",
       "agent": "@acc",
       "terminal": 4,
+      "branch": "phase/4-go-biz",
       "status": "pending",
       "focus": ["Accounting", "Voucher", "Invoice", "Provider"],
-      "files": ["internal/domain/", "internal/service/", "internal/repository/"],
+      "files": ["internal/domain/", "internal/service/", "internal/repository/", "internal/dto/"],
+      "shared_files": [],
       "remote_path": "/home/blackpc/saas-kerp"
     },
     "5": {
       "name": "Python Tax Scraper",
       "agent": "@tax",
       "terminal": 5,
+      "branch": "phase/5-tax",
       "status": "pending",
       "focus": ["gRPC", "Playwright", "Hometax", "SEED"],
-      "files": ["python-services/tax-scraper/"],
+      "files": ["python-services/tax-scraper/", "python-services/shared/proto/"],
+      "shared_files": [],
       "remote_path": "/home/blackpc/saas-kerp"
     },
     "6": {
       "name": "Python Insurance EDI",
       "agent": "@hr",
       "terminal": 6,
+      "branch": "phase/6-edi",
       "status": "pending",
       "focus": ["EDI", "ARIA", "4대보험", "PKCS7"],
-      "files": ["python-services/insurance-edi/"],
+      "files": ["python-services/insurance-edi/", "python-services/shared/crypto/"],
+      "shared_files": [],
       "remote_path": "/home/blackpc/saas-kerp"
     },
     "7": {
       "name": "Frontend",
       "agent": "@react",
       "terminal": 7,
+      "branch": "phase/7-frontend",
       "status": "pending",
       "focus": ["React", "TypeScript", "Vite", "shadcn"],
       "files": ["web/"],
+      "shared_files": ["package.json", "package-lock.json"],
       "remote_path": "/home/blackpc/saas-kerp"
     },
     "8": {
       "name": "Integration & Testing",
       "agent": "testing",
       "terminal": 8,
+      "branch": "phase/8-testing",
       "status": "pending",
       "focus": ["Unit Test", "E2E", "Security", "Performance"],
       "files": ["tests/", "**/*_test.go", "**/*_test.py"],
+      "shared_files": [],
       "remote_path": "/home/blackpc/saas-kerp"
     }
   },
+  "branches": {
+    "main": "production",
+    "develop": "integration",
+    "phase/*": "feature work"
+  },
+  "merge_order": [
+    "phase/1-infra -> develop",
+    "phase/2-database -> develop",
+    "phase/3-go-core -> develop",
+    "phase/4-go-biz -> develop",
+    "phase/5-tax -> develop",
+    "phase/6-edi -> develop",
+    "phase/7-frontend -> develop",
+    "phase/8-testing -> develop",
+    "develop -> main (release)"
+  ],
   "remote": {
     "host": "wsl-48-246",
     "ip": "61.245.248.246",

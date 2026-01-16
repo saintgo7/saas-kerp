@@ -1,0 +1,118 @@
+# K-ERP SaaS Docker Compose - Development Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+version: "3.9"
+
+services:
+  # =============================================================================
+  # Go API Server (Development)
+  # =============================================================================
+  api:
+    build:
+      target: development
+    ports:
+      - "8080:8080"
+      - "2345:2345"  # Delve debugger
+    environment:
+      - APP_ENV=development
+      - GIN_MODE=debug
+    volumes:
+      - ../../:/app
+      - go-mod-cache:/go/pkg/mod
+    command: ["air", "-c", ".air.toml"]
+
+  # =============================================================================
+  # Background Worker (Development)
+  # =============================================================================
+  worker:
+    build:
+      target: development
+    environment:
+      - APP_ENV=development
+    volumes:
+      - ../../:/app
+      - go-mod-cache:/go/pkg/mod
+
+  # =============================================================================
+  # Tax Scraper (Development)
+  # =============================================================================
+  tax-scraper:
+    ports:
+      - "50051:50051"
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+    volumes:
+      - ../../python-services/tax-scraper:/app
+      - ../../python-services/shared:/app/shared
+
+  # =============================================================================
+  # Insurance EDI (Development)
+  # =============================================================================
+  insurance-edi:
+    ports:
+      - "50052:50052"
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+    volumes:
+      - ../../python-services/insurance-edi:/app
+      - ../../python-services/shared:/app/shared
+
+  # =============================================================================
+  # PostgreSQL (Development)
+  # =============================================================================
+  postgres:
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=devpassword
+
+  # =============================================================================
+  # Redis (Development)
+  # =============================================================================
+  redis:
+    ports:
+      - "6379:6379"
+
+  # =============================================================================
+  # NATS (Development)
+  # =============================================================================
+  nats:
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+
+  # =============================================================================
+  # Nginx (Disabled in dev - direct API access)
+  # =============================================================================
+  nginx:
+    profiles:
+      - production
+
+  # =============================================================================
+  # Adminer (Database GUI)
+  # =============================================================================
+  adminer:
+    image: adminer:latest
+    container_name: kerp-adminer
+    restart: unless-stopped
+    ports:
+      - "9090:8080"
+    networks:
+      - kerp-network
+
+  # =============================================================================
+  # Mailhog (Email Testing)
+  # =============================================================================
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: kerp-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - kerp-network
+
+volumes:
+  go-mod-cache:

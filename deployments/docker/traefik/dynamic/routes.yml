@@ -1,0 +1,92 @@
+# Traefik Dynamic Configuration - Routes
+# Service routing configuration
+
+http:
+  routers:
+    # API Router
+    api-router:
+      rule: "Host(`erp.abada.kr`) && PathPrefix(`/api`)"
+      entryPoints:
+        - websecure
+      middlewares:
+        - rate-limit-api
+        - compress
+        - cors-headers
+      service: api-service
+      tls:
+        certResolver: letsencrypt
+
+    # Login Router (stricter rate limit)
+    login-router:
+      rule: "Host(`erp.abada.kr`) && Path(`/api/v1/auth/login`)"
+      entryPoints:
+        - websecure
+      middlewares:
+        - rate-limit-login
+        - cors-headers
+      service: api-service
+      priority: 100
+      tls:
+        certResolver: letsencrypt
+
+    # WebSocket Router
+    websocket-router:
+      rule: "Host(`erp.abada.kr`) && PathPrefix(`/ws`)"
+      entryPoints:
+        - websecure
+      service: api-service
+      tls:
+        certResolver: letsencrypt
+
+    # Frontend Router
+    frontend-router:
+      rule: "Host(`erp.abada.kr`)"
+      entryPoints:
+        - websecure
+      middlewares:
+        - rate-limit-general
+        - compress
+        - security-headers
+      service: frontend-service
+      priority: 1
+      tls:
+        certResolver: letsencrypt
+
+    # Traefik Dashboard (internal only)
+    dashboard-router:
+      rule: "Host(`traefik.erp.abada.kr`) || (Host(`erp.abada.kr`) && PathPrefix(`/traefik`))"
+      entryPoints:
+        - websecure
+      middlewares:
+        - dashboard-auth
+        - internal-only
+      service: api@internal
+      tls:
+        certResolver: letsencrypt
+
+    # Health Check (no auth)
+    health-router:
+      rule: "Host(`erp.abada.kr`) && Path(`/health`)"
+      entryPoints:
+        - web
+        - websecure
+      service: api-service
+
+  services:
+    api-service:
+      loadBalancer:
+        servers:
+          - url: "http://api:8080"
+        healthCheck:
+          path: /health
+          interval: 10s
+          timeout: 3s
+
+    frontend-service:
+      loadBalancer:
+        servers:
+          - url: "http://web:3000"
+        healthCheck:
+          path: /
+          interval: 30s
+          timeout: 5s

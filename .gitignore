@@ -39,6 +39,10 @@ Thumbs.db
 # But keep example
 !.env.example
 
+# Config files with secrets
+config/app.yaml
+!config/app.example.yaml
+
 # Secrets
 *.pem
 *.key
