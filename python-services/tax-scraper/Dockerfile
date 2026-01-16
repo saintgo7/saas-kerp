@@ -36,7 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 FROM base AS builder
 
 # Install dependencies
-COPY requirements.txt .
+COPY python-services/tax-scraper/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Playwright browsers
@@ -51,7 +51,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /root/.cache/ms-playwright /root/.cache/ms-playwright
 
 # Copy application code
-COPY . .
+COPY python-services/tax-scraper/ .
+COPY python-services/shared/ ./shared/
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \
