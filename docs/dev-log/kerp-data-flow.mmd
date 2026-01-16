@@ -1,0 +1,50 @@
+graph LR
+    subgraph Users
+        U1[Web User]
+        U2[Mobile User]
+        U3[Partner API]
+    end
+
+    JWT[JWT Token]
+    RBAC[RBAC Check]
+    API[Go API Server]
+
+    subgraph BizLogic
+        ACC[Accounting]
+        TAX[Tax Module]
+        HR[HR/Payroll]
+    end
+
+    subgraph DataLayer
+        GORM[GORM]
+        SQLC[sqlc]
+        PG[(PostgreSQL)]
+    end
+
+    REDIS[(Redis Cache)]
+    NATS[NATS JetStream]
+
+    subgraph Workers
+        W1[Report Gen]
+        W2[EDI Processor]
+    end
+
+    subgraph External
+        POP[Popbill]
+        GOV[Government EDI]
+    end
+
+    U1 --> JWT
+    U2 --> JWT
+    U3 --> JWT
+    JWT --> RBAC
+    RBAC --> API
+    API --> BizLogic
+    BizLogic --> DataLayer
+    GORM --> PG
+    SQLC --> PG
+    API --> REDIS
+    BizLogic --> NATS
+    NATS --> Workers
+    TAX --> POP
+    HR --> GOV

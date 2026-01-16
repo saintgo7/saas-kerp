@@ -1,0 +1,87 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+
+# Go workspace
+go.work
+
+# Dependency directories
+vendor/
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# But keep example
+!.env.example
+
+# Secrets
+*.pem
+*.key
+*_secret*
+credentials.json
+
+# Logs
+*.log
+logs/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Docker
+docker-compose.override.yml
+
+# Test coverage
+coverage/
+*.cover
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# IDE specific
+*.sublime-project
+*.sublime-workspace
+
+# Python (for scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+ENV/
+
+# Backup files
+*.bak
+*.backup
+
+# Local development
+.local/
