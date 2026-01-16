@@ -27,7 +27,7 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui";
-import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { VOUCHER_STATUS } from "@/constants";
 import type { VoucherStatus } from "@/types";
 
