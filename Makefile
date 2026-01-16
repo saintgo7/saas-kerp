@@ -41,6 +41,13 @@ help:
 	@echo "Database:"
 	@echo "  make migrate-up     - Run database migrations"
 	@echo "  make migrate-down   - Rollback database migrations"
+	@echo ""
+	@echo "Performance Testing:"
+	@echo "  make perf-auth      - Run auth flow performance test"
+	@echo "  make perf-voucher   - Run voucher API performance test"
+	@echo "  make perf-concurrent- Run concurrent posting stress test"
+	@echo "  make perf-all       - Run all performance tests"
+	@echo "  make perf-smoke     - Run quick smoke test"
 
 # Build
 build:
