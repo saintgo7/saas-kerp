@@ -1,0 +1,92 @@
+{
+  "phases": {
+    "1": {
+      "name": "Infrastructure & DevOps",
+      "agent": "@ops",
+      "terminal": 1,
+      "status": "pending",
+      "focus": ["Docker", "CI/CD", "Nginx", "SSL", "Monitoring"],
+      "files": ["deployments/", ".github/workflows/"],
+      "remote_path": "/home/blackpc/saas-kerp"
+    },
+    "2": {
+      "name": "Database & Schema",
+      "agent": "@db",
+      "terminal": 2,
+      "status": "pending",
+      "focus": ["PostgreSQL", "Migrations", "RLS", "Index"],
+      "files": ["db/migrations/", "db/queries/"],
+      "remote_path": "/home/blackpc/saas-kerp"
+    },
+    "3": {
+      "name": "Go Core API",
+      "agent": "@go",
+      "terminal": 3,
+      "status": "pending",
+      "focus": ["Router", "Middleware", "Auth", "GORM"],
+      "files": ["cmd/api/", "internal/middleware/", "internal/handler/"],
+      "remote_path": "/home/blackpc/saas-kerp"
+    },
+    "4": {
+      "name": "Go Business Modules",
+      "agent": "@acc",
+      "terminal": 4,
+      "status": "pending",
+      "focus": ["Accounting", "Voucher", "Invoice", "Provider"],
+      "files": ["internal/domain/", "internal/service/", "internal/repository/"],
+      "remote_path": "/home/blackpc/saas-kerp"
+    },
+    "5": {
+      "name": "Python Tax Scraper",
+      "agent": "@tax",
+      "terminal": 5,
+      "status": "pending",
+      "focus": ["gRPC", "Playwright", "Hometax", "SEED"],
+      "files": ["python-services/tax-scraper/"],
+      "remote_path": "/home/blackpc/saas-kerp"
+    },
+    "6": {
+      "name": "Python Insurance EDI",
+      "agent": "@hr",
+      "terminal": 6,
+      "status": "pending",
+      "focus": ["EDI", "ARIA", "4대보험", "PKCS7"],
+      "files": ["python-services/insurance-edi/"],
+      "remote_path": "/home/blackpc/saas-kerp"
+    },
+    "7": {
+      "name": "Frontend",
+      "agent": "@react",
+      "terminal": 7,
+      "status": "pending",
+      "focus": ["React", "TypeScript", "Vite", "shadcn"],
+      "files": ["web/"],
+      "remote_path": "/home/blackpc/saas-kerp"
+    },
+    "8": {
+      "name": "Integration & Testing",
+      "agent": "testing",
+      "terminal": 8,
+      "status": "pending",
+      "focus": ["Unit Test", "E2E", "Security", "Performance"],
+      "files": ["tests/", "**/*_test.go", "**/*_test.py"],
+      "remote_path": "/home/blackpc/saas-kerp"
+    }
+  },
+  "remote": {
+    "host": "wsl-48-246",
+    "ip": "61.245.248.246",
+    "port": 5022,
+    "user": "blackpc",
+    "path": "/home/blackpc/saas-kerp",
+    "domain": "erp.abada.kr"
+  },
+  "services": {
+    "api": {"port": 8080, "status": "pending"},
+    "tax-scraper": {"port": 50051, "status": "pending"},
+    "insurance-edi": {"port": 50052, "status": "pending"},
+    "postgres": {"port": 5432, "status": "pending"},
+    "redis": {"port": 6379, "status": "pending"},
+    "nats": {"port": 4222, "status": "pending"}
+  }
+}

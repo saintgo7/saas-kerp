@@ -39,7 +39,8 @@
       "/test": "test-gen",
       "/db": "db-migrate",
       "/qf": "quick-feature",
-      "/deploy": "deploy-wsl"
+      "/deploy": "deploy-wsl",
+      "/status": "dev-status"
     },
     "agents": {
       "@go": "go-fast",
