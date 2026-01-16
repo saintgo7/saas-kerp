@@ -1,0 +1,240 @@
+syntax = "proto3";
+
+package insurance;
+
+option go_package = "github.com/yourorg/kerp/pkg/proto/insurance";
+
+// Insurance EDI Service
+// Handles 4대보험 (국민연금, 건강보험, 고용보험, 산재보험) EDI operations
+service InsuranceService {
+  // Submit acquisition report (취득신고)
+  rpc SubmitAcquisition(AcquisitionRequest) returns (SubmissionResponse);
+
+  // Submit loss report (상실신고)
+  rpc SubmitLoss(LossRequest) returns (SubmissionResponse);
+
+  // Submit change report (변경신고)
+  rpc SubmitChange(ChangeRequest) returns (SubmissionResponse);
+
+  // Query submission status
+  rpc QueryStatus(StatusRequest) returns (StatusResponse);
+
+  // Download result document
+  rpc DownloadResult(DownloadRequest) returns (DownloadResponse);
+
+  // Batch submit multiple documents
+  rpc BatchSubmit(BatchSubmitRequest) returns (BatchSubmitResponse);
+
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Insurance provider types
+enum InsuranceType {
+  INSURANCE_TYPE_UNSPECIFIED = 0;
+  INSURANCE_TYPE_NPS = 1;   // 국민연금 (National Pension Service)
+  INSURANCE_TYPE_NHIS = 2;  // 건강보험 (National Health Insurance Service)
+  INSURANCE_TYPE_EI = 3;    // 고용보험 (Employment Insurance)
+  INSURANCE_TYPE_WCI = 4;   // 산재보험 (Workers' Compensation Insurance)
+}
+
+// Document types
+enum DocumentType {
+  DOCUMENT_TYPE_UNSPECIFIED = 0;
+  DOCUMENT_TYPE_ACQUISITION = 1;  // 취득신고
+  DOCUMENT_TYPE_LOSS = 2;         // 상실신고
+  DOCUMENT_TYPE_CHANGE = 3;       // 변경신고
+  DOCUMENT_TYPE_DEPENDENT = 4;    // 피부양자신고
+  DOCUMENT_TYPE_MONTHLY = 5;      // 월별납부내역
+}
+
+// Submission status
+enum SubmissionStatus {
+  SUBMISSION_STATUS_UNSPECIFIED = 0;
+  SUBMISSION_STATUS_PENDING = 1;
+  SUBMISSION_STATUS_PROCESSING = 2;
+  SUBMISSION_STATUS_COMPLETED = 3;
+  SUBMISSION_STATUS_REJECTED = 4;
+  SUBMISSION_STATUS_ERROR = 5;
+}
+
+// Common company information
+message CompanyInfo {
+  string company_id = 1;      // 회사 UUID (internal)
+  string business_no = 2;     // 사업자등록번호 (10 digits)
+  string company_name = 3;    // 회사명
+  string workplace_no = 4;    // 사업장관리번호
+  string representative = 5;  // 대표자명
+  string address = 6;         // 사업장 주소
+  string phone = 7;           // 전화번호
+}
+
+// Employee information for reports
+message EmployeeInfo {
+  string employee_id = 1;     // 직원 UUID (internal)
+  string name = 2;            // 이름
+  string resident_no = 3;     // 주민등록번호 (encrypted)
+  string nationality = 4;     // 국적코드
+  string address = 5;         // 주소
+  string phone = 6;           // 전화번호
+}
+
+// Acquisition report data (취득신고)
+message AcquisitionData {
+  string acquisition_date = 1;     // 취득일 (YYYYMMDD)
+  string job_type = 2;             // 직종코드
+  int64 monthly_income = 3;        // 월소득금액
+  int32 work_hours_weekly = 4;     // 주당 근로시간
+  string contract_type = 5;        // 계약형태 (정규직/계약직 등)
+  string employment_type = 6;      // 고용형태 (상용/일용 등)
+  bool is_foreign_worker = 7;      // 외국인근로자 여부
+  string visa_type = 8;            // 체류자격 (외국인의 경우)
+}
+
+// Loss report data (상실신고)
+message LossData {
+  string loss_date = 1;            // 상실일 (YYYYMMDD)
+  string loss_reason_code = 2;     // 상실사유코드
+  string loss_reason_detail = 3;   // 상실사유상세
+  int64 final_monthly_income = 4;  // 최종월소득
+  int32 total_work_days = 5;       // 총근무일수
+  bool is_voluntary = 6;           // 자발적 퇴직 여부
+}
+
+// Change report data (변경신고)
+message ChangeData {
+  string change_date = 1;          // 변경일 (YYYYMMDD)
+  string change_type = 2;          // 변경유형코드
+  string before_value = 3;         // 변경전 값
+  string after_value = 4;          // 변경후 값
+  string reason = 5;               // 변경사유
+}
+
+// Acquisition submission request
+message AcquisitionRequest {
+  string request_id = 1;           // 요청 UUID
+  CompanyInfo company = 2;
+  EmployeeInfo employee = 3;
+  AcquisitionData data = 4;
+  repeated InsuranceType insurance_types = 5;  // 대상 보험 종류
+}
+
+// Loss submission request
+message LossRequest {
+  string request_id = 1;
+  CompanyInfo company = 2;
+  EmployeeInfo employee = 3;
+  LossData data = 4;
+  repeated InsuranceType insurance_types = 5;
+}
+
+// Change submission request
+message ChangeRequest {
+  string request_id = 1;
+  CompanyInfo company = 2;
+  EmployeeInfo employee = 3;
+  ChangeData data = 4;
+  repeated InsuranceType insurance_types = 5;
+}
+
+// Submission response
+message SubmissionResponse {
+  bool success = 1;
+  string message = 2;
+  string submission_id = 3;        // EDI 접수번호
+  repeated InsuranceSubmissionResult results = 4;
+}
+
+// Individual insurance submission result
+message InsuranceSubmissionResult {
+  InsuranceType insurance_type = 1;
+  bool success = 2;
+  string reference_id = 3;         // 기관별 접수번호
+  string error_code = 4;
+  string error_message = 5;
+}
+
+// Status query request
+message StatusRequest {
+  string submission_id = 1;
+  InsuranceType insurance_type = 2;
+}
+
+// Status query response
+message StatusResponse {
+  string submission_id = 1;
+  InsuranceType insurance_type = 2;
+  SubmissionStatus status = 3;
+  string status_message = 4;
+  string processed_at = 5;
+  repeated ValidationError errors = 6;
+}
+
+// Validation error
+message ValidationError {
+  string field = 1;
+  string code = 2;
+  string message = 3;
+}
+
+// Download request
+message DownloadRequest {
+  string submission_id = 1;
+  InsuranceType insurance_type = 2;
+  string document_type = 3;        // 결과문서 유형
+}
+
+// Download response
+message DownloadResponse {
+  bool success = 1;
+  string filename = 2;
+  bytes content = 3;
+  string content_type = 4;
+}
+
+// Batch submission request
+message BatchSubmitRequest {
+  string batch_id = 1;
+  CompanyInfo company = 2;
+  repeated BatchItem items = 3;
+}
+
+// Batch item
+message BatchItem {
+  string item_id = 1;
+  DocumentType document_type = 2;
+  EmployeeInfo employee = 3;
+  oneof data {
+    AcquisitionData acquisition = 4;
+    LossData loss = 5;
+    ChangeData change = 6;
+  }
+  repeated InsuranceType insurance_types = 7;
+}
+
+// Batch submission response
+message BatchSubmitResponse {
+  bool success = 1;
+  string batch_id = 2;
+  int32 total_count = 3;
+  int32 success_count = 4;
+  int32 failed_count = 5;
+  repeated BatchItemResult results = 6;
+}
+
+// Batch item result
+message BatchItemResult {
+  string item_id = 1;
+  bool success = 2;
+  string submission_id = 3;
+  string error_message = 4;
+}
+
+// Health check
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string version = 2;
+  map<string, bool> providers = 3;  // Provider connectivity status
+}
