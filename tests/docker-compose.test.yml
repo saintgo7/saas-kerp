@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: kerp-postgres-test
+    environment:
+      POSTGRES_USER: kerp_test
+      POSTGRES_PASSWORD: kerp_test_password
+      POSTGRES_DB: kerp_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kerp_test -d kerp_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: kerp-redis-test
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nats-test:
+    image: nats:2.10-alpine
+    container_name: kerp-nats-test
+    ports:
+      - "4223:4222"
+    command: ["--jetstream"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  default:
+    name: kerp-test-network

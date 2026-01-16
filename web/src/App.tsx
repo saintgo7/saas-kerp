@@ -11,9 +11,9 @@ import { LoginPage, RegisterPage } from "@/pages/auth";
 
 // Main Pages
 import { DashboardPage } from "@/pages/dashboard";
-import { VoucherListPage } from "@/pages/accounting";
-import { InvoiceListPage } from "@/pages/invoice";
-import { EmployeeListPage } from "@/pages/hr";
+import { VoucherListPage, VoucherFormPage } from "@/pages/accounting";
+import { InvoiceListPage, InvoiceIssuePage } from "@/pages/invoice";
+import { EmployeeListPage, EmployeeFormPage } from "@/pages/hr";
 
 // Create QueryClient
 const queryClient = new QueryClient({
@@ -89,8 +89,8 @@ function App() {
 
             {/* Accounting */}
             <Route path="/accounting/voucher" element={<VoucherListPage />} />
-            <Route path="/accounting/voucher/new" element={<ComingSoon title="전표 작성" />} />
-            <Route path="/accounting/voucher/:id" element={<ComingSoon title="전표 상세" />} />
+            <Route path="/accounting/voucher/new" element={<VoucherFormPage />} />
+            <Route path="/accounting/voucher/:id" element={<VoucherFormPage />} />
             <Route path="/accounting/ledger" element={<ComingSoon title="원장 조회" />} />
             <Route path="/accounting/trial-balance" element={<ComingSoon title="시산표" />} />
             <Route path="/accounting/financial-statements" element={<ComingSoon title="재무제표" />} />
@@ -98,15 +98,15 @@ function App() {
 
             {/* Invoice */}
             <Route path="/invoice/list" element={<InvoiceListPage />} />
-            <Route path="/invoice/issue" element={<ComingSoon title="세금계산서 발행" />} />
+            <Route path="/invoice/issue" element={<InvoiceIssuePage />} />
             <Route path="/invoice/received" element={<ComingSoon title="매입 관리" />} />
             <Route path="/invoice/hometax" element={<ComingSoon title="홈택스 연동" />} />
-            <Route path="/invoice/:id" element={<ComingSoon title="세금계산서 상세" />} />
+            <Route path="/invoice/:id" element={<InvoiceIssuePage />} />
 
             {/* HR */}
             <Route path="/hr/employee" element={<EmployeeListPage />} />
-            <Route path="/hr/employee/new" element={<ComingSoon title="직원 등록" />} />
-            <Route path="/hr/employee/:id" element={<ComingSoon title="직원 상세" />} />
+            <Route path="/hr/employee/new" element={<EmployeeFormPage />} />
+            <Route path="/hr/employee/:id" element={<EmployeeFormPage />} />
             <Route path="/hr/department" element={<ComingSoon title="부서 관리" />} />
             <Route path="/hr/payroll" element={<ComingSoon title="급여 관리" />} />
             <Route path="/hr/insurance" element={<ComingSoon title="4대보험" />} />

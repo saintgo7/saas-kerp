@@ -12,8 +12,8 @@ services:
     container_name: kerp-traefik
     ports:
       - "80:80"
-      - "443:443"
-      - "8080:8080"  # Dashboard (internal only in production)
+      # - "443:443"  # Disabled due to WSL port binding issue
+      - "8081:8080"  # Dashboard
     environment:
       - ACME_EMAIL=${ACME_EMAIL:-admin@abada.kr}
       - DOCKER_API_VERSION=1.44

@@ -1,0 +1,45 @@
+{
+  "users": [
+    {
+      "id": "usr-00001-0000-0000-0000-000000000001",
+      "company_id": "11111111-1111-1111-1111-111111111111",
+      "email": "admin@companya.com",
+      "password_hash": "$2a$10$test_hash_admin",
+      "name": "Admin User A",
+      "role": "admin",
+      "is_active": true
+    },
+    {
+      "id": "usr-00001-0000-0000-0000-000000000002",
+      "company_id": "11111111-1111-1111-1111-111111111111",
+      "email": "accountant@companya.com",
+      "password_hash": "$2a$10$test_hash_accountant",
+      "name": "Accountant User A",
+      "role": "accountant",
+      "is_active": true
+    },
+    {
+      "id": "usr-00002-0000-0000-0000-000000000001",
+      "company_id": "22222222-2222-2222-2222-222222222222",
+      "email": "admin@companyb.com",
+      "password_hash": "$2a$10$test_hash_admin_b",
+      "name": "Admin User B",
+      "role": "admin",
+      "is_active": true
+    }
+  ],
+  "test_credentials": {
+    "valid": {
+      "email": "admin@companya.com",
+      "password": "Test123!@#"
+    },
+    "invalid_password": {
+      "email": "admin@companya.com",
+      "password": "wrongpassword"
+    },
+    "non_existent": {
+      "email": "nobody@example.com",
+      "password": "password"
+    }
+  }
+}
