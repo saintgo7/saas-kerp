@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K-ERP | 중소기업을 위한 클라우드 ERP</title>
+    <meta name="description" content="세금계산서, 4대보험, 회계를 하나로. 정부 시스템과 완벽 연동되는 K-IFRS 기반 클라우드 ERP">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --primary-light: #3b82f6;
+            --secondary: #0f172a;
+            --accent: #06b6d4;
+            --gray-50: #f8fafc;
+            --gray-100: #f1f5f9;
+            --gray-200: #e2e8f0;
+            --gray-300: #cbd5e1;
+            --gray-400: #94a3b8;
+            --gray-500: #64748b;
+            --gray-600: #475569;
+            --gray-700: #334155;
+            --gray-800: #1e293b;
+            --gray-900: #0f172a;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --gradient-1: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
+            --gradient-2: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: var(--gray-800);
+            line-height: 1.6;
+            background: #fff;
+            overflow-x: hidden;
+        }
+
+        /* Navigation */
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--gray-100);
+            transition: all 0.3s ease;
+        }
+
+        .nav-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 72px;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--secondary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logo span {
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 40px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--gray-600);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 15px;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        .nav-cta {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 15px;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--gray-700);
+            border: 1px solid var(--gray-200);
+        }
+
+        .btn-outline:hover {
+            background: var(--gray-50);
+            border-color: var(--gray-300);
+        }
+
+        .btn-primary {
+            background: var(--gradient-1);
+            color: white;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+        }
+
+        .btn-large {
+            padding: 16px 32px;
+            font-size: 16px;
+            border-radius: 12px;
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 160px 24px 120px;
+            background: linear-gradient(180deg, var(--gray-50) 0%, #fff 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, rgba(37, 99, 235, 0.08) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .hero-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 80px;
+            align-items: center;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(37, 99, 235, 0.08);
+            border-radius: 100px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 24px;
+        }
+
+        .hero-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .hero h1 {
+            font-size: 56px;
+            font-weight: 800;
+            line-height: 1.15;
+            color: var(--secondary);
+            margin-bottom: 24px;
+            letter-spacing: -0.02em;
+        }
+
+        .hero h1 .highlight {
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p {
+            font-size: 20px;
+            color: var(--gray-500);
+            margin-bottom: 40px;
+            max-width: 520px;
+            line-height: 1.7;
+        }
+
+        .hero-cta {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 48px;
+        }
+
+        .hero-stats {
+            display: flex;
+            gap: 48px;
+        }
+
+        .stat {
+            text-align: left;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--secondary);
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: var(--gray-500);
+            margin-top: 4px;
+        }
+
+        .hero-visual {
+            position: relative;
+        }
+
+        .hero-mockup {
+            width: 100%;
+            border-radius: 16px;
+            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05);
+            background: var(--gray-100);
+            aspect-ratio: 4/3;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .mockup-content {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, var(--gray-800) 0%, var(--gray-900) 100%);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .mockup-header {
+            height: 40px;
+            background: var(--gray-900);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 8px;
+        }
+
+        .mockup-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--gray-700);
+        }
+
+        .mockup-dot:nth-child(1) { background: #ef4444; }
+        .mockup-dot:nth-child(2) { background: #f59e0b; }
+        .mockup-dot:nth-child(3) { background: #10b981; }
+
+        .mockup-body {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 1px;
+            background: var(--gray-700);
+        }
+
+        .mockup-sidebar {
+            background: var(--gray-800);
+            padding: 20px;
+        }
+
+        .mockup-menu-item {
+            height: 36px;
+            background: var(--gray-700);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            opacity: 0.5;
+        }
+
+        .mockup-menu-item.active {
+            background: var(--primary);
+            opacity: 1;
+        }
+
+        .mockup-main {
+            background: var(--gray-900);
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .mockup-card {
+            background: var(--gray-800);
+            border-radius: 12px;
+            padding: 16px;
+            height: 100px;
+        }
+
+        .mockup-card-title {
+            height: 12px;
+            width: 60%;
+            background: var(--gray-600);
+            border-radius: 4px;
+            margin-bottom: 12px;
+        }
+
+        .mockup-card-value {
+            height: 24px;
+            width: 80%;
+            background: var(--primary);
+            border-radius: 4px;
+            opacity: 0.8;
+        }
+
+        /* Trust Badges */
+        .trust {
+            padding: 80px 24px;
+            background: #fff;
+            border-top: 1px solid var(--gray-100);
+        }
+
+        .trust-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .trust-label {
+            font-size: 14px;
+            color: var(--gray-400);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 32px;
+        }
+
+        .trust-logos {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 64px;
+            flex-wrap: wrap;
+        }
+
+        .trust-logo {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--gray-300);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Features Section */
+        .features {
+            padding: 120px 24px;
+            background: #fff;
+        }
+
+        .features-container {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        .section-header {
+            text-align: center;
+            max-width: 720px;
+            margin: 0 auto 80px;
+        }
+
+        .section-label {
+            display: inline-block;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: 44px;
+            font-weight: 800;
+            color: var(--secondary);
+            margin-bottom: 20px;
+            letter-spacing: -0.02em;
+        }
+
+        .section-desc {
+            font-size: 18px;
+            color: var(--gray-500);
+            line-height: 1.7;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+        }
+
+        .feature-card {
+            padding: 40px;
+            background: var(--gray-50);
+            border-radius: 20px;
+            border: 1px solid var(--gray-100);
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+            border-color: var(--gray-200);
+        }
+
+        .feature-icon {
+            width: 56px;
+            height: 56px;
+            background: var(--gradient-1);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+            font-size: 24px;
+        }
+
+        .feature-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--secondary);
+            margin-bottom: 12px;
+        }
+
+        .feature-desc {
+            font-size: 16px;
+            color: var(--gray-500);
+            line-height: 1.7;
+        }
+
+        /* Integration Section */
+        .integration {
+            padding: 120px 24px;
+            background: var(--gradient-2);
+            color: white;
+        }
+
+        .integration-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 80px;
+            align-items: center;
+        }
+
+        .integration h2 {
+            font-size: 44px;
+            font-weight: 800;
+            margin-bottom: 24px;
+            letter-spacing: -0.02em;
+        }
+
+        .integration p {
+            font-size: 18px;
+            color: var(--gray-300);
+            margin-bottom: 40px;
+            line-height: 1.7;
+        }
+
+        .integration-list {
+            list-style: none;
+        }
+
+        .integration-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            padding: 20px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .integration-item:last-child {
+            border-bottom: none;
+        }
+
+        .integration-check {
+            width: 24px;
+            height: 24px;
+            background: var(--success);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .integration-check svg {
+            width: 14px;
+            height: 14px;
+            color: white;
+        }
+
+        .integration-text h4 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .integration-text p {
+            font-size: 15px;
+            color: var(--gray-400);
+            margin: 0;
+        }
+
+        .integration-visual {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .integration-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 32px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .integration-card-icon {
+            font-size: 32px;
+            margin-bottom: 16px;
+        }
+
+        .integration-card h4 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .integration-card p {
+            font-size: 14px;
+            color: var(--gray-400);
+            margin: 0;
+        }
+
+        /* Pricing Section */
+        .pricing {
+            padding: 120px 24px;
+            background: var(--gray-50);
+        }
+
+        .pricing-container {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+            margin-top: 60px;
+        }
+
+        .pricing-card {
+            background: white;
+            border-radius: 24px;
+            padding: 48px 40px;
+            border: 1px solid var(--gray-200);
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .pricing-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+        }
+
+        .pricing-card.popular {
+            border-color: var(--primary);
+            box-shadow: 0 20px 40px rgba(37, 99, 235, 0.15);
+        }
+
+        .pricing-badge {
+            position: absolute;
+            top: -14px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--gradient-1);
+            color: white;
+            padding: 6px 20px;
+            border-radius: 100px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .pricing-name {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--secondary);
+            margin-bottom: 8px;
+        }
+
+        .pricing-desc {
+            font-size: 15px;
+            color: var(--gray-500);
+            margin-bottom: 32px;
+        }
+
+        .pricing-price {
+            margin-bottom: 32px;
+        }
+
+        .pricing-amount {
+            font-size: 48px;
+            font-weight: 800;
+            color: var(--secondary);
+        }
+
+        .pricing-period {
+            font-size: 16px;
+            color: var(--gray-400);
+        }
+
+        .pricing-features {
+            list-style: none;
+            margin-bottom: 40px;
+        }
+
+        .pricing-features li {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            font-size: 15px;
+            color: var(--gray-600);
+        }
+
+        .pricing-features svg {
+            width: 20px;
+            height: 20px;
+            color: var(--success);
+            flex-shrink: 0;
+        }
+
+        .pricing-cta {
+            width: 100%;
+        }
+
+        /* CTA Section */
+        .cta {
+            padding: 120px 24px;
+            background: white;
+        }
+
+        .cta-container {
+            max-width: 900px;
+            margin: 0 auto;
+            text-align: center;
+            background: var(--gradient-2);
+            border-radius: 32px;
+            padding: 80px 60px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-container::before {
+            content: '';
+            position: absolute;
+            top: -100px;
+            right: -100px;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(37, 99, 235, 0.3) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .cta h2 {
+            font-size: 40px;
+            font-weight: 800;
+            color: white;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .cta p {
+            font-size: 18px;
+            color: var(--gray-300);
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            position: relative;
+        }
+
+        .btn-white {
+            background: white;
+            color: var(--secondary);
+        }
+
+        .btn-white:hover {
+            background: var(--gray-100);
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .btn-ghost:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Footer */
+        .footer {
+            padding: 80px 24px 40px;
+            background: var(--gray-900);
+            color: var(--gray-400);
+        }
+
+        .footer-container {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        .footer-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+            gap: 60px;
+            margin-bottom: 60px;
+        }
+
+        .footer-brand {
+            max-width: 300px;
+        }
+
+        .footer-logo {
+            font-size: 24px;
+            font-weight: 800;
+            color: white;
+            margin-bottom: 20px;
+        }
+
+        .footer-brand p {
+            font-size: 15px;
+            line-height: 1.7;
+            margin-bottom: 24px;
+        }
+
+        .footer-social {
+            display: flex;
+            gap: 12px;
+        }
+
+        .footer-social a {
+            width: 40px;
+            height: 40px;
+            background: var(--gray-800);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--gray-400);
+            transition: all 0.2s;
+        }
+
+        .footer-social a:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .footer-column h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 24px;
+        }
+
+        .footer-column ul {
+            list-style: none;
+        }
+
+        .footer-column li {
+            margin-bottom: 12px;
+        }
+
+        .footer-column a {
+            color: var(--gray-400);
+            text-decoration: none;
+            font-size: 15px;
+            transition: color 0.2s;
+        }
+
+        .footer-column a:hover {
+            color: white;
+        }
+
+        .footer-bottom {
+            padding-top: 40px;
+            border-top: 1px solid var(--gray-800);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-copyright {
+            font-size: 14px;
+        }
+
+        .footer-legal {
+            display: flex;
+            gap: 24px;
+        }
+
+        .footer-legal a {
+            color: var(--gray-400);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .footer-legal a:hover {
+            color: white;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .hero-container,
+            .integration-container {
+                grid-template-columns: 1fr;
+                gap: 60px;
+            }
+
+            .hero h1 {
+                font-size: 44px;
+            }
+
+            .features-grid,
+            .pricing-grid {
+                grid-template-columns: 1fr;
+                max-width: 480px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            .footer-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+
+            .hero {
+                padding: 120px 24px 80px;
+            }
+
+            .hero h1 {
+                font-size: 36px;
+            }
+
+            .hero p {
+                font-size: 18px;
+            }
+
+            .hero-cta {
+                flex-direction: column;
+            }
+
+            .hero-stats {
+                flex-wrap: wrap;
+                gap: 24px;
+            }
+
+            .section-title {
+                font-size: 32px;
+            }
+
+            .integration h2 {
+                font-size: 32px;
+            }
+
+            .cta h2 {
+                font-size: 28px;
+            }
+
+            .footer-grid {
+                grid-template-columns: 1fr;
+                gap: 40px;
+            }
+
+            .footer-bottom {
+                flex-direction: column;
+                gap: 20px;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="#" class="logo">K-<span>ERP</span></a>
+            <ul class="nav-links">
+                <li><a href="#features">기능</a></li>
+                <li><a href="#integration">정부연동</a></li>
+                <li><a href="#pricing">요금제</a></li>
+                <li><a href="#support">고객지원</a></li>
+            </ul>
+            <div class="nav-cta">
+                <a href="#" class="btn btn-outline">로그인</a>
+                <a href="#" class="btn btn-primary">무료 체험</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-container">
+            <div class="hero-content">
+                <div class="hero-badge">
+                    K-IFRS 완벽 준수
+                </div>
+                <h1>
+                    회계, 세금, 인사를<br>
+                    <span class="highlight">하나로 통합</span>하세요
+                </h1>
+                <p>
+                    세금계산서 발행부터 4대보험 신고까지.
+                    정부 시스템과 실시간 연동되는
+                    중소기업 맞춤 클라우드 ERP
+                </p>
+                <div class="hero-cta">
+                    <a href="#" class="btn btn-primary btn-large">30일 무료 체험</a>
+                    <a href="#" class="btn btn-outline btn-large">데모 신청</a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <div class="stat-value">99.9%</div>
+                        <div class="stat-label">서비스 가동률</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">2,500+</div>
+                        <div class="stat-label">도입 기업</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">4.9</div>
+                        <div class="stat-label">고객 만족도</div>
+                    </div>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="hero-mockup">
+                    <div class="mockup-content">
+                        <div class="mockup-header">
+                            <div class="mockup-dot"></div>
+                            <div class="mockup-dot"></div>
+                            <div class="mockup-dot"></div>
+                        </div>
+                        <div class="mockup-body">
+                            <div class="mockup-sidebar">
+                                <div class="mockup-menu-item active"></div>
+                                <div class="mockup-menu-item"></div>
+                                <div class="mockup-menu-item"></div>
+                                <div class="mockup-menu-item"></div>
+                                <div class="mockup-menu-item"></div>
+                            </div>
+                            <div class="mockup-main">
+                                <div class="mockup-card">
+                                    <div class="mockup-card-title"></div>
+                                    <div class="mockup-card-value"></div>
+                                </div>
+                                <div class="mockup-card">
+                                    <div class="mockup-card-title"></div>
+                                    <div class="mockup-card-value"></div>
+                                </div>
+                                <div class="mockup-card">
+                                    <div class="mockup-card-title"></div>
+                                    <div class="mockup-card-value"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Trust Badges -->
+    <section class="trust">
+        <div class="trust-container">
+            <p class="trust-label">신뢰할 수 있는 파트너</p>
+            <div class="trust-logos">
+                <div class="trust-logo">NTS 국세청</div>
+                <div class="trust-logo">NPS 국민연금</div>
+                <div class="trust-logo">NHIS 건강보험</div>
+                <div class="trust-logo">COMWEL 근로복지공단</div>
+                <div class="trust-logo">AWS</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="features-container">
+            <div class="section-header">
+                <span class="section-label">Features</span>
+                <h2 class="section-title">업무에 필요한 모든 기능</h2>
+                <p class="section-desc">
+                    복잡한 업무를 단순하게.
+                    K-ERP 하나로 회계, 인사, 세무를 통합 관리하세요.
+                </p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+                            <path d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">스마트 회계</h3>
+                    <p class="feature-desc">
+                        복식부기 자동화, 재무제표 실시간 생성.
+                        K-IFRS 기준 완벽 준수로 감사 대응도 문제없습니다.
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+                            <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">전자세금계산서</h3>
+                    <p class="feature-desc">
+                        홈택스 연동 자동 발행, 매입 자동 수집.
+                        부가세 신고 자료가 자동으로 준비됩니다.
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+                            <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">인사/급여</h3>
+                    <p class="feature-desc">
+                        급여 자동 계산, 원천세 신고 연동.
+                        직원 정보부터 연말정산까지 한 번에.
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+                            <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">4대보험 자동화</h3>
+                    <p class="feature-desc">
+                        취득/상실 신고, 보수총액 신고 자동 처리.
+                        EDI 연동으로 수작업이 사라집니다.
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+                            <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">재고/구매</h3>
+                    <p class="feature-desc">
+                        입출고 실시간 관리, 재고 현황 대시보드.
+                        발주부터 입고까지 전 과정을 추적합니다.
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+                            <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">실시간 분석</h3>
+                    <p class="feature-desc">
+                        매출, 비용, 현금흐름 실시간 모니터링.
+                        데이터 기반 의사결정을 지원합니다.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Integration Section -->
+    <section class="integration" id="integration">
+        <div class="integration-container">
+            <div class="integration-content">
+                <h2>정부 시스템<br>완벽 연동</h2>
+                <p>
+                    국세청, 4대 사회보험 기관과 직접 연동.
+                    수작업 없이 자동으로 신고하고 결과를 받아보세요.
+                </p>
+                <ul class="integration-list">
+                    <li class="integration-item">
+                        <div class="integration-check">
+                            <svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                <path d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                        <div class="integration-text">
+                            <h4>홈택스 실시간 연동</h4>
+                            <p>전자세금계산서 발행/수집, 부가세 신고 자동화</p>
+                        </div>
+                    </li>
+                    <li class="integration-item">
+                        <div class="integration-check">
+                            <svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                <path d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                        <div class="integration-text">
+                            <h4>4대보험 EDI 연동</h4>
+                            <p>국민연금, 건강보험, 고용/산재보험 자동 신고</p>
+                        </div>
+                    </li>
+                    <li class="integration-item">
+                        <div class="integration-check">
+                            <svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                <path d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                        <div class="integration-text">
+                            <h4>금융결제원 연동</h4>
+                            <p>급여 이체, 입금 확인 자동화 (예정)</p>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+            <div class="integration-visual">
+                <div class="integration-card">
+                    <div class="integration-card-icon">NTS</div>
+                    <h4>국세청</h4>
+                    <p>세금계산서 실시간 연동</p>
+                </div>
+                <div class="integration-card">
+                    <div class="integration-card-icon">NPS</div>
+                    <h4>국민연금공단</h4>
+                    <p>취득/상실/보수총액 신고</p>
+                </div>
+                <div class="integration-card">
+                    <div class="integration-card-icon">NHIS</div>
+                    <h4>건강보험공단</h4>
+                    <p>건강보험/장기요양 신고</p>
+                </div>
+                <div class="integration-card">
+                    <div class="integration-card-icon">EI</div>
+                    <h4>근로복지공단</h4>
+                    <p>고용/산재보험 신고</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section class="pricing" id="pricing">
+        <div class="pricing-container">
+            <div class="section-header">
+                <span class="section-label">Pricing</span>
+                <h2 class="section-title">합리적인 요금제</h2>
+                <p class="section-desc">
+                    기업 규모에 맞는 요금제를 선택하세요.
+                    모든 요금제에 무료 교육과 업데이트가 포함됩니다.
+                </p>
+            </div>
+            <div class="pricing-grid">
+                <div class="pricing-card">
+                    <h3 class="pricing-name">Starter</h3>
+                    <p class="pricing-desc">소규모 기업 및 스타트업</p>
+                    <div class="pricing-price">
+                        <span class="pricing-amount">49,000</span>
+                        <span class="pricing-period">원/월</span>
+                    </div>
+                    <ul class="pricing-features">
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            사용자 5명
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            회계/세금계산서
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            기본 리포트
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            이메일 지원
+                        </li>
+                    </ul>
+                    <a href="#" class="btn btn-outline btn-large pricing-cta">시작하기</a>
+                </div>
+                <div class="pricing-card popular">
+                    <div class="pricing-badge">가장 인기</div>
+                    <h3 class="pricing-name">Business</h3>
+                    <p class="pricing-desc">성장하는 중소기업</p>
+                    <div class="pricing-price">
+                        <span class="pricing-amount">149,000</span>
+                        <span class="pricing-period">원/월</span>
+                    </div>
+                    <ul class="pricing-features">
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            사용자 무제한
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            전체 모듈 (회계/인사/급여)
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            4대보험 자동 신고
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            전화/채팅 지원
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            API 연동
+                        </li>
+                    </ul>
+                    <a href="#" class="btn btn-primary btn-large pricing-cta">30일 무료 체험</a>
+                </div>
+                <div class="pricing-card">
+                    <h3 class="pricing-name">Enterprise</h3>
+                    <p class="pricing-desc">대규모 기업 맞춤</p>
+                    <div class="pricing-price">
+                        <span class="pricing-amount">별도 문의</span>
+                    </div>
+                    <ul class="pricing-features">
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            Business 전체 기능
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            전용 서버 (On-premise)
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            커스텀 개발
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            전담 매니저
+                        </li>
+                        <li>
+                            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                            SLA 99.99%
+                        </li>
+                    </ul>
+                    <a href="#" class="btn btn-outline btn-large pricing-cta">문의하기</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <div class="cta-container">
+            <h2>지금 바로 시작하세요</h2>
+            <p>30일 무료 체험. 신용카드 필요 없음. 언제든 취소 가능.</p>
+            <div class="cta-buttons">
+                <a href="#" class="btn btn-white btn-large">무료 체험 시작</a>
+                <a href="#" class="btn btn-ghost btn-large">데모 예약</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <div class="footer-logo">K-ERP</div>
+                    <p>
+                        중소기업을 위한 클라우드 ERP.
+                        회계, 세금, 인사를 하나로 통합합니다.
+                    </p>
+                    <div class="footer-social">
+                        <a href="#">
+                            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/></svg>
+                        </a>
+                        <a href="#">
+                            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                        </a>
+                        <a href="#">
+                            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+                        </a>
+                    </div>
+                </div>
+                <div class="footer-column">
+                    <h4>제품</h4>
+                    <ul>
+                        <li><a href="#">기능</a></li>
+                        <li><a href="#">요금제</a></li>
+                        <li><a href="#">보안</a></li>
+                        <li><a href="#">로드맵</a></li>
+                    </ul>
+                </div>
+                <div class="footer-column">
+                    <h4>솔루션</h4>
+                    <ul>
+                        <li><a href="#">스타트업</a></li>
+                        <li><a href="#">중소기업</a></li>
+                        <li><a href="#">제조업</a></li>
+                        <li><a href="#">서비스업</a></li>
+                    </ul>
+                </div>
+                <div class="footer-column">
+                    <h4>리소스</h4>
+                    <ul>
+                        <li><a href="#">도움말</a></li>
+                        <li><a href="#">블로그</a></li>
+                        <li><a href="#">API 문서</a></li>
+                        <li><a href="#">파트너</a></li>
+                    </ul>
+                </div>
+                <div class="footer-column">
+                    <h4>회사</h4>
+                    <ul>
+                        <li><a href="#">소개</a></li>
+                        <li><a href="#">채용</a></li>
+                        <li><a href="#">연락처</a></li>
+                        <li><a href="#">공지사항</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p class="footer-copyright">2026 K-ERP. All rights reserved.</p>
+                <div class="footer-legal">
+                    <a href="#">이용약관</a>
+                    <a href="#">개인정보처리방침</a>
+                    <a href="#">쿠키 정책</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
