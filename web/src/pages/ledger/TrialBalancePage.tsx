@@ -1,11 +1,9 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Printer, ChevronRight, ChevronDown } from "lucide-react";
 import {
   Button,
   Card,
-  CardHeader,
-  CardTitle,
   CardContent,
   Badge,
   Table,
@@ -604,6 +602,3 @@ export function TrialBalancePage() {
     </div>
   );
 }
-
-// Add React import at the top for Fragment
-import React from "react";

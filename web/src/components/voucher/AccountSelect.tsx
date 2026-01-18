@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Controller, Control } from "react-hook-form";
 import { useQuery } from "@tanstack/react-query";
 import { Search, ChevronDown, X, Loader2 } from "lucide-react";
 import { cn, debounce } from "@/lib/utils";
 import { accountsApi } from "@/api";
-import type { Account, AccountType } from "@/types";
+import type { AccountType } from "@/types";
 
 interface AccountSelectProps {
   name: string;
@@ -56,11 +56,12 @@ export function AccountSelect({
     ? accountsResponse.data
     : (accountsResponse?.data as { items?: AccountOption[] })?.items || [];
 
-  // Debounced search
-  const debouncedSetSearch = useCallback(
-    debounce((value: string) => {
-      setDebouncedSearch(value);
-    }, 300),
+  // Debounced search using useMemo
+  const debouncedSetSearch = useMemo(
+    () =>
+      debounce((value: string) => {
+        setDebouncedSearch(value);
+      }, 300),
     []
   );
 

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Printer, Calendar, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import {
@@ -10,7 +10,7 @@ import {
   CardContent,
   Badge,
 } from "@/components/ui";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { ledgerApi } from "@/api";
 import type { BalanceSheetData, BalanceSheetSection } from "@/api/ledger";
 
