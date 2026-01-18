@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useUIStore } from '@/stores';
 import { cn } from '@/lib/utils';
 
@@ -15,26 +15,38 @@ const sizeClasses = {
   xl: 'h-14',
 };
 
-export function Logo({ className, size = 'md', showText: _showText = true }: LogoProps) {
+// Helper to get system dark mode preference
+function getSystemDarkMode() {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+// Custom hook to determine if dark mode is active
+function useDarkMode() {
   const { theme } = useUIStore();
-  const [isDark, setIsDark] = useState(false);
+  // Initialize with actual system preference to avoid initial setState in effect
+  const [systemIsDark, setSystemIsDark] = useState(getSystemDarkMode);
 
   useEffect(() => {
-    // Determine if we should use dark logo
-    if (theme === 'dark') {
-      setIsDark(true);
-    } else if (theme === 'light') {
-      setIsDark(false);
-    } else {
-      // System theme - check media query
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      setIsDark(mediaQuery.matches);
+    if (theme !== 'system') return;
 
-      const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
-      mediaQuery.addEventListener('change', handler);
-      return () => mediaQuery.removeEventListener('change', handler);
-    }
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => setSystemIsDark(e.matches);
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
   }, [theme]);
+
+  return useMemo(() => {
+    if (theme === 'dark') return true;
+    if (theme === 'light') return false;
+    return systemIsDark;
+  }, [theme, systemIsDark]);
+}
+
+export function Logo({ className, size = 'md', showText = true }: LogoProps) {
+  const isDark = useDarkMode();
+  // showText is available for future use when text logo variant is added
+  void showText;
 
   const logoSrc = isDark ? '/images/logo-dark.png' : '/images/logo-light.png';
 
@@ -49,23 +61,7 @@ export function Logo({ className, size = 'md', showText: _showText = true }: Log
 
 // Icon-only version for collapsed sidebar
 export function LogoIcon({ className, size = 'md' }: Omit<LogoProps, 'showText'>) {
-  const { theme } = useUIStore();
-  const [isDark, setIsDark] = useState(false);
-
-  useEffect(() => {
-    if (theme === 'dark') {
-      setIsDark(true);
-    } else if (theme === 'light') {
-      setIsDark(false);
-    } else {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      setIsDark(mediaQuery.matches);
-
-      const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
-      mediaQuery.addEventListener('change', handler);
-      return () => mediaQuery.removeEventListener('change', handler);
-    }
-  }, [theme]);
+  const isDark = useDarkMode();
 
   // For icon-only, we use a simple K badge since cropping the logo would be complex
   return (

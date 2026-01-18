@@ -191,11 +191,12 @@ const generateMockReportData = (template: ReportTemplate): CustomReportData => {
         case "currency":
           row[col.field] = Math.floor(Math.random() * 50000000) + 1000000;
           break;
-        case "date":
+        case "date": {
           const date = new Date();
           date.setDate(date.getDate() - Math.floor(Math.random() * 365));
           row[col.field] = date.toISOString().split("T")[0];
           break;
+        }
         case "percentage":
           row[col.field] = Math.floor(Math.random() * 100) + 1;
           break;
@@ -280,6 +281,7 @@ export function CustomReportPage() {
   // Set default sort when template changes
   useEffect(() => {
     if (selectedTemplate?.defaultSort) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- legitimate state sync from prop
       setSortField(selectedTemplate.defaultSort);
       setSortDirection("desc");
     }
