@@ -139,7 +139,7 @@ const mockApiKeys: ApiKey[] = [
   {
     id: "1",
     name: "모바일 앱 연동",
-    key: "kerp_mobile_xxxxxxxxxxxx1234567890",
+    key: "DEMO_API_KEY_MOBILE_APP_1234567890",
     description: "모바일 앱에서 사용하는 API 키",
     createdAt: "2024-01-01",
     lastUsed: "2024-01-15T08:45:00",
@@ -148,7 +148,7 @@ const mockApiKeys: ApiKey[] = [
   {
     id: "2",
     name: "외부 시스템 연동",
-    key: "kerp_ext_xxxxxxxxxxxxabcdef1234",
+    key: "DEMO_API_KEY_EXTERNAL_SYSTEM_1234567890",
     description: "ERP 연동용 API 키",
     createdAt: "2024-01-10",
     lastUsed: "2024-01-14T14:20:00",
@@ -157,7 +157,7 @@ const mockApiKeys: ApiKey[] = [
   {
     id: "3",
     name: "테스트용",
-    key: "kerp_test_xxxxxxxxxxxx0987654321",
+    key: "DEMO_API_KEY_TEST_STAGING_1234567890",
     createdAt: "2024-01-05",
     isActive: false,
   },
