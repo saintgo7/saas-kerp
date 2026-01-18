@@ -37,9 +37,10 @@ class TestValidateBusinessNumber:
 
     def test_known_valid_business_numbers(self):
         """Test known valid business numbers."""
+        # Note: Using computed test patterns that pass the checksum algorithm
+        # The check digit is calculated per the official algorithm
         valid_numbers = [
-            "2208115816",  # Sample valid number
-            "1088120050",  # Another valid number
+            "1234567891",  # Test number with valid check digit
         ]
         for num in valid_numbers:
             assert validate_business_number(num) is True, f"{num} should be valid"
@@ -114,16 +115,16 @@ class TestValidateResidentNumber:
     def test_valid_resident_number_no_dash(self):
         """Test valid resident number without dash."""
         # Note: Using test pattern, not real resident numbers
-        # This test uses the checksum algorithm
-        assert validate_resident_number("8001011234567") is True
+        # Check digit calculated: (11 - (122 % 11)) % 10 = 0
+        assert validate_resident_number("8001011234560") is True
 
     def test_valid_resident_number_with_dash(self):
         """Test valid resident number with dash."""
-        assert validate_resident_number("800101-1234567") is True
+        assert validate_resident_number("800101-1234560") is True
 
     def test_valid_resident_number_with_spaces(self):
         """Test valid resident number with spaces."""
-        assert validate_resident_number("800101 1234567") is True
+        assert validate_resident_number("800101 1234560") is True
 
     # ========================================================================
     # Invalid Resident Number Tests
@@ -143,7 +144,8 @@ class TestValidateResidentNumber:
 
     def test_invalid_check_digit(self):
         """Test resident number with wrong check digit."""
-        assert validate_resident_number("8001011234560") is False
+        # 8001011234567 has incorrect check digit (correct is 0)
+        assert validate_resident_number("8001011234567") is False
 
     def test_invalid_empty_string(self):
         """Test empty string."""
@@ -159,12 +161,12 @@ class TestValidateCorporateNumber:
 
     def test_valid_corporate_number_no_dash(self):
         """Test valid corporate number without dash."""
-        # Using checksum algorithm
-        assert validate_corporate_number("1101111234560") is True
+        # Check digit calculated: (10 - (32 % 10)) % 10 = 8
+        assert validate_corporate_number("1101111234568") is True
 
     def test_valid_corporate_number_with_dash(self):
         """Test valid corporate number with dash."""
-        assert validate_corporate_number("110111-1234560") is True
+        assert validate_corporate_number("110111-1234568") is True
 
     # ========================================================================
     # Invalid Corporate Number Tests
@@ -196,19 +198,18 @@ class TestCheckDigitAlgorithms:
 
     def test_business_number_check_digit_calculation(self):
         """Verify business number check digit algorithm."""
-        # Known test case: 220-81-15816
+        # Test case: 123-45-67891
         # Weights: [1, 3, 7, 1, 3, 7, 1, 3, 5]
-        # Digits:  [2, 2, 0, 8, 1, 1, 5, 8, 1, 6]
+        # Digits:  [1, 2, 3, 4, 5, 6, 7, 8, 9, ?]
         #
         # Checksum:
-        # 2*1 + 2*3 + 0*7 + 8*1 + 1*3 + 1*7 + 5*1 + 8*3 + 1*5 = 2+6+0+8+3+7+5+24+5 = 60
-        # + floor(5*1/10) = 0
-        # Total = 60
-        # Remainder = 60 % 10 = 0
-        # Check digit = (10 - 0) % 10 = 0... but the actual last digit is 6
-        #
-        # Let's verify with the actual implementation
-        assert validate_business_number("2208115816") is True
+        # 1*1 + 2*3 + 3*7 + 4*1 + 5*3 + 6*7 + 7*1 + 8*3 + 9*5
+        # = 1 + 6 + 21 + 4 + 15 + 42 + 7 + 24 + 45 = 165
+        # + floor(5*9/10) = 4
+        # Total = 169
+        # Remainder = 169 % 10 = 9
+        # Check digit = (10 - 9) % 10 = 1
+        assert validate_business_number("1234567891") is True
 
     def test_resident_number_gender_digits(self):
         """Test resident numbers with different gender/century digits."""
@@ -218,11 +219,6 @@ class TestCheckDigitAlgorithms:
         # 5, 6: Foreigner born 1900-1999 (male, female)
         # 7, 8: Foreigner born 2000-2099 (male, female)
 
-        # These are test patterns, not real numbers
-        test_cases = [
-            "8001011234567",  # Male, 1980
-            "8001012345678",  # Female, 1980 (different check digit needed)
-        ]
-        # At least one should be valid if algorithm is correct
-        results = [validate_resident_number(num) for num in test_cases]
-        assert any(results), "At least one test pattern should pass validation"
+        # Test pattern with valid check digit (calculated)
+        # 8001011234560 has check digit = 0
+        assert validate_resident_number("8001011234560") is True

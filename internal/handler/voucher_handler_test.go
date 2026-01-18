@@ -44,7 +44,7 @@ func (s *VoucherHandlerTestSuite) SetupTest() {
 	s.router = gin.New()
 	s.router.Use(func(c *gin.Context) {
 		c.Set("company_id", s.companyID)
-		c.Set("user_id", mock.Anything)
+		c.Set("user_id", s.userID)
 		c.Next()
 	})
 	s.handler.RegisterRoutes(s.router.Group("/api/v1"))
@@ -322,9 +322,12 @@ func (s *VoucherHandlerTestSuite) TestUpdate_Success() {
 	accountID1 := uuid.New()
 	accountID2 := uuid.New()
 
+	// First GetByID: Get existing voucher before update
 	s.mockSvc.On("GetByID", mock.Anything, mock.Anything, mock.Anything).Return(voucher, nil).Once()
 	s.mockSvc.On("Update", mock.Anything, mock.Anything).Return(nil).Once()
 	s.mockSvc.On("ReplaceEntries", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	// Second GetByID: Reload voucher after update
+	s.mockSvc.On("GetByID", mock.Anything, mock.Anything, mock.Anything).Return(voucher, nil).Once()
 
 	reqBody := dto.UpdateVoucherRequest{
 		VoucherDate: time.Now().Format("2006-01-02"),
@@ -346,12 +349,18 @@ func (s *VoucherHandlerTestSuite) TestUpdate_Success() {
 
 func (s *VoucherHandlerTestSuite) TestUpdate_VoucherNotFound() {
 	voucherID := uuid.New()
+	accountID1 := uuid.New()
+	accountID2 := uuid.New()
 
 	s.mockSvc.On("GetByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, domain.ErrVoucherNotFound).Once()
 
 	reqBody := dto.UpdateVoucherRequest{
 		VoucherDate: time.Now().Format("2006-01-02"),
 		Description: "Updated description",
+		Entries: []dto.CreateVoucherEntryRequest{
+			{AccountID: accountID1.String(), DebitAmount: 1000},
+			{AccountID: accountID2.String(), CreditAmount: 1000},
+		},
 	}
 
 	body, _ := json.Marshal(reqBody)
@@ -366,12 +375,18 @@ func (s *VoucherHandlerTestSuite) TestUpdate_VoucherNotFound() {
 func (s *VoucherHandlerTestSuite) TestUpdate_CannotEdit() {
 	voucher := s.newTestVoucher()
 	voucher.Status = domain.VoucherStatusPosted // Cannot edit posted voucher
+	accountID1 := uuid.New()
+	accountID2 := uuid.New()
 
 	s.mockSvc.On("GetByID", mock.Anything, mock.Anything, mock.Anything).Return(voucher, nil).Once()
 	s.mockSvc.On("Update", mock.Anything, mock.Anything).Return(domain.ErrVoucherCannotEdit).Once()
 
 	reqBody := dto.UpdateVoucherRequest{
 		VoucherDate: time.Now().Format("2006-01-02"),
+		Entries: []dto.CreateVoucherEntryRequest{
+			{AccountID: accountID1.String(), DebitAmount: 1000},
+			{AccountID: accountID2.String(), CreditAmount: 1000},
+		},
 	}
 
 	body, _ := json.Marshal(reqBody)

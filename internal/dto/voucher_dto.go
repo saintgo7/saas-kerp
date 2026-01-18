@@ -275,8 +275,8 @@ type VoucherListRequest struct {
 	DepartmentID string `form:"department_id" binding:"omitempty,uuid"`
 	Search       string `form:"search" binding:"max=100"`
 	IncludeEntries bool `form:"include_entries"`
-	Page         int    `form:"page" binding:"min=1"`
-	PageSize     int    `form:"page_size" binding:"min=1,max=100"`
+	Page         int    `form:"page" binding:"omitempty,min=1"`
+	PageSize     int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	SortBy       string `form:"sort_by"`
 	SortDesc     bool   `form:"sort_desc"`
 }

@@ -9,7 +9,7 @@ Required for 4대보험 EDI communication and electronic document signing.
 """
 import hashlib
 from typing import Union, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -334,7 +334,7 @@ class PKCS7Signature:
         if not self._certificate:
             return False
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return (
             self._certificate.not_valid_before_utc <= now
             <= self._certificate.not_valid_after_utc
