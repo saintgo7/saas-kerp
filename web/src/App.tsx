@@ -24,6 +24,7 @@ import {
   TrialBalancePage,
 } from "@/pages/ledger";
 import {
+  FinancialStatementsPage,
   BalanceSheetPage,
   IncomeStatementPage,
   SalesReportPage,
@@ -148,7 +149,7 @@ function App() {
             <Route path="/accounting/trial-balance" element={<TrialBalancePage />} />
 
             {/* Accounting - Financial Statements */}
-            <Route path="/accounting/financial-statements" element={<BalanceSheetPage />} />
+            <Route path="/accounting/financial-statements" element={<FinancialStatementsPage />} />
             <Route path="/accounting/financial-statements/balance-sheet" element={<BalanceSheetPage />} />
             <Route path="/accounting/financial-statements/income-statement" element={<IncomeStatementPage />} />
 
