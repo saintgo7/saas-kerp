@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Controller, Control } from "react-hook-form";
+import { Controller } from "react-hook-form";
+import type { Control } from "react-hook-form";
 import { useQuery } from "@tanstack/react-query";
 import { Search, ChevronDown, X, Loader2 } from "lucide-react";
 import { cn, debounce } from "@/lib/utils";

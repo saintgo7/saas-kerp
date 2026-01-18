@@ -3,6 +3,7 @@ export { partnersApi } from "./partners";
 export { accountsApi } from "./accounts";
 export { vouchersApi } from "./vouchers";
 export { ledgerApi } from "./ledger";
+export { reportsApi } from "./reports";
 
 // Re-export types
 export type {
@@ -27,3 +28,28 @@ export type {
   IncomeStatementData,
   AccountBalanceSummary,
 } from "./ledger";
+
+export type {
+  SalesReportData,
+  SalesReportParams,
+  SalesTrendItem,
+  PartnerSalesItem,
+  ProductSalesItem,
+  ExpenseReportData,
+  ExpenseReportParams,
+  ExpenseByAccount,
+  ExpenseByDepartment,
+  ExpenseTrendItem,
+  HRReportData,
+  HRReportParams,
+  DepartmentHeadcount,
+  PositionHeadcount,
+  HiringTrendItem,
+  PayrollStatistics,
+  AttendanceStatistics,
+  ReportTemplate,
+  ReportColumn,
+  ReportFilter,
+  CustomReportParams,
+  CustomReportData,
+} from "./reports";
