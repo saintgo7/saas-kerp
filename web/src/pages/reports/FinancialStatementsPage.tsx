@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 // Import actual report components
 import { BalanceSheetPage } from "./BalanceSheetPage";
 import { IncomeStatementPage } from "./IncomeStatementPage";
+import { CashFlowStatementPage } from "./CashFlowStatementPage";
+import { EquityChangesStatementPage } from "./EquityChangesStatementPage";
 
 type StatementTab = "balance-sheet" | "income-statement" | "cash-flow" | "equity-changes";
 
@@ -37,14 +39,14 @@ const tabs: TabConfig[] = [
     label: "현금흐름표",
     icon: FileText,
     description: "현금의 유입과 유출 현황",
-    component: null, // Coming soon
+    component: CashFlowStatementPage,
   },
   {
     id: "equity-changes",
     label: "자본변동표",
     icon: PieChart,
     description: "자본의 변동 내역",
-    component: null, // Coming soon
+    component: EquityChangesStatementPage,
   },
 ];
 

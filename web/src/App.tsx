@@ -7,7 +7,7 @@ import { useAuthStore } from "@/stores";
 import { MainLayout, AuthLayout } from "@/components/layout";
 
 // Auth Pages
-import { LoginPage, RegisterPage } from "@/pages/auth";
+import { LoginPage, RegisterPage, ForgotPasswordPage } from "@/pages/auth";
 
 // Main Pages
 import { DashboardPage } from "@/pages/dashboard";
@@ -120,7 +120,7 @@ function App() {
           >
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
-            <Route path="/forgot-password" element={<ComingSoon title="비밀번호 찾기" />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           </Route>
 
           {/* Protected Routes */}
