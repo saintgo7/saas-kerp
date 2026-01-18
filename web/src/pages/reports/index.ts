@@ -1,3 +1,4 @@
+export { FinancialStatementsPage } from './FinancialStatementsPage';
 export { BalanceSheetPage } from './BalanceSheetPage';
 export { IncomeStatementPage } from './IncomeStatementPage';
 export { SalesReportPage } from './SalesReportPage';
