@@ -136,12 +136,17 @@ jobs:
               echo "Created .env from example"
             fi
 
-            # Pull latest images and rebuild
+            # Pull latest images
             docker compose pull || true
-            docker compose build --no-cache
 
-            # Deploy with zero-downtime (recreate only changed services)
-            docker compose up -d --remove-orphans
+            # Force rebuild and recreate web container (frontend)
+            echo "Rebuilding web frontend..."
+            docker compose build --no-cache web
+            docker compose up -d --force-recreate --no-deps web
+
+            # Build and update other services (may fail for incomplete services)
+            docker compose build --no-cache api worker || true
+            docker compose up -d --remove-orphans || true
 
             # Wait for services to be healthy
             sleep 10
