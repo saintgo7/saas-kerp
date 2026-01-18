@@ -65,11 +65,50 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          # Validate SSH key is configured
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "ERROR: SSH_PRIVATE_KEY secret is not configured"
+            echo "Please add your SSH private key to GitHub Secrets:"
+            echo "  1. Go to Repository Settings > Secrets and variables > Actions"
+            echo "  2. Add new secret named 'SSH_PRIVATE_KEY'"
+            echo "  3. Paste the contents of your private key (including BEGIN/END lines)"
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 700 ~/.ssh
+
+          # Write SSH key with proper line endings
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_HOST }} >> ~/.ssh/known_hosts
+
+          # Validate key format
+          if ! ssh-keygen -y -f ~/.ssh/id_rsa > /dev/null 2>&1; then
+            echo "ERROR: Invalid SSH private key format"
+            echo "Make sure the key includes -----BEGIN and -----END lines"
+            exit 1
+          fi
+
+          # Add host to known_hosts
+          ssh-keyscan -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 644 ~/.ssh/known_hosts
+
+          echo "SSH key configured successfully"
+
+      - name: Test SSH connection
+        run: |
+          ssh -o BatchMode=yes -o ConnectTimeout=10 \
+            -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} \
+            "echo 'SSH connection successful'" || {
+              echo "ERROR: SSH connection failed"
+              echo "Please verify:"
+              echo "  1. The public key is added to ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }}:~/.ssh/authorized_keys"
+              echo "  2. The server allows SSH key authentication"
+              exit 1
+            }
 
       - name: Create deployment directory
         run: |
@@ -145,11 +184,44 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          # Validate SSH key is configured
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "ERROR: SSH_PRIVATE_KEY secret is not configured"
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 700 ~/.ssh
+
+          # Write SSH key with proper line endings
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_HOST }} >> ~/.ssh/known_hosts
+
+          # Validate key format
+          if ! ssh-keygen -y -f ~/.ssh/id_rsa > /dev/null 2>&1; then
+            echo "ERROR: Invalid SSH private key format"
+            echo "Make sure the key includes -----BEGIN and -----END lines"
+            exit 1
+          fi
+
+          # Add host to known_hosts
+          ssh-keyscan -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 644 ~/.ssh/known_hosts
+
+          echo "SSH key configured successfully"
+
+      - name: Test SSH connection
+        run: |
+          ssh -o BatchMode=yes -o ConnectTimeout=10 \
+            -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} \
+            "echo 'SSH connection successful'" || {
+              echo "ERROR: SSH connection failed"
+              echo "Please verify the public key is added to the server"
+              exit 1
+            }
 
       - name: Deploy to production
         run: |
