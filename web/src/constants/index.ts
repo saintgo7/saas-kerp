@@ -1,7 +1,7 @@
 import type { MenuItem, SelectOption, UserRole } from "@/types";
 
 // API Configuration
-export const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
+export const API_BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
 
 // Pagination Defaults
 export const DEFAULT_PAGE_SIZE = 20;
