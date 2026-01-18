@@ -1,0 +1,266 @@
+# Test Matrix Configuration
+# Defines test environments, platforms, and execution combinations
+
+version: "1.0"
+
+# Environment Matrix
+environments:
+  local:
+    type: "development"
+    services:
+      postgres:
+        image: "postgres:16-alpine"
+        port: 5432
+        env:
+          POSTGRES_DB: "kerp_test"
+          POSTGRES_USER: "test"
+          POSTGRES_PASSWORD: "test"
+      redis:
+        image: "redis:7-alpine"
+        port: 6379
+      nats:
+        image: "nats:2.10-alpine"
+        port: 4222
+
+  ci:
+    type: "continuous-integration"
+    services:
+      postgres:
+        image: "postgres:16-alpine"
+        port: 5432
+      redis:
+        image: "redis:7-alpine"
+        port: 6379
+      nats:
+        image: "nats:2.10-alpine"
+        port: 4222
+
+  staging:
+    type: "staging"
+    services:
+      postgres:
+        host: "staging-db.internal"
+        port: 5432
+      redis:
+        host: "staging-redis.internal"
+        port: 6379
+
+# Platform Matrix
+platforms:
+  go:
+    versions:
+      - "1.22"
+      - "1.23"
+    os:
+      - "linux"
+      - "darwin"
+    arch:
+      - "amd64"
+      - "arm64"
+
+  python:
+    versions:
+      - "3.11"
+      - "3.12"
+    os:
+      - "linux"
+      - "darwin"
+
+  node:
+    versions:
+      - "20"
+      - "22"
+    os:
+      - "linux"
+      - "darwin"
+
+# Test Type Matrix
+test_types:
+  unit:
+    description: "Unit tests with mocked dependencies"
+    isolation: "full"
+    database: false
+    external_services: false
+    parallelism: "high"
+    coverage_target: 80
+
+  integration:
+    description: "Integration tests with real database"
+    isolation: "transaction"
+    database: true
+    external_services: false
+    parallelism: "medium"
+    coverage_target: 70
+
+  api:
+    description: "API endpoint tests"
+    isolation: "request"
+    database: true
+    external_services: true
+    parallelism: "medium"
+    coverage_target: 90
+
+  e2e:
+    description: "End-to-end browser tests"
+    isolation: "session"
+    database: true
+    external_services: true
+    parallelism: "low"
+    coverage_target: 60
+
+  performance:
+    description: "Performance and load tests"
+    isolation: "dedicated"
+    database: true
+    external_services: true
+    parallelism: "none"
+    metrics:
+      - response_time
+      - throughput
+      - error_rate
+      - resource_usage
+
+# Module Test Matrix
+modules:
+  accounting:
+    path: "internal/service/accounting"
+    test_types:
+      - unit
+      - integration
+    priority: "critical"
+    coverage_required: 85
+
+  tax_invoice:
+    path: "python-services/tax-scraper"
+    test_types:
+      - unit
+      - integration
+      - e2e
+    priority: "critical"
+    coverage_required: 80
+    external_dependencies:
+      - "hometax.go.kr"
+
+  user_management:
+    path: "internal/service/user"
+    test_types:
+      - unit
+      - integration
+      - api
+    priority: "high"
+    coverage_required: 80
+
+  inventory:
+    path: "internal/service/inventory"
+    test_types:
+      - unit
+      - integration
+    priority: "high"
+    coverage_required: 75
+
+  reporting:
+    path: "internal/service/reporting"
+    test_types:
+      - unit
+      - integration
+    priority: "medium"
+    coverage_required: 70
+
+# Execution Matrix
+execution_matrix:
+  # Quick feedback (PR checks)
+  pr_check:
+    test_types: ["unit"]
+    platforms:
+      go: ["1.22"]
+      python: ["3.12"]
+      node: ["20"]
+    parallelism: 8
+    timeout: "10m"
+
+  # Standard CI
+  ci_standard:
+    test_types: ["unit", "integration"]
+    platforms:
+      go: ["1.22"]
+      python: ["3.12"]
+      node: ["20"]
+    parallelism: 4
+    timeout: "30m"
+
+  # Full CI (merge to main)
+  ci_full:
+    test_types: ["unit", "integration", "api", "e2e"]
+    platforms:
+      go: ["1.22", "1.23"]
+      python: ["3.11", "3.12"]
+      node: ["20", "22"]
+    parallelism: 4
+    timeout: "60m"
+
+  # Nightly comprehensive
+  nightly:
+    test_types: ["unit", "integration", "api", "e2e", "performance"]
+    platforms:
+      go: ["1.22", "1.23"]
+      python: ["3.11", "3.12"]
+      node: ["20", "22"]
+    parallelism: 2
+    timeout: "120m"
+    include_slow_tests: true
+
+  # Release validation
+  release:
+    test_types: ["unit", "integration", "api", "e2e", "performance"]
+    platforms:
+      go: ["1.22"]
+      python: ["3.12"]
+      node: ["20"]
+    parallelism: 1
+    timeout: "180m"
+    environments: ["staging"]
+    manual_approval: true
+
+# Browser Matrix (for E2E)
+browsers:
+  chromium:
+    enabled: true
+    headless: true
+    viewport:
+      width: 1920
+      height: 1080
+
+  firefox:
+    enabled: true
+    headless: true
+    viewport:
+      width: 1920
+      height: 1080
+
+  webkit:
+    enabled: false
+    headless: true
+
+# Database Matrix
+databases:
+  postgres:
+    versions:
+      - "15"
+      - "16"
+    test_extensions:
+      - "uuid-ossp"
+      - "pgcrypto"
+
+# Shard Configuration
+sharding:
+  enabled: true
+  strategy: "round-robin"  # round-robin, time-based, file-based
+
+  unit:
+    shards: 4
+
+  integration:
+    shards: 2
+
+  e2e:
+    shards: 1  # E2E tests are not sharded

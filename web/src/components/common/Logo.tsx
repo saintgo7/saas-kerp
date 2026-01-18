@@ -15,7 +15,7 @@ const sizeClasses = {
   xl: 'h-14',
 };
 
-export function Logo({ className, size = 'md', showText = true }: LogoProps) {
+export function Logo({ className, size = 'md', showText: _showText = true }: LogoProps) {
   const { theme } = useUIStore();
   const [isDark, setIsDark] = useState(false);
 

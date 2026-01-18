@@ -6,6 +6,13 @@
 1. 현재 Git 브랜치 확인: `git branch --show-current`
 2. 브랜치가 `phase/*`이면 해당 Phase 모드로 자동 진입
 3. 브랜치가 `develop`이면 대시보드 표시
+4. **최근 개발 로그 확인 및 요약 표시:**
+   ```bash
+   ls -t docs/dev-log/ko/*.md 2>/dev/null | head -3
+   ```
+   - 최근 3개의 개발 로그 제목과 날짜 표시
+   - 마지막 작업 내용 간략히 요약
+   - "continue" 또는 "이어서" 명령 시 마지막 작업 컨텍스트 복원
 
 **Phase 진입 명령 (다음 중 아무거나 인식):**
 - `saas 1` ~ `saas 8`
@@ -99,6 +106,9 @@ Phase 8: tests/, **/*_test.go, **/*_test.py
 | `py {name}` | Python gRPC service |
 | `test {name}` | Test code generation |
 | `db {name}` | DB migration |
+| `/dev-log` | 개발 로그 생성 (한/영 Markdown) |
+| `/dev-log-list` | 개발 로그 목록 조회 |
+| `/dev-log-auto` | Git 변경사항 기반 자동 로그 생성 |
 
 ## Rules
 

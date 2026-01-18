@@ -1,0 +1,317 @@
+# Docker Compose for Test Environment
+# K-ERP SaaS Platform - Test Infrastructure
+
+version: "3.9"
+
+services:
+  # PostgreSQL Test Database
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: kerp-postgres-test
+    environment:
+      POSTGRES_DB: kerp_test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-test-data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d kerp_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kerp-test-network
+
+  # Redis for Test Cache/Session
+  redis-test:
+    image: redis:7-alpine
+    container_name: kerp-redis-test
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kerp-test-network
+
+  # NATS for Test Messaging
+  nats-test:
+    image: nats:2.10-alpine
+    container_name: kerp-nats-test
+    ports:
+      - "4223:4222"
+      - "8223:8222"  # HTTP monitoring
+    command: ["--jetstream", "--store_dir", "/data"]
+    volumes:
+      - nats-test-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kerp-test-network
+
+  # Test Runner Service
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: kerp-test-runner
+    environment:
+      # Database
+      TEST_DB_HOST: postgres-test
+      TEST_DB_PORT: 5432
+      TEST_DB_NAME: kerp_test
+      TEST_DB_USER: test
+      TEST_DB_PASSWORD: test
+      # Redis
+      TEST_REDIS_HOST: redis-test
+      TEST_REDIS_PORT: 6379
+      # NATS
+      TEST_NATS_URL: nats://nats-test:4222
+      # Test configuration
+      GO_TEST_PARALLEL: 4
+      COVERAGE_ENABLED: "true"
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+      - ./test-results:/app/test-results
+      - ./coverage:/app/coverage
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+      nats-test:
+        condition: service_healthy
+    networks:
+      - kerp-test-network
+    profiles:
+      - test
+
+  # Parallel Test Shard 1
+  test-shard-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: kerp-test-shard-1
+    environment:
+      TEST_SHARD_INDEX: 1
+      TEST_SHARD_TOTAL: 4
+      TEST_DB_HOST: postgres-test
+      TEST_DB_PORT: 5432
+      TEST_DB_NAME: kerp_test
+      TEST_DB_USER: test
+      TEST_DB_PASSWORD: test
+      TEST_REDIS_HOST: redis-test
+      TEST_NATS_URL: nats://nats-test:4222
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    networks:
+      - kerp-test-network
+    profiles:
+      - sharded
+
+  # Parallel Test Shard 2
+  test-shard-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: kerp-test-shard-2
+    environment:
+      TEST_SHARD_INDEX: 2
+      TEST_SHARD_TOTAL: 4
+      TEST_DB_HOST: postgres-test
+      TEST_DB_PORT: 5432
+      TEST_DB_NAME: kerp_test
+      TEST_DB_USER: test
+      TEST_DB_PASSWORD: test
+      TEST_REDIS_HOST: redis-test
+      TEST_NATS_URL: nats://nats-test:4222
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    networks:
+      - kerp-test-network
+    profiles:
+      - sharded
+
+  # Parallel Test Shard 3
+  test-shard-3:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: kerp-test-shard-3
+    environment:
+      TEST_SHARD_INDEX: 3
+      TEST_SHARD_TOTAL: 4
+      TEST_DB_HOST: postgres-test
+      TEST_DB_PORT: 5432
+      TEST_DB_NAME: kerp_test
+      TEST_DB_USER: test
+      TEST_DB_PASSWORD: test
+      TEST_REDIS_HOST: redis-test
+      TEST_NATS_URL: nats://nats-test:4222
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    networks:
+      - kerp-test-network
+    profiles:
+      - sharded
+
+  # Parallel Test Shard 4
+  test-shard-4:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: kerp-test-shard-4
+    environment:
+      TEST_SHARD_INDEX: 4
+      TEST_SHARD_TOTAL: 4
+      TEST_DB_HOST: postgres-test
+      TEST_DB_PORT: 5432
+      TEST_DB_NAME: kerp_test
+      TEST_DB_USER: test
+      TEST_DB_PASSWORD: test
+      TEST_REDIS_HOST: redis-test
+      TEST_NATS_URL: nats://nats-test:4222
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    networks:
+      - kerp-test-network
+    profiles:
+      - sharded
+
+  # E2E Test Environment
+  e2e-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    container_name: kerp-e2e-test
+    environment:
+      BASE_URL: http://app:8080
+      BROWSER: chromium
+      HEADLESS: "true"
+    volumes:
+      - .:/app
+      - ./test-results/e2e:/app/test-results
+      - ./tests/e2e/screenshots:/app/screenshots
+    depends_on:
+      - app
+    networks:
+      - kerp-test-network
+    profiles:
+      - e2e
+
+  # Application Server for E2E Tests
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: kerp-app-test
+    environment:
+      ENV: test
+      DB_HOST: postgres-test
+      DB_PORT: 5432
+      DB_NAME: kerp_test
+      DB_USER: test
+      DB_PASSWORD: test
+      REDIS_HOST: redis-test
+      REDIS_PORT: 6379
+      NATS_URL: nats://nats-test:4222
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+      nats-test:
+        condition: service_healthy
+    networks:
+      - kerp-test-network
+    profiles:
+      - e2e
+
+  # Python Test Runner
+  python-test:
+    build:
+      context: ./python-services
+      dockerfile: Dockerfile.test
+    container_name: kerp-python-test
+    environment:
+      PYTHONPATH: /app
+      TEST_DB_HOST: postgres-test
+      TEST_DB_PORT: 5432
+      TEST_DB_NAME: kerp_test
+      TEST_DB_USER: test
+      TEST_DB_PASSWORD: test
+    volumes:
+      - ./python-services:/app
+      - ./test-results/python:/app/test-results
+      - ./coverage/python:/app/coverage
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    networks:
+      - kerp-test-network
+    profiles:
+      - python
+
+  # Performance Test Runner
+  performance-test:
+    image: grafana/k6:latest
+    container_name: kerp-perf-test
+    volumes:
+      - ./tests/performance:/scripts
+      - ./test-results/performance:/results
+    environment:
+      K6_OUT: json=/results/results.json
+    depends_on:
+      - app
+    networks:
+      - kerp-test-network
+    profiles:
+      - performance
+
+volumes:
+  postgres-test-data:
+  nats-test-data:
+  go-mod-cache:
+  go-build-cache:
+
+networks:
+  kerp-test-network:
+    driver: bridge

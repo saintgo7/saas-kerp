@@ -50,63 +50,22 @@ func registerProtectedRoutes(protected *gin.RouterGroup, h *handler.Handlers) {
 
 // registerTenantRoutes registers routes that require both authentication and tenant context
 func registerTenantRoutes(tenant *gin.RouterGroup, h *handler.Handlers) {
-	// Users - Phase 4 will implement
-	users := tenant.Group("/users")
-	{
-		users.GET("", placeholderHandler("List users"))
-		users.POST("", placeholderHandler("Create user"))
-		users.GET("/:id", placeholderHandler("Get user"))
-		users.PUT("/:id", placeholderHandler("Update user"))
-		users.DELETE("/:id", placeholderHandler("Delete user"))
-	}
+	// Accounting routes
+	h.Account.RegisterRoutes(tenant)
+	h.Partner.RegisterRoutes(tenant)
+	h.Voucher.RegisterRoutes(tenant)
+	h.Ledger.RegisterRoutes(tenant)
 
-	// Roles - Phase 4 will implement
-	roles := tenant.Group("/roles")
-	{
-		roles.GET("", placeholderHandler("List roles"))
-		roles.POST("", placeholderHandler("Create role"))
-		roles.GET("/:id", placeholderHandler("Get role"))
-		roles.PUT("/:id", placeholderHandler("Update role"))
-		roles.DELETE("/:id", placeholderHandler("Delete role"))
-	}
+	// User management routes
+	h.User.RegisterRoutes(tenant)
 
-	// Company - Phase 4 will implement
-	company := tenant.Group("/company")
-	{
-		company.GET("", placeholderHandler("Get company"))
-		company.PUT("", placeholderHandler("Update company"))
-	}
+	// Role management routes
+	h.Role.RegisterRoutes(tenant)
 
-	// Partners - Phase 4 will implement
-	partners := tenant.Group("/partners")
-	{
-		partners.GET("", placeholderHandler("List partners"))
-		partners.POST("", placeholderHandler("Create partner"))
-		partners.GET("/:id", placeholderHandler("Get partner"))
-		partners.PUT("/:id", placeholderHandler("Update partner"))
-		partners.DELETE("/:id", placeholderHandler("Delete partner"))
-	}
+	// Company settings routes
+	h.Company.RegisterRoutes(tenant)
 
-	// Projects - Phase 4 will implement
-	projects := tenant.Group("/projects")
-	{
-		projects.GET("", placeholderHandler("List projects"))
-		projects.POST("", placeholderHandler("Create project"))
-		projects.GET("/:id", placeholderHandler("Get project"))
-		projects.PUT("/:id", placeholderHandler("Update project"))
-		projects.DELETE("/:id", placeholderHandler("Delete project"))
-	}
+	// Project management routes
+	h.Project.RegisterRoutes(tenant)
 }
 
-// placeholderHandler returns a handler that indicates the endpoint is not yet implemented
-func placeholderHandler(description string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.JSON(501, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_IMPLEMENTED",
-				"message": description + " - implementation pending (Phase 4)",
-			},
-		})
-	}
-}
