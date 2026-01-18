@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Printer, Search, ChevronDown, ChevronRight } from "lucide-react";
+import { Download, Printer, Search } from "lucide-react";
 import {
   Button,
   Input,
@@ -18,7 +18,7 @@ import {
 import { DateRangePicker } from "@/components/common";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { ledgerApi, accountsApi } from "@/api";
-import type { GeneralLedgerData, GeneralLedgerEntry } from "@/api/ledger";
+import type { GeneralLedgerData } from "@/api/ledger";
 import type { Account, AccountType } from "@/types";
 import { ACCOUNT_TYPES } from "@/constants";
 
@@ -101,7 +101,6 @@ export function GeneralLedgerPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [selectedAccountType, setSelectedAccountType] = useState<AccountType | "">("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set());
 
   // Fetch accounts
   const { data: accountsResponse } = useQuery({
@@ -149,18 +148,6 @@ export function GeneralLedgerPage() {
 
   const handleAccountSelect = (accountId: string) => {
     setSelectedAccountId(accountId);
-  };
-
-  const toggleAccountExpand = (accountId: string) => {
-    setExpandedAccounts((prev) => {
-      const next = new Set(prev);
-      if (next.has(accountId)) {
-        next.delete(accountId);
-      } else {
-        next.add(accountId);
-      }
-      return next;
-    });
   };
 
   const getAccountTypeLabel = (type: AccountType) => {

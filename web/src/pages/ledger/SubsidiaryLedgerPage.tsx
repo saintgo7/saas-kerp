@@ -18,10 +18,9 @@ import {
 } from "@/components/ui";
 import { DateRangePicker } from "@/components/common";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { ledgerApi, accountsApi } from "@/api";
+import { ledgerApi } from "@/api";
 import type { SubsidiaryLedgerData } from "@/api/ledger";
-import type { Account, AccountType } from "@/types";
-import { ACCOUNT_TYPES } from "@/constants";
+import type { Account } from "@/types";
 
 // Mock data for development
 const mockSubsidiaryData: SubsidiaryLedgerData[] = [
@@ -161,8 +160,10 @@ export function SubsidiaryLedgerPage() {
     enabled: !!selectedAccountId && !!startDate && !!endDate,
   });
 
-  // Use mock data if no real data
-  const ledgerDataList = ledgerResponse?.data || (selectedAccountId ? mockSubsidiaryData : []);
+  // Use mock data if no real data, wrapped in useMemo for stable reference
+  const ledgerDataList = useMemo(() => {
+    return ledgerResponse?.data || (selectedAccountId ? mockSubsidiaryData : []);
+  }, [ledgerResponse?.data, selectedAccountId]);
 
   // Filter by search term
   const filteredLedgerData = useMemo(() => {
@@ -211,10 +212,6 @@ export function SubsidiaryLedgerPage() {
 
   const collapseAll = () => {
     setExpandedPartners(new Set());
-  };
-
-  const getAccountTypeLabel = (type: AccountType) => {
-    return ACCOUNT_TYPES.find((t) => t.value === type)?.label || type;
   };
 
   const selectedAccount = subsidiaryAccounts.find((a) => a.id === selectedAccountId);

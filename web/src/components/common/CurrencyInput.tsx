@@ -1,4 +1,4 @@
-import { forwardRef, useState, useCallback, useEffect } from "react";
+import { forwardRef, useState, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 
 interface CurrencyInputProps
@@ -44,18 +44,23 @@ export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(
       return isNaN(num) ? 0 : num;
     }, []);
 
-    // Local display value (formatted)
-    const [displayValue, setDisplayValue] = useState(() => formatNumber(value as number));
+    // Track if user is actively editing and their local input
+    const [editState, setEditState] = useState<{ isEditing: boolean; localValue: string }>({
+      isEditing: false,
+      localValue: "",
+    });
 
-    // Update display when external value changes
-    useEffect(() => {
-      const numValue = typeof value === "string" ? parseFloat(value) : (value as number);
-      if (!isNaN(numValue)) {
-        setDisplayValue(formatNumber(numValue));
-      } else if (value === "" || value === undefined) {
-        setDisplayValue("");
+    // Compute display value from controlled value prop
+    const controlledDisplayValue = useMemo(() => {
+      const numValue = typeof value === "string" ? parseFloat(value as string) : (value as number);
+      if (!isNaN(numValue) && numValue !== 0) {
+        return formatNumber(numValue);
       }
+      return "";
     }, [value, formatNumber]);
+
+    // Use local value when editing, otherwise use controlled value
+    const displayValue = editState.isEditing ? editState.localValue : controlledDisplayValue;
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       let inputValue = e.target.value;
@@ -80,8 +85,9 @@ export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(
         numValue = 0;
       }
 
-      // Format for display
-      setDisplayValue(formatNumber(numValue));
+      // Update local display value
+      const formattedValue = formatNumber(numValue);
+      setEditState({ isEditing: true, localValue: formattedValue });
 
       // Create synthetic event with numeric value for form handling
       if (onChange) {
@@ -98,9 +104,8 @@ export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(
     };
 
     const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-      // Ensure value is properly formatted on blur
-      const numValue = parseNumber(displayValue);
-      setDisplayValue(numValue > 0 ? formatNumber(numValue) : "");
+      // Exit editing mode and let controlled value take over
+      setEditState({ isEditing: false, localValue: "" });
 
       if (props.onBlur) {
         props.onBlur(e);
@@ -108,6 +113,8 @@ export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(
     };
 
     const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+      // Enter editing mode with current controlled value
+      setEditState({ isEditing: true, localValue: controlledDisplayValue });
       // Select all on focus for easy editing
       e.target.select();
 
