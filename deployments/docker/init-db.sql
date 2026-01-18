@@ -73,7 +73,7 @@ INSERT INTO kerp.users (company_id, email, password_hash, name, role)
 VALUES (
     '00000000-0000-0000-0000-000000000001',
     'admin@demo.com',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZRGdjGj/n3.a.I0Z1FT0mSQ1.WtKy',
+    '$2a$10$b.KnLPr0/OTgyx2F7y7v2uXcH/ZHTAE7tTK9Auw2t15MZdOQ8cdz.',
     'Demo Admin',
     'admin'
 ) ON CONFLICT DO NOTHING;
