@@ -157,7 +157,7 @@ const mockApiKeys: ApiKey[] = [
   {
     id: "3",
     name: "테스트용",
-    key: "sk_test_0987654321fedcba0987654321fedcba",
+    key: "kerp_test_xxxxxxxxxxxx0987654321",
     createdAt: "2024-01-05",
     isActive: false,
   },
@@ -259,7 +259,7 @@ export function IntegrationPage() {
   const onSubmitApiKey = async (data: ApiKeyFormData) => {
     try {
       // Generate random API key (in real implementation, this would come from server)
-      const newKey = `sk_live_${Math.random().toString(36).substring(2)}${Math.random().toString(36).substring(2)}`;
+      const newKey = `kerp_api_${Math.random().toString(36).substring(2)}${Date.now().toString(36)}`;
       const newApiKey: ApiKey = {
         id: Date.now().toString(),
         name: data.name,

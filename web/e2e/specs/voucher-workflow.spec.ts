@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 
 // Helper function to login (to be used when auth is working)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function login(page: Page, email: string, password: string) {
   await page.goto('/login');
   await page.getByLabel(/이메일/).fill(email);
@@ -31,7 +32,7 @@ async function setAuthState(page: Page) {
 
 test.describe('Voucher Workflow', () => {
   // Skip these tests when running in CI without backend
-  test.skip(({ browserName }) => {
+  test.skip(() => {
     return process.env.CI === 'true' && !process.env.BACKEND_URL;
   });
 

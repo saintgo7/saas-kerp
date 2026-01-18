@@ -23,6 +23,7 @@ interface AllProvidersProps {
 }
 
 // Provider wrapper for tests
+// eslint-disable-next-line react-refresh/only-export-components
 const AllProviders = ({ children }: AllProvidersProps) => {
   const queryClient = createTestQueryClient();
 
@@ -38,6 +39,7 @@ const customRender = (ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>
   render(ui, { wrapper: AllProviders, ...options });
 
 // Re-export everything from testing-library
+// eslint-disable-next-line react-refresh/only-export-components
 export * from '@testing-library/react';
 export { customRender as render };
 
