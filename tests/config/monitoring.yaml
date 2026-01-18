@@ -1,0 +1,460 @@
+# Test Monitoring & Analytics Configuration
+# K-ERP SaaS Platform - Test Observability System
+
+version: "1.0"
+
+# Metrics Collection
+metrics:
+  # Prometheus metrics endpoint
+  prometheus:
+    enabled: true
+    port: 9090
+    path: /metrics
+    labels:
+      project: k-erp
+      team: platform
+
+  # Metrics to collect
+  collectors:
+    # Test execution metrics
+    test_execution:
+      - name: test_duration_seconds
+        type: histogram
+        description: "Test execution duration in seconds"
+        buckets: [0.1, 0.5, 1, 2, 5, 10, 30, 60, 120]
+        labels:
+          - test_type
+          - test_name
+          - status
+
+      - name: test_total
+        type: counter
+        description: "Total number of tests executed"
+        labels:
+          - test_type
+          - status
+          - shard
+
+      - name: test_failures_total
+        type: counter
+        description: "Total number of test failures"
+        labels:
+          - test_type
+          - failure_type
+          - error_category
+
+      - name: test_flaky_total
+        type: counter
+        description: "Total number of flaky test occurrences"
+        labels:
+          - test_type
+          - test_name
+
+    # Coverage metrics
+    coverage:
+      - name: code_coverage_percent
+        type: gauge
+        description: "Code coverage percentage"
+        labels:
+          - test_type
+          - package
+          - branch
+
+      - name: coverage_lines_total
+        type: gauge
+        description: "Total lines covered"
+        labels:
+          - test_type
+          - package
+
+    # Resource metrics
+    resources:
+      - name: test_memory_bytes
+        type: gauge
+        description: "Memory used during test execution"
+        labels:
+          - test_type
+          - shard
+
+      - name: test_cpu_seconds
+        type: counter
+        description: "CPU time consumed during tests"
+        labels:
+          - test_type
+          - shard
+
+    # Pipeline metrics
+    pipeline:
+      - name: pipeline_duration_seconds
+        type: histogram
+        description: "CI/CD pipeline duration"
+        buckets: [60, 120, 300, 600, 900, 1800, 3600]
+        labels:
+          - pipeline_type
+          - stage
+          - status
+
+      - name: pipeline_queue_time_seconds
+        type: histogram
+        description: "Time spent in queue before execution"
+        labels:
+          - runner_type
+
+# Alerting Rules
+alerting:
+  # Alert manager configuration
+  alertmanager:
+    enabled: true
+    endpoints:
+      - http://alertmanager:9093
+
+  rules:
+    # Test failure alerts
+    - name: HighTestFailureRate
+      condition: |
+        rate(test_failures_total[5m]) / rate(test_total[5m]) > 0.1
+      for: 5m
+      severity: warning
+      annotations:
+        summary: "High test failure rate detected"
+        description: "Test failure rate is above 10% for the last 5 minutes"
+
+    - name: CriticalTestFailure
+      condition: |
+        increase(test_failures_total{test_type="unit"}[1h]) > 50
+      for: 1m
+      severity: critical
+      annotations:
+        summary: "Critical: Many unit tests failing"
+        description: "More than 50 unit tests failed in the last hour"
+
+    # Coverage alerts
+    - name: LowCoverage
+      condition: |
+        code_coverage_percent < 70
+      for: 0m
+      severity: warning
+      annotations:
+        summary: "Code coverage below threshold"
+        description: "Coverage dropped below 70%"
+
+    - name: CoverageRegression
+      condition: |
+        delta(code_coverage_percent[1d]) < -5
+      for: 0m
+      severity: warning
+      annotations:
+        summary: "Coverage regression detected"
+        description: "Coverage dropped by more than 5% in 24 hours"
+
+    # Flaky test alerts
+    - name: FlakyTestDetected
+      condition: |
+        increase(test_flaky_total[24h]) > 3
+      for: 0m
+      severity: info
+      annotations:
+        summary: "Flaky tests detected"
+        description: "Test {{ $labels.test_name }} failed intermittently"
+
+    # Performance alerts
+    - name: SlowTests
+      condition: |
+        histogram_quantile(0.95, rate(test_duration_seconds_bucket[1h])) > 60
+      for: 5m
+      severity: warning
+      annotations:
+        summary: "Slow tests detected"
+        description: "95th percentile test duration exceeds 60 seconds"
+
+    # Pipeline alerts
+    - name: LongPipelineDuration
+      condition: |
+        pipeline_duration_seconds > 1800
+      for: 0m
+      severity: warning
+      annotations:
+        summary: "Pipeline taking too long"
+        description: "Pipeline execution exceeded 30 minutes"
+
+# Test Result Storage
+storage:
+  # Database for test results
+  database:
+    type: postgres
+    connection:
+      host: ${DB_HOST}
+      port: ${DB_PORT}
+      database: kerp_test_analytics
+      user: ${DB_USER}
+      password: ${DB_PASSWORD}
+
+    # Tables
+    schema:
+      test_runs:
+        columns:
+          - name: id
+            type: uuid
+            primary_key: true
+          - name: run_id
+            type: varchar(255)
+            index: true
+          - name: branch
+            type: varchar(255)
+            index: true
+          - name: commit_sha
+            type: varchar(40)
+          - name: test_type
+            type: varchar(50)
+          - name: started_at
+            type: timestamp
+          - name: completed_at
+            type: timestamp
+          - name: status
+            type: varchar(20)
+          - name: total_tests
+            type: integer
+          - name: passed
+            type: integer
+          - name: failed
+            type: integer
+          - name: skipped
+            type: integer
+          - name: duration_ms
+            type: bigint
+          - name: coverage_percent
+            type: decimal(5,2)
+
+      test_results:
+        columns:
+          - name: id
+            type: uuid
+            primary_key: true
+          - name: run_id
+            type: uuid
+            foreign_key: test_runs.id
+          - name: test_name
+            type: varchar(500)
+          - name: test_file
+            type: varchar(500)
+          - name: package
+            type: varchar(255)
+          - name: status
+            type: varchar(20)
+          - name: duration_ms
+            type: integer
+          - name: error_message
+            type: text
+          - name: stack_trace
+            type: text
+          - name: retry_count
+            type: integer
+
+      flaky_tests:
+        columns:
+          - name: id
+            type: uuid
+            primary_key: true
+          - name: test_name
+            type: varchar(500)
+            index: true
+          - name: test_file
+            type: varchar(500)
+          - name: first_seen
+            type: timestamp
+          - name: last_seen
+            type: timestamp
+          - name: failure_count
+            type: integer
+          - name: total_runs
+            type: integer
+          - name: flakiness_rate
+            type: decimal(5,2)
+          - name: status
+            type: varchar(20)  # active, resolved, ignored
+
+    # Retention policy
+    retention:
+      test_runs: 90d
+      test_results: 30d
+      flaky_tests: 180d
+
+# Reporting
+reporting:
+  # Report generation
+  generators:
+    # JUnit XML reports
+    junit:
+      enabled: true
+      output_path: test-results/junit/
+      merge_reports: true
+
+    # HTML reports
+    html:
+      enabled: true
+      output_path: test-results/html/
+      template: default
+      include_charts: true
+
+    # JSON reports
+    json:
+      enabled: true
+      output_path: test-results/json/
+      pretty_print: true
+
+    # Coverage reports
+    coverage:
+      enabled: true
+      formats:
+        - html
+        - lcov
+        - cobertura
+      output_path: coverage/
+
+  # Report publishing
+  publish:
+    # S3 storage
+    s3:
+      enabled: true
+      bucket: k-erp-test-reports
+      region: ap-northeast-2
+      prefix: "{{ .Branch }}/{{ .RunID }}/"
+      retention_days: 90
+
+    # GitHub Pages
+    github_pages:
+      enabled: true
+      branch: gh-pages
+      path: test-reports/
+
+# Dashboards
+dashboards:
+  # Grafana dashboard configuration
+  grafana:
+    enabled: true
+    folder: K-ERP Testing
+
+    panels:
+      # Test execution overview
+      - title: Test Execution Overview
+        type: stat
+        queries:
+          - expr: sum(test_total)
+            legend: Total Tests
+          - expr: sum(test_total{status="passed"})
+            legend: Passed
+          - expr: sum(test_total{status="failed"})
+            legend: Failed
+
+      # Test duration trends
+      - title: Test Duration Trends
+        type: graph
+        queries:
+          - expr: histogram_quantile(0.50, rate(test_duration_seconds_bucket[1h]))
+            legend: p50
+          - expr: histogram_quantile(0.95, rate(test_duration_seconds_bucket[1h]))
+            legend: p95
+          - expr: histogram_quantile(0.99, rate(test_duration_seconds_bucket[1h]))
+            legend: p99
+
+      # Coverage trends
+      - title: Code Coverage Trends
+        type: graph
+        queries:
+          - expr: code_coverage_percent{test_type="unit"}
+            legend: Unit Coverage
+          - expr: code_coverage_percent{test_type="integration"}
+            legend: Integration Coverage
+
+      # Failure rate
+      - title: Test Failure Rate
+        type: graph
+        queries:
+          - expr: |
+              rate(test_failures_total[1h]) / rate(test_total[1h]) * 100
+            legend: Failure Rate %
+
+      # Flaky tests
+      - title: Flaky Tests
+        type: table
+        queries:
+          - expr: topk(10, test_flaky_total)
+            columns:
+              - test_name
+              - count
+
+      # Pipeline performance
+      - title: Pipeline Duration
+        type: graph
+        queries:
+          - expr: pipeline_duration_seconds
+            legend: "{{ stage }}"
+
+# Analytics
+analytics:
+  # Flaky test detection
+  flaky_detection:
+    enabled: true
+    window: 7d
+    min_runs: 5
+    threshold: 0.1  # 10% failure rate
+
+  # Performance regression detection
+  regression_detection:
+    enabled: true
+    baseline_window: 7d
+    threshold: 1.5  # 50% slower than baseline
+
+  # Test impact analysis
+  impact_analysis:
+    enabled: true
+    track_file_changes: true
+    map_tests_to_code: true
+
+  # AI-powered insights
+  ai_insights:
+    enabled: false  # Future feature
+    provider: openai
+    model: gpt-4
+    features:
+      - failure_root_cause
+      - test_recommendations
+      - coverage_suggestions
+
+# Notifications
+notifications:
+  # Slack integration
+  slack:
+    enabled: true
+    webhook_url: ${SLACK_WEBHOOK_URL}
+    channel: "#k-erp-ci"
+    events:
+      - pipeline_failure
+      - coverage_regression
+      - flaky_test_detected
+      - long_running_tests
+
+  # Email notifications
+  email:
+    enabled: true
+    smtp:
+      host: ${SMTP_HOST}
+      port: 587
+      username: ${SMTP_USER}
+      password: ${SMTP_PASSWORD}
+    from: ci@kerp.example.com
+    recipients:
+      - dev@kerp.example.com
+    events:
+      - pipeline_failure
+      - weekly_summary
+
+  # GitHub comments
+  github:
+    enabled: true
+    token: ${GITHUB_TOKEN}
+    comment_on_pr: true
+    include:
+      - test_summary
+      - coverage_diff
+      - failed_tests

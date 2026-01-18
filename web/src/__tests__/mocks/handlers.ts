@@ -166,7 +166,7 @@ export const handlers = [
   }),
 
   http.put(`${API_BASE}/vouchers/:id`, async ({ params, request }) => {
-    const body = await request.json();
+    const body = await request.json() as Record<string, unknown>;
     const voucher = sampleVouchers.find((v) => v.id === params.id);
 
     if (!voucher) {

@@ -1,5 +1,5 @@
-import React, { ReactElement } from 'react';
-import { render, RenderOptions } from '@testing-library/react';
+import React, { type ReactElement } from 'react';
+import { render, type RenderOptions } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 
@@ -105,8 +105,9 @@ export const createMockUser = (overrides = {}) => ({
   id: `usr-${Date.now()}`,
   email: 'test@example.com',
   name: 'Test User',
-  role: 'admin',
+  role: 'admin' as const,
   companyId: 'comp-001',
-  companyName: 'Test Company',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
   ...overrides,
 });
