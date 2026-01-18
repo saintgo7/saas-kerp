@@ -589,7 +589,7 @@ func TestVoucherService_Reverse(t *testing.T) {
 		originalVoucher.VoucherNo = "GEN-2024-0001"
 
 		// Find original
-		voucherRepo.On("FindByID", ctx, companyID, originalVoucher.ID).Return(originalVoucher, nil).Twice()
+		voucherRepo.On("FindByID", ctx, companyID, originalVoucher.ID).Return(originalVoucher, nil).Once()
 
 		// Validate accounts for reversal entries
 		for _, entry := range originalVoucher.Entries {
