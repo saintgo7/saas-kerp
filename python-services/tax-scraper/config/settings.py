@@ -1,7 +1,11 @@
 """
 Tax Scraper Service Configuration
+
+Loads configuration from environment variables with sensible defaults.
 """
+
 from functools import lru_cache
+from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,11 +18,12 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # Service
     service_name: str = "tax-scraper"
-    service_version: str = "0.1.0"
+    service_version: str = "0.2.0"
     environment: str = Field(default="development", alias="ENV")
     debug: bool = False
 
@@ -38,12 +43,18 @@ class Settings(BaseSettings):
     browser_headless: bool = True
     browser_slow_mo: int = 0
     browser_timeout: int = 30000
+    playwright_headless: bool = True  # Alias for backward compatibility
+
+    # Popbill API Configuration
+    popbill_link_id: str = Field(default="", alias="POPBILL_LINK_ID")
+    popbill_secret_key: str = Field(default="", alias="POPBILL_SECRET_KEY")
+    popbill_is_test: bool = Field(default=True, alias="POPBILL_IS_TEST")
 
     # Redis
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
-    redis_password: str | None = None
+    redis_password: Optional[str] = None
 
     # Encryption
     seed_key: str = Field(default="", alias="SEED_ENCRYPTION_KEY")

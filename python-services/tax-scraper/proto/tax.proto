@@ -1,0 +1,365 @@
+// Tax Invoice Service Protocol Buffer Definition
+// K-ERP SaaS - Phase 5: Tax/Hometax Integration
+
+syntax = "proto3";
+
+package kerp.tax.v1;
+
+option go_package = "github.com/kerp/api/proto/tax/v1;taxv1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// TaxInvoiceService provides operations for Korean tax invoice management
+// through integration with the National Tax Service (Hometax) system and Popbill API.
+service TaxInvoiceService {
+  // Login to Hometax with certificate or credentials
+  rpc Login(LoginRequest) returns (LoginResponse);
+
+  // Logout and invalidate session
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+  // Retrieve tax invoices from Hometax
+  rpc GetTaxInvoices(GetTaxInvoicesRequest) returns (GetTaxInvoicesResponse);
+
+  // Issue a new tax invoice via Hometax or Popbill
+  rpc IssueTaxInvoice(IssueTaxInvoiceRequest) returns (IssueTaxInvoiceResponse);
+
+  // Cancel an issued tax invoice
+  rpc CancelTaxInvoice(CancelTaxInvoiceRequest) returns (CancelTaxInvoiceResponse);
+
+  // Get status of a specific tax invoice
+  rpc GetTaxInvoiceStatus(GetTaxInvoiceStatusRequest) returns (GetTaxInvoiceStatusResponse);
+
+  // Sync tax invoices from Hometax to local database
+  rpc SyncFromHometax(SyncFromHometaxRequest) returns (SyncFromHometaxResponse);
+
+  // Stream real-time invoice notifications
+  rpc StreamInvoiceNotifications(StreamNotificationsRequest) returns (stream InvoiceNotification);
+
+  // Health check
+  rpc HealthCheck(google.protobuf.Empty) returns (HealthCheckResponse);
+}
+
+// PopbillService provides Popbill ASP API integration for tax invoice operations
+service PopbillService {
+  // Issue tax invoice via Popbill API
+  rpc IssueTaxInvoice(PopbillIssueRequest) returns (PopbillIssueResponse);
+
+  // Query tax invoice from Popbill
+  rpc QueryTaxInvoice(PopbillQueryRequest) returns (PopbillQueryResponse);
+
+  // Cancel tax invoice via Popbill
+  rpc CancelTaxInvoice(PopbillCancelRequest) returns (PopbillCancelResponse);
+
+  // Get remaining API points
+  rpc GetBalance(PopbillBalanceRequest) returns (PopbillBalanceResponse);
+
+  // Register webhook for notifications
+  rpc RegisterWebhook(PopbillWebhookRequest) returns (PopbillWebhookResponse);
+}
+
+// Authentication type for Hometax login
+enum AuthType {
+  AUTH_TYPE_UNSPECIFIED = 0;
+  AUTH_TYPE_CERTIFICATE = 1;  // NPKI certificate
+  AUTH_TYPE_SIMPLE_AUTH = 2;  // Simple authentication (ARS, etc.)
+  AUTH_TYPE_ID_PASSWORD = 3;  // ID/Password
+}
+
+// Tax invoice type
+enum InvoiceType {
+  INVOICE_TYPE_UNSPECIFIED = 0;
+  INVOICE_TYPE_SALES = 1;      // Sales invoice (issued)
+  INVOICE_TYPE_PURCHASE = 2;   // Purchase invoice (received)
+}
+
+// Tax invoice status
+enum InvoiceStatus {
+  INVOICE_STATUS_UNSPECIFIED = 0;
+  INVOICE_STATUS_DRAFT = 1;
+  INVOICE_STATUS_ISSUED = 2;
+  INVOICE_STATUS_TRANSMITTED = 3;  // Sent to NTS
+  INVOICE_STATUS_CONFIRMED = 4;    // Confirmed by NTS
+  INVOICE_STATUS_CANCELLED = 5;
+  INVOICE_STATUS_REJECTED = 6;     // Rejected by NTS
+}
+
+// Provider type for tax invoice issuance
+enum ProviderType {
+  PROVIDER_TYPE_UNSPECIFIED = 0;
+  PROVIDER_TYPE_HOMETAX = 1;   // Direct Hometax scraping
+  PROVIDER_TYPE_POPBILL = 2;   // Popbill ASP API
+}
+
+// Login request message
+message LoginRequest {
+  string business_number = 1;
+  AuthType auth_type = 2;
+  optional string cert_password = 3;
+  optional bytes cert_data = 4;
+  optional string user_id = 5;
+  optional string password = 6;
+  string company_id = 7;
+}
+
+// Login response message
+message LoginResponse {
+  bool success = 1;
+  string session_id = 2;
+  string expires_at = 3;
+  string company_name = 4;
+  string error_message = 5;
+  string error_code = 6;
+}
+
+// Logout request message
+message LogoutRequest {
+  string session_id = 1;
+}
+
+// Logout response message
+message LogoutResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// Get tax invoices request
+message GetTaxInvoicesRequest {
+  string session_id = 1;
+  string start_date = 2;
+  string end_date = 3;
+  optional InvoiceType invoice_type = 4;
+  optional string business_number = 5;
+  optional int64 min_amount = 6;
+  optional int64 max_amount = 7;
+  int32 page = 8;
+  int32 page_size = 9;
+}
+
+// Get tax invoices response
+message GetTaxInvoicesResponse {
+  bool success = 1;
+  repeated TaxInvoice invoices = 2;
+  int32 total_count = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+  string error_message = 6;
+}
+
+// Tax invoice message
+message TaxInvoice {
+  string invoice_number = 1;
+  string issue_date = 2;
+  InvoiceType invoice_type = 3;
+  InvoiceStatus status = 4;
+
+  // Supplier (seller) information
+  string supplier_business_number = 10;
+  string supplier_name = 11;
+  string supplier_ceo_name = 12;
+  string supplier_address = 13;
+  string supplier_business_type = 14;
+  string supplier_business_item = 15;
+  string supplier_email = 16;
+
+  // Buyer (purchaser) information
+  string buyer_business_number = 20;
+  string buyer_name = 21;
+  string buyer_ceo_name = 22;
+  string buyer_address = 23;
+  string buyer_business_type = 24;
+  string buyer_business_item = 25;
+  string buyer_email = 26;
+
+  // Amount information (in KRW)
+  int64 supply_amount = 30;
+  int64 tax_amount = 31;
+  int64 total_amount = 32;
+
+  // Items
+  repeated TaxInvoiceItem items = 40;
+
+  // NTS information
+  string nts_confirm_number = 50;
+  string nts_transmitted_at = 51;
+
+  // Metadata
+  string remarks = 60;
+  string created_at = 61;
+  string updated_at = 62;
+}
+
+// Tax invoice item
+message TaxInvoiceItem {
+  int32 sequence = 1;
+  string supply_date = 2;
+  string description = 3;
+  string specification = 4;
+  int32 quantity = 5;
+  int64 unit_price = 6;
+  int64 amount = 7;
+  int64 tax_amount = 8;
+  string remarks = 9;
+}
+
+// Issue tax invoice request
+message IssueTaxInvoiceRequest {
+  string session_id = 1;
+  TaxInvoice invoice = 2;
+  bool transmit_immediately = 3;
+  ProviderType provider = 4;
+}
+
+// Issue tax invoice response
+message IssueTaxInvoiceResponse {
+  bool success = 1;
+  string invoice_number = 2;
+  string issue_date = 3;
+  string nts_confirm_number = 4;
+  string error_message = 5;
+  string error_code = 6;
+}
+
+// Cancel tax invoice request
+message CancelTaxInvoiceRequest {
+  string session_id = 1;
+  string invoice_number = 2;
+  string cancel_reason = 3;
+}
+
+// Cancel tax invoice response
+message CancelTaxInvoiceResponse {
+  bool success = 1;
+  string cancelled_at = 2;
+  string error_message = 3;
+}
+
+// Get tax invoice status request
+message GetTaxInvoiceStatusRequest {
+  string session_id = 1;
+  string invoice_number = 2;
+}
+
+// Get tax invoice status response
+message GetTaxInvoiceStatusResponse {
+  bool success = 1;
+  string invoice_number = 2;
+  InvoiceStatus status = 3;
+  string nts_confirm_number = 4;
+  string last_updated = 5;
+  string error_message = 6;
+}
+
+// Sync from Hometax request
+message SyncFromHometaxRequest {
+  string session_id = 1;
+  string start_date = 2;
+  string end_date = 3;
+  InvoiceType invoice_type = 4;
+  string company_id = 5;
+}
+
+// Sync from Hometax response
+message SyncFromHometaxResponse {
+  bool success = 1;
+  int32 synced_count = 2;
+  int32 new_count = 3;
+  int32 updated_count = 4;
+  repeated string errors = 5;
+  string error_message = 6;
+}
+
+// Stream notifications request
+message StreamNotificationsRequest {
+  string session_id = 1;
+  repeated InvoiceType invoice_types = 2;
+}
+
+// Invoice notification
+message InvoiceNotification {
+  string notification_id = 1;
+  string invoice_number = 2;
+  InvoiceType invoice_type = 3;
+  InvoiceStatus status = 4;
+  string message = 5;
+  string timestamp = 6;
+}
+
+// Health check response
+message HealthCheckResponse {
+  bool healthy = 1;
+  string version = 2;
+  string uptime = 3;
+  map<string, bool> services = 4;
+}
+
+// Popbill API messages
+message PopbillIssueRequest {
+  string company_id = 1;
+  string corp_num = 2;  // Business registration number
+  TaxInvoice invoice = 3;
+  string memo = 4;
+  bool force_send = 5;  // Send to NTS immediately
+}
+
+message PopbillIssueResponse {
+  bool success = 1;
+  string ntsa_key = 2;  // Popbill internal key
+  string invoice_number = 3;
+  string nts_confirm_number = 4;
+  string error_code = 5;
+  string error_message = 6;
+}
+
+message PopbillQueryRequest {
+  string company_id = 1;
+  string corp_num = 2;
+  string invoice_number = 3;
+}
+
+message PopbillQueryResponse {
+  bool success = 1;
+  TaxInvoice invoice = 2;
+  string error_code = 3;
+  string error_message = 4;
+}
+
+message PopbillCancelRequest {
+  string company_id = 1;
+  string corp_num = 2;
+  string invoice_number = 3;
+  string cancel_reason = 4;
+}
+
+message PopbillCancelResponse {
+  bool success = 1;
+  string cancelled_at = 2;
+  string error_code = 3;
+  string error_message = 4;
+}
+
+message PopbillBalanceRequest {
+  string company_id = 1;
+  string corp_num = 2;
+}
+
+message PopbillBalanceResponse {
+  bool success = 1;
+  int64 balance = 2;  // Remaining API points
+  string error_code = 3;
+  string error_message = 4;
+}
+
+message PopbillWebhookRequest {
+  string company_id = 1;
+  string corp_num = 2;
+  string callback_url = 3;
+}
+
+message PopbillWebhookResponse {
+  bool success = 1;
+  string webhook_id = 2;
+  string error_code = 3;
+  string error_message = 4;
+}
