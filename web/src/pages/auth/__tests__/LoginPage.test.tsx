@@ -175,7 +175,7 @@ describe('LoginPage', () => {
       const passwordInput = screen.getByLabelText(/비밀번호/i);
       const toggleButtons = screen.getAllByRole('button');
       const toggleButton = toggleButtons.find(
-        (btn) => btn.querySelector('svg') !== null && btn.type === 'button'
+        (btn) => btn.querySelector('svg') !== null && (btn as HTMLButtonElement).type === 'button'
       );
 
       expect(passwordInput).toHaveAttribute('type', 'password');

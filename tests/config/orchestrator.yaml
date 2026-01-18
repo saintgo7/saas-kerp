@@ -1,0 +1,342 @@
+# Test Automation Orchestrator Configuration
+# K-ERP SaaS Platform - Test Orchestration System
+
+version: "1.0"
+project: "k-erp-saas"
+
+# Test Discovery Configuration
+discovery:
+  # Go tests
+  go:
+    enabled: true
+    patterns:
+      - "**/*_test.go"
+    exclude:
+      - "**/vendor/**"
+      - "**/testdata/**"
+    timeout: "5m"
+
+  # Python tests
+  python:
+    enabled: true
+    patterns:
+      - "**/test_*.py"
+      - "**/*_test.py"
+    exclude:
+      - "**/venv/**"
+      - "**/__pycache__/**"
+    framework: "pytest"
+    timeout: "10m"
+
+  # Frontend tests
+  frontend:
+    enabled: true
+    patterns:
+      - "**/*.test.ts"
+      - "**/*.test.tsx"
+      - "**/*.spec.ts"
+      - "**/*.spec.tsx"
+    exclude:
+      - "**/node_modules/**"
+      - "**/dist/**"
+    framework: "vitest"
+    timeout: "5m"
+
+  # E2E tests
+  e2e:
+    enabled: true
+    patterns:
+      - "tests/e2e/**/*.ts"
+      - "tests/e2e/**/*.spec.ts"
+    framework: "playwright"
+    timeout: "15m"
+
+# Test Classification
+classification:
+  categories:
+    unit:
+      priority: 1
+      parallel: true
+      max_workers: 8
+      tags: ["unit", "fast"]
+
+    integration:
+      priority: 2
+      parallel: true
+      max_workers: 4
+      tags: ["integration", "db"]
+      dependencies:
+        - "unit"
+
+    api:
+      priority: 3
+      parallel: true
+      max_workers: 4
+      tags: ["api", "http"]
+      dependencies:
+        - "integration"
+
+    e2e:
+      priority: 4
+      parallel: false
+      max_workers: 1
+      tags: ["e2e", "browser"]
+      dependencies:
+        - "api"
+
+    performance:
+      priority: 5
+      parallel: false
+      max_workers: 1
+      tags: ["perf", "load", "stress"]
+      dependencies:
+        - "e2e"
+
+# Execution Strategy
+execution:
+  # Default execution mode
+  mode: "parallel"  # parallel, sequential, hybrid
+
+  # Fail-fast configuration
+  fail_fast:
+    enabled: false
+    threshold: 5  # Stop after N failures
+
+  # Retry configuration
+  retry:
+    enabled: true
+    max_attempts: 3
+    delay: "5s"
+    exponential_backoff: true
+
+  # Timeout configuration
+  timeouts:
+    unit: "30s"
+    integration: "2m"
+    api: "1m"
+    e2e: "5m"
+    performance: "30m"
+
+  # Resource limits
+  resources:
+    max_memory: "4Gi"
+    max_cpu: "4"
+
+# Dependency Management
+dependencies:
+  # External service dependencies
+  services:
+    postgres:
+      required_for: ["integration", "api", "e2e"]
+      health_check:
+        endpoint: "localhost:5432"
+        timeout: "30s"
+
+    redis:
+      required_for: ["integration", "api"]
+      health_check:
+        endpoint: "localhost:6379"
+        timeout: "10s"
+
+    nats:
+      required_for: ["integration"]
+      health_check:
+        endpoint: "localhost:4222"
+        timeout: "10s"
+
+  # Test data dependencies
+  fixtures:
+    seed_data:
+      required_for: ["integration", "api", "e2e"]
+      setup_script: "scripts/setup-test-data.sh"
+      teardown_script: "scripts/cleanup-test-data.sh"
+
+# Resource Optimization
+optimization:
+  # Parallel execution settings
+  parallel:
+    # Go test parallelism
+    go:
+      packages_parallel: true
+      tests_parallel: true
+      race_detection: true
+
+    # Python test parallelism
+    python:
+      workers: 4
+      dist: "loadfile"
+
+    # Frontend test parallelism
+    frontend:
+      workers: 4
+      shard: false
+
+  # Caching
+  cache:
+    enabled: true
+    backend: "local"  # local, redis, s3
+    ttl: "1h"
+    paths:
+      - ".go-build-cache"
+      - ".pytest_cache"
+      - "node_modules/.vitest"
+
+  # Test splitting
+  splitting:
+    enabled: true
+    strategy: "time"  # time, count, file
+    chunks: 4
+
+# Pipeline Integration
+pipeline:
+  # CI/CD system
+  ci_system: "github-actions"
+
+  # Stage definitions
+  stages:
+    lint:
+      order: 1
+      parallel: true
+      commands:
+        - "make lint"
+        - "make fmt-check"
+
+    unit_tests:
+      order: 2
+      parallel: true
+      depends_on: ["lint"]
+      commands:
+        - "make test-unit"
+
+    integration_tests:
+      order: 3
+      parallel: true
+      depends_on: ["unit_tests"]
+      services:
+        - "postgres"
+        - "redis"
+      commands:
+        - "make test-integration"
+
+    api_tests:
+      order: 4
+      parallel: true
+      depends_on: ["integration_tests"]
+      commands:
+        - "make test-api"
+
+    e2e_tests:
+      order: 5
+      parallel: false
+      depends_on: ["api_tests"]
+      services:
+        - "postgres"
+        - "redis"
+        - "nats"
+      commands:
+        - "make test-e2e"
+
+    coverage_report:
+      order: 6
+      depends_on: ["unit_tests", "integration_tests", "api_tests"]
+      commands:
+        - "make coverage-report"
+
+  # Failure handling
+  failure_handling:
+    notify:
+      - slack
+      - email
+    artifact_collection:
+      - "coverage/"
+      - "test-results/"
+      - "screenshots/"
+    retry_policy:
+      max_retries: 2
+      retry_on: ["timeout", "infrastructure"]
+
+# Monitoring & Analytics
+monitoring:
+  # Metrics collection
+  metrics:
+    enabled: true
+    backend: "prometheus"
+    labels:
+      project: "k-erp"
+      environment: "{{ .Environment }}"
+
+  # Test result tracking
+  results:
+    enabled: true
+    backend: "postgres"
+    retention_days: 90
+
+  # Performance tracking
+  performance:
+    enabled: true
+    baseline_comparison: true
+    threshold_alerts:
+      duration_increase: "20%"
+      flakiness_rate: "5%"
+
+  # Reporting
+  reports:
+    formats:
+      - "junit"
+      - "html"
+      - "json"
+    publish:
+      enabled: true
+      destination: "s3://k-erp-test-reports/"
+
+# Conditional Testing
+conditional:
+  # Changed file detection
+  change_detection:
+    enabled: true
+    strategy: "git-diff"
+    base_branch: "main"
+
+  # Test selection rules
+  rules:
+    - pattern: "internal/domain/**"
+      run: ["unit", "integration"]
+
+    - pattern: "internal/handler/**"
+      run: ["unit", "integration", "api"]
+
+    - pattern: "web/**"
+      run: ["frontend", "e2e"]
+
+    - pattern: "python-services/**"
+      run: ["python"]
+
+    - pattern: "db/migrations/**"
+      run: ["integration", "api"]
+
+    - pattern: "*.md"
+      run: []  # Skip tests for documentation changes
+
+  # Smart test selection
+  smart_selection:
+    enabled: true
+    algorithm: "impact-analysis"
+    fallback: "run-all"
+
+# Notifications
+notifications:
+  slack:
+    enabled: true
+    channel: "#k-erp-ci"
+    events:
+      - "pipeline_start"
+      - "pipeline_failure"
+      - "pipeline_success"
+    mention_on_failure: ["@dev-team"]
+
+  email:
+    enabled: true
+    recipients:
+      - "dev@company.com"
+    events:
+      - "pipeline_failure"

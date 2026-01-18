@@ -260,6 +260,32 @@ export interface ChartData {
   }[];
 }
 
+// Partner Types
+export interface Partner {
+  id: string;
+  companyId: string;
+  code: string;
+  name: string;
+  businessNumber?: string;
+  representativeName?: string;
+  businessType?: string;
+  businessCategory?: string;
+  partnerType: PartnerType;
+  address?: string;
+  phone?: string;
+  fax?: string;
+  email?: string;
+  bankName?: string;
+  bankAccount?: string;
+  accountHolder?: string;
+  note?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PartnerType = "customer" | "supplier" | "both";
+
 // Menu & Navigation Types
 export interface MenuItem {
   id: string;

@@ -60,6 +60,13 @@ export const EMPLOYEE_STATUS: SelectOption[] = [
   { value: "resigned", label: "퇴직" },
 ];
 
+// Partner Types (거래처 유형)
+export const PARTNER_TYPES: SelectOption[] = [
+  { value: "customer", label: "고객" },
+  { value: "supplier", label: "거래처" },
+  { value: "both", label: "고객/거래처" },
+];
+
 // Payroll Status (급여 상태)
 export const PAYROLL_STATUS: SelectOption[] = [
   { value: "draft", label: "작성중" },
@@ -134,6 +141,12 @@ export const MAIN_MENU: MenuItem[] = [
       { id: "insurance", label: "4대보험", path: "/hr/insurance", roles: ["admin", "hr"] },
       { id: "attendance", label: "근태관리", path: "/hr/attendance" },
     ],
+  },
+  {
+    id: "partners",
+    label: "거래처관리",
+    icon: "Building2",
+    path: "/partners",
   },
   {
     id: "inventory",

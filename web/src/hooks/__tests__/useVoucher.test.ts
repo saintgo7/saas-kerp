@@ -55,7 +55,7 @@ describe('useVoucher Hooks', () => {
     });
 
     it('should fetch vouchers with filters', async () => {
-      let capturedParams: URLSearchParams | null = null;
+      let capturedParams: URLSearchParams | undefined;
 
       server.use(
         http.get(`${API_BASE}/vouchers`, ({ request }) => {
@@ -78,9 +78,10 @@ describe('useVoucher Hooks', () => {
         expect(result.current.isSuccess).toBe(true);
       });
 
-      expect(capturedParams?.get('status')).toBe('draft');
-      expect(capturedParams?.get('page')).toBe('1');
-      expect(capturedParams?.get('limit')).toBe('10');
+      expect(capturedParams).toBeDefined();
+      expect(capturedParams!.get('status')).toBe('draft');
+      expect(capturedParams!.get('page')).toBe('1');
+      expect(capturedParams!.get('limit')).toBe('10');
     });
 
     it('should handle fetch error', async () => {
@@ -174,7 +175,7 @@ describe('useVoucher Hooks', () => {
 
       server.use(
         http.post(`${API_BASE}/vouchers`, async ({ request }) => {
-          const body = await request.json();
+          const body = await request.json() as Record<string, unknown>;
           return HttpResponse.json(
             {
               id: 'vch-new-001',
@@ -257,7 +258,7 @@ describe('useVoucher Hooks', () => {
 
       server.use(
         http.put(`${API_BASE}/vouchers/vch-001`, async ({ request }) => {
-          const body = await request.json();
+          const body = await request.json() as Record<string, unknown>;
           return HttpResponse.json({
             id: 'vch-001',
             ...body,
