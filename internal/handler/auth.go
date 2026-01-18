@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -171,7 +173,32 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement password change logic
+	// Get user ID and company ID from context
+	userID := appctx.GetUserID(c)
+	companyID := appctx.GetCompanyID(c)
+
+	// Call service to change password
+	err := h.authService.ChangePassword(c.Request.Context(), service.ChangePasswordInput{
+		UserID:          userID,
+		CompanyID:       companyID,
+		CurrentPassword: req.CurrentPassword,
+		NewPassword:     req.NewPassword,
+	})
+	if err != nil {
+		switch err {
+		case domain.ErrUserNotFound:
+			response.NotFound(c, "User not found")
+		case domain.ErrInvalidCredentials:
+			response.Unauthorized(c, "Current password is incorrect")
+		case domain.ErrPasswordTooShort:
+			response.BadRequest(c, "New password must be at least 8 characters")
+		default:
+			h.Logger.Error("password change failed", zap.Error(err))
+			response.InternalError(c, "Password change failed")
+		}
+		return
+	}
+
 	response.OK(c, gin.H{
 		"message": "Password changed successfully",
 	})
@@ -205,11 +232,35 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement registration logic
-	response.Created(c, gin.H{
-		"message": "Registration endpoint - implementation pending",
-		"email":   req.Email,
+	// Call service to register user
+	result, err := h.authService.Register(c.Request.Context(), service.RegisterInput{
+		CompanyName:    req.CompanyName,
+		BusinessNumber: req.BusinessNumber,
+		Email:          req.Email,
+		Password:       req.Password,
+		Name:           req.Name,
+		Phone:          req.Phone,
 	})
+	if err != nil {
+		switch err {
+		case domain.ErrUserEmailExists:
+			response.Conflict(c, "Email already registered")
+		case domain.ErrEmailRequired:
+			response.BadRequest(c, "Email is required")
+		case domain.ErrPasswordRequired:
+			response.BadRequest(c, "Password is required")
+		case domain.ErrNameRequired:
+			response.BadRequest(c, "Name is required")
+		case domain.ErrPasswordTooShort:
+			response.BadRequest(c, "Password must be at least 8 characters")
+		default:
+			h.Logger.Error("registration failed", zap.Error(err))
+			response.InternalError(c, "Registration failed")
+		}
+		return
+	}
+
+	response.Created(c, result)
 }
 
 // ForgotPasswordRequest represents a forgot password request
@@ -225,10 +276,38 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement forgot password logic
-
-	// Always return success to prevent email enumeration
-	response.OK(c, gin.H{
-		"message": "If an account with that email exists, a password reset link has been sent",
+	// Call service to generate reset token
+	result, err := h.authService.ForgotPassword(c.Request.Context(), service.ForgotPasswordInput{
+		Email: req.Email,
 	})
+	if err != nil {
+		h.Logger.Error("forgot password failed", zap.Error(err))
+		// Don't reveal internal errors, always return success message
+		response.OK(c, gin.H{
+			"message": "If an account with that email exists, a password reset link has been sent",
+		})
+		return
+	}
+
+	// Store reset token in Redis with 1 hour expiration
+	if result.ResetToken != "" {
+		redisKey := "password_reset:" + result.ResetToken
+		if err := h.Redis.Set(c.Request.Context(), redisKey, req.Email, time.Hour).Err(); err != nil {
+			h.Logger.Error("failed to store reset token in Redis", zap.Error(err))
+			// Continue anyway, don't reveal error to user
+		}
+	}
+
+	// TODO: Send actual email in production
+	// For development, include the token in response
+	responseData := gin.H{
+		"message": result.Message,
+	}
+	if result.ResetToken != "" {
+		// Development only: include reset token in response
+		responseData["reset_token"] = result.ResetToken
+		responseData["note"] = "Development mode: Token included in response. In production, this will be sent via email."
+	}
+
+	response.OK(c, responseData)
 }

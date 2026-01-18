@@ -11,9 +11,10 @@ import { LoginPage, RegisterPage } from "@/pages/auth";
 
 // Main Pages
 import { DashboardPage } from "@/pages/dashboard";
-import { VoucherListPage, VoucherFormPage } from "@/pages/accounting";
+import { VoucherListPage, VoucherFormPage, AccountListPage, AccountFormPage } from "@/pages/accounting";
 import { InvoiceListPage, InvoiceIssuePage } from "@/pages/invoice";
 import { EmployeeListPage, EmployeeFormPage } from "@/pages/hr";
+import { PartnerListPage, PartnerFormPage } from "@/pages/partner";
 
 // Create QueryClient
 const queryClient = new QueryClient({
@@ -94,7 +95,9 @@ function App() {
             <Route path="/accounting/ledger" element={<ComingSoon title="원장 조회" />} />
             <Route path="/accounting/trial-balance" element={<ComingSoon title="시산표" />} />
             <Route path="/accounting/financial-statements" element={<ComingSoon title="재무제표" />} />
-            <Route path="/accounting/accounts" element={<ComingSoon title="계정과목 관리" />} />
+            <Route path="/accounting/accounts" element={<AccountListPage />} />
+            <Route path="/accounting/accounts/new" element={<AccountFormPage />} />
+            <Route path="/accounting/accounts/:id" element={<AccountFormPage />} />
 
             {/* Invoice */}
             <Route path="/invoice/list" element={<InvoiceListPage />} />
@@ -102,6 +105,11 @@ function App() {
             <Route path="/invoice/received" element={<ComingSoon title="매입 관리" />} />
             <Route path="/invoice/hometax" element={<ComingSoon title="홈택스 연동" />} />
             <Route path="/invoice/:id" element={<InvoiceIssuePage />} />
+
+            {/* Partners */}
+            <Route path="/partners" element={<PartnerListPage />} />
+            <Route path="/partners/new" element={<PartnerFormPage />} />
+            <Route path="/partners/:id" element={<PartnerFormPage />} />
 
             {/* HR */}
             <Route path="/hr/employee" element={<EmployeeListPage />} />
