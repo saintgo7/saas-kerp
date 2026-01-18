@@ -465,33 +465,56 @@ jobs:
 
       - name: Merge Go coverage
         run: |
+          # Create coverage directory if it doesn't exist
+          mkdir -p coverage/
+
           # Find all Go coverage files
-          find coverage/ -name "*.out" -type f | head -20
+          find coverage/ -name "*.out" -type f | head -20 || true
 
-          # Merge coverage files
-          echo "mode: atomic" > coverage/merged.out
-          find coverage/ -name "*.out" -exec tail -n +2 {} \; >> coverage/merged.out 2>/dev/null || true
+          # Merge coverage files if any exist
+          if find coverage/ -name "*.out" -type f 2>/dev/null | grep -q .; then
+            echo "mode: atomic" > coverage/merged.out
+            find coverage/ -name "*.out" -type f -exec tail -n +2 {} \; >> coverage/merged.out 2>/dev/null || true
 
-          # Generate report
-          if [ -s coverage/merged.out ]; then
-            go tool cover -func=coverage/merged.out | tail -1
+            # Generate report
+            if [ -s coverage/merged.out ]; then
+              go tool cover -func=coverage/merged.out | tail -1
+            fi
+          else
+            echo "No coverage files found. Skipping coverage merge."
+            # Create empty merged.out to prevent Codecov failure
+            echo "mode: atomic" > coverage/merged.out
           fi
+
+      - name: Prepare coverage files
+        run: |
+          # Ensure coverage directory exists
+          mkdir -p coverage/
+          touch coverage/merged.out
+          ls -la coverage/ || true
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: coverage/merged.out,coverage/coverage-python.xml
+          files: ./coverage/merged.out
           flags: unittests
           fail_ci_if_error: false
+          verbose: true
 
       - name: Coverage summary
         run: |
           echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ -s coverage/merged.out ]; then
+          if [ -f coverage/merged.out ] && [ -s coverage/merged.out ]; then
             coverage=$(go tool cover -func=coverage/merged.out | grep total | awk '{print $3}')
-            echo "**Go Coverage:** $coverage" >> $GITHUB_STEP_SUMMARY
+            if [ -n "$coverage" ]; then
+              echo "**Go Coverage:** $coverage" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "Go coverage data unavailable" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "No coverage data collected in this run" >> $GITHUB_STEP_SUMMARY
           fi
 
   # ============================================================================
