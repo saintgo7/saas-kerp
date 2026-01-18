@@ -1,0 +1,22 @@
+# K-ERP Gitleaks Configuration
+# Secret detection with appropriate allowlists for demo/test data
+
+title = "K-ERP Gitleaks Config"
+
+# Allowlist rules for false positives
+[[rules]]
+id = "kerp-test-keys"
+description = "Allowlist K-ERP test/demo API keys used in UI components"
+regex = '''(?i)(kerp_(test|ext|demo)_[a-z0-9]{20,32})'''
+path = '''web/src/pages/settings/IntegrationPage\.tsx'''
+allowlist = [
+  "kerp_test_xxxxxxxxxxxx0987654321",
+  "kerp_ext_xxxxxxxxxxxxabcdef1234",
+  "kerp_demo_",
+]
+
+[[rules]]
+id = "mock-test-data"
+description = "Allowlist intentional mock/test data in UI components"
+regex = '''(?i)(mock_|test_|demo_)(key|secret|token|password)_[a-z0-9]{12,}'''
+path = '''web/src/pages/.*\.tsx?$'''
