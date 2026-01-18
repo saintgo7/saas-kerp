@@ -144,8 +144,8 @@ class TestPKCS7Padding:
         invalid1 = bytes(15) + bytes([17])  # Padding value > block size
         assert not padding.is_valid_padding(invalid1)
 
-        # Inconsistent padding
-        invalid2 = bytes(14) + bytes([2, 1])  # Should be [2, 2]
+        # Inconsistent padding - last byte says 2 bytes padding but they're not equal
+        invalid2 = bytes(14) + bytes([3, 2])  # Last byte is 2, so check last 2 bytes: [3, 2] != [2, 2]
         assert not padding.is_valid_padding(invalid2)
 
 
