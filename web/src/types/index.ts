@@ -313,3 +313,6 @@ export interface TableColumn<T> {
   sortable?: boolean;
   render?: (value: unknown, row: T) => React.ReactNode;
 }
+
+// Re-export Inventory Types
+export * from "./inventory";

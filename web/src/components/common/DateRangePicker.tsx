@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Calendar, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui";
@@ -196,7 +196,7 @@ export function DateRangePicker({
   const renderCalendar = () => {
     const daysInMonth = getDaysInMonth(currentMonth);
     const firstDayOfMonth = getFirstDayOfMonth(currentMonth);
-    const days: JSX.Element[] = [];
+    const days: React.JSX.Element[] = [];
 
     // Empty cells for days before the first day of the month
     for (let i = 0; i < firstDayOfMonth; i++) {

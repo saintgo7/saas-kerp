@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { useFieldArray, Control, UseFormRegister, FieldErrors } from "react-hook-form";
+import { useFieldArray } from "react-hook-form";
+import type { Control, UseFormRegister, FieldErrors } from "react-hook-form";
 import { Plus, Trash2, AlertCircle } from "lucide-react";
 import { Button, Input, Badge } from "@/components/ui";
 import { AccountSelect } from "./AccountSelect";
@@ -51,7 +52,7 @@ export function VoucherEntryTable({
   }, [append]);
 
   const handleAccountSelect = useCallback(
-    (index: number, account: { id: string; code: string; name: string } | null) => {
+    (_index: number, account: { id: string; code: string; name: string } | null) => {
       if (account) {
         // Account selection is handled by the AccountSelect component internally
         // This callback is for any additional logic needed

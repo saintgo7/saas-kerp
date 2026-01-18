@@ -23,10 +23,43 @@ import {
   SubsidiaryLedgerPage,
   TrialBalancePage,
 } from "@/pages/ledger";
-import { BalanceSheetPage, IncomeStatementPage } from "@/pages/reports";
-import { InvoiceListPage, InvoiceIssuePage } from "@/pages/invoice";
-import { EmployeeListPage, EmployeeFormPage } from "@/pages/hr";
+import {
+  BalanceSheetPage,
+  IncomeStatementPage,
+  SalesReportPage,
+  ExpenseReportPage,
+  HRReportPage,
+  CustomReportPage,
+} from "@/pages/reports";
+import {
+  InvoiceListPage,
+  InvoiceIssuePage,
+  InvoiceReceivedPage,
+  HometaxSyncPage,
+} from "@/pages/invoice";
+import {
+  EmployeeListPage,
+  EmployeeFormPage,
+  DepartmentPage,
+  PayrollPage,
+  InsurancePage,
+  AttendancePage,
+} from "@/pages/hr";
 import { PartnerListPage, PartnerFormPage } from "@/pages/partner";
+import {
+  ProductListPage,
+  ProductFormPage,
+  StockStatusPage,
+  PurchaseOrderPage,
+  SalesOrderPage,
+} from "@/pages/inventory";
+import {
+  CompanySettingsPage,
+  UserManagementPage,
+  PermissionPage,
+  IntegrationPage,
+  ProfilePage,
+} from "@/pages/settings";
 
 // Create QueryClient
 const queryClient = new QueryClient({
@@ -127,8 +160,8 @@ function App() {
             {/* Invoice */}
             <Route path="/invoice/list" element={<InvoiceListPage />} />
             <Route path="/invoice/issue" element={<InvoiceIssuePage />} />
-            <Route path="/invoice/received" element={<ComingSoon title="매입 관리" />} />
-            <Route path="/invoice/hometax" element={<ComingSoon title="홈택스 연동" />} />
+            <Route path="/invoice/received" element={<InvoiceReceivedPage />} />
+            <Route path="/invoice/hometax" element={<HometaxSyncPage />} />
             <Route path="/invoice/:id" element={<InvoiceIssuePage />} />
 
             {/* Partners */}
@@ -140,30 +173,32 @@ function App() {
             <Route path="/hr/employee" element={<EmployeeListPage />} />
             <Route path="/hr/employee/new" element={<EmployeeFormPage />} />
             <Route path="/hr/employee/:id" element={<EmployeeFormPage />} />
-            <Route path="/hr/department" element={<ComingSoon title="부서 관리" />} />
-            <Route path="/hr/payroll" element={<ComingSoon title="급여 관리" />} />
-            <Route path="/hr/insurance" element={<ComingSoon title="4대보험" />} />
-            <Route path="/hr/attendance" element={<ComingSoon title="근태 관리" />} />
+            <Route path="/hr/department" element={<DepartmentPage />} />
+            <Route path="/hr/payroll" element={<PayrollPage />} />
+            <Route path="/hr/insurance" element={<InsurancePage />} />
+            <Route path="/hr/attendance" element={<AttendancePage />} />
 
             {/* Inventory */}
-            <Route path="/inventory/products" element={<ComingSoon title="품목 관리" />} />
-            <Route path="/inventory/stock" element={<ComingSoon title="재고 현황" />} />
-            <Route path="/inventory/purchase" element={<ComingSoon title="구매 관리" />} />
-            <Route path="/inventory/sales" element={<ComingSoon title="판매 관리" />} />
+            <Route path="/inventory/products" element={<ProductListPage />} />
+            <Route path="/inventory/products/new" element={<ProductFormPage />} />
+            <Route path="/inventory/products/:id" element={<ProductFormPage />} />
+            <Route path="/inventory/stock" element={<StockStatusPage />} />
+            <Route path="/inventory/purchase" element={<PurchaseOrderPage />} />
+            <Route path="/inventory/sales" element={<SalesOrderPage />} />
 
             {/* Reports */}
-            <Route path="/reports/sales" element={<ComingSoon title="매출 분석" />} />
-            <Route path="/reports/expense" element={<ComingSoon title="비용 분석" />} />
-            <Route path="/reports/hr" element={<ComingSoon title="인사 현황" />} />
-            <Route path="/reports/custom" element={<ComingSoon title="맞춤 보고서" />} />
+            <Route path="/reports/sales" element={<SalesReportPage />} />
+            <Route path="/reports/expense" element={<ExpenseReportPage />} />
+            <Route path="/reports/hr" element={<HRReportPage />} />
+            <Route path="/reports/custom" element={<CustomReportPage />} />
 
             {/* Settings */}
-            <Route path="/settings" element={<ComingSoon title="설정" />} />
-            <Route path="/settings/company" element={<ComingSoon title="회사 정보" />} />
-            <Route path="/settings/users" element={<ComingSoon title="사용자 관리" />} />
-            <Route path="/settings/permissions" element={<ComingSoon title="권한 관리" />} />
-            <Route path="/settings/integrations" element={<ComingSoon title="연동 설정" />} />
-            <Route path="/settings/profile" element={<ComingSoon title="내 프로필" />} />
+            <Route path="/settings" element={<Navigate to="/settings/company" replace />} />
+            <Route path="/settings/company" element={<CompanySettingsPage />} />
+            <Route path="/settings/users" element={<UserManagementPage />} />
+            <Route path="/settings/permissions" element={<PermissionPage />} />
+            <Route path="/settings/integrations" element={<IntegrationPage />} />
+            <Route path="/settings/profile" element={<ProfilePage />} />
           </Route>
 
           {/* Redirect root to dashboard */}

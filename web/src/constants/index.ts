@@ -75,6 +75,63 @@ export const PAYROLL_STATUS: SelectOption[] = [
   { value: "paid", label: "지급완료" },
 ];
 
+// Product Units (품목 단위)
+export const PRODUCT_UNITS: SelectOption[] = [
+  { value: "EA", label: "EA (개)" },
+  { value: "BOX", label: "BOX (박스)" },
+  { value: "SET", label: "SET (세트)" },
+  { value: "KG", label: "KG (킬로그램)" },
+  { value: "G", label: "G (그램)" },
+  { value: "L", label: "L (리터)" },
+  { value: "ML", label: "ML (밀리리터)" },
+  { value: "M", label: "M (미터)" },
+  { value: "CM", label: "CM (센티미터)" },
+  { value: "PACK", label: "PACK (팩)" },
+  { value: "ROLL", label: "ROLL (롤)" },
+  { value: "SHEET", label: "SHEET (장)" },
+];
+
+// Purchase Order Status (발주 상태)
+export const PURCHASE_ORDER_STATUS: SelectOption[] = [
+  { value: "draft", label: "작성중" },
+  { value: "pending", label: "승인대기" },
+  { value: "approved", label: "승인완료" },
+  { value: "ordered", label: "발주완료" },
+  { value: "partial", label: "부분입고" },
+  { value: "completed", label: "입고완료" },
+  { value: "cancelled", label: "취소" },
+];
+
+// Sales Order Status (수주 상태)
+export const SALES_ORDER_STATUS: SelectOption[] = [
+  { value: "draft", label: "작성중" },
+  { value: "pending", label: "승인대기" },
+  { value: "approved", label: "승인완료" },
+  { value: "confirmed", label: "확정" },
+  { value: "partial", label: "부분출고" },
+  { value: "completed", label: "출고완료" },
+  { value: "cancelled", label: "취소" },
+];
+
+// Stock Movement Types (재고 이동 유형)
+export const STOCK_MOVEMENT_TYPES: SelectOption[] = [
+  { value: "purchase_in", label: "구매입고" },
+  { value: "sales_out", label: "판매출고" },
+  { value: "adjustment_in", label: "조정입고" },
+  { value: "adjustment_out", label: "조정출고" },
+  { value: "transfer_in", label: "이동입고" },
+  { value: "transfer_out", label: "이동출고" },
+  { value: "return_in", label: "반품입고" },
+  { value: "return_out", label: "반품출고" },
+];
+
+// Stock Alert Types (재고 알림 유형)
+export const STOCK_ALERT_TYPES: SelectOption[] = [
+  { value: "low_stock", label: "안전재고 미달" },
+  { value: "out_of_stock", label: "재고 소진" },
+  { value: "overstock", label: "과잉재고" },
+];
+
 // Banks (은행)
 export const BANKS: SelectOption[] = [
   { value: "KB", label: "국민은행" },

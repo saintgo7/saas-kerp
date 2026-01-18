@@ -7,6 +7,7 @@ import type { Account, AccountType } from "@/types";
 export interface PeriodParams {
   startDate: string;
   endDate: string;
+  [key: string]: string | number | boolean | undefined;
 }
 
 /**
