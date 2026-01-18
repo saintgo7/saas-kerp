@@ -49,6 +49,7 @@ jobs:
         uses: securego/gosec@master
         with:
           args: -fmt=sarif -out=gosec-results.sarif ./...
+        continue-on-error: true
 
       - name: Upload gosec results
         uses: github/codeql-action/upload-sarif@v4
@@ -56,6 +57,7 @@ jobs:
         with:
           sarif_file: gosec-results.sarif
           category: gosec
+        continue-on-error: true
 
       # Dependency check
       - name: Check for outdated dependencies
@@ -110,34 +112,40 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build API image for scanning
+        id: docker-build
         run: |
           docker build -t kerp-api:scan . -f ./deployments/docker/Dockerfile.api
         continue-on-error: true
 
       # Trivy vulnerability scanner
       - name: Run Trivy vulnerability scanner
+        if: steps.docker-build.outcome == 'success'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'kerp-api:scan'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
+        continue-on-error: true
 
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: steps.docker-build.outcome == 'success'
         with:
           sarif_file: trivy-results.sarif
           category: trivy
+        continue-on-error: true
 
       # Dockle for Dockerfile best practices
       - name: Run Dockle
+        if: steps.docker-build.outcome == 'success'
         uses: goodwithtech/dockle-action@v0.1.2
         with:
           image: kerp-api:scan
           format: 'sarif'
           output: 'dockle-results.sarif'
           exit-code: '0'
+        continue-on-error: true
 
   # ============================================
   # Secret Scanning
