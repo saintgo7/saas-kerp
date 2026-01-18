@@ -1,6 +1,8 @@
 export { FinancialStatementsPage } from './FinancialStatementsPage';
 export { BalanceSheetPage } from './BalanceSheetPage';
 export { IncomeStatementPage } from './IncomeStatementPage';
+export { CashFlowStatementPage } from './CashFlowStatementPage';
+export { EquityChangesStatementPage } from './EquityChangesStatementPage';
 export { SalesReportPage } from './SalesReportPage';
 export { ExpenseReportPage } from './ExpenseReportPage';
 export { HRReportPage } from './HRReportPage';
