@@ -103,7 +103,7 @@ services:
       context: ../..
       dockerfile: deployments/docker/Dockerfile.web
       args:
-        VITE_API_URL: http://erp.abada.kr:8080/api
+        VITE_API_URL: /api/v1
     container_name: kerp-web
     ports:
       - "3000:3000"  # Temporary direct access (bypass Traefik)
