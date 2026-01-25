@@ -91,3 +91,12 @@ ENV/
 .local/
 .claude/settings.local.json
 docs/design/
+
+# Documentation - MS Office files
+*.docx
+*.xlsx
+*.pptx
+
+# Build reports
+vercel-*.html
+*-report.html
