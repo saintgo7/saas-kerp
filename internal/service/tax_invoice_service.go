@@ -214,8 +214,16 @@ func (s *TaxInvoiceService) TransmitToNTS(ctx context.Context, companyID, id uui
 		return nil, fmt.Errorf("invoice must be issued before transmission")
 	}
 
+	// Fail closed when the gRPC client is unavailable: transmitting to the
+	// National Tax Service requires a real NTS round-trip. Without it we must
+	// not mark the invoice as transmitted (that would falsely record an NTS
+	// submission with no confirmation number).
+	if s.grpcClient == nil {
+		return nil, fmt.Errorf("gRPC client not configured")
+	}
+
 	// Call gRPC service to transmit
-	if s.grpcClient != nil {
+	{
 		resp, err := s.grpcClient.IssueTaxInvoice(ctx, &grpcclient.IssueTaxInvoiceRequest{
 			SessionID: sessionID,
 			Invoice: grpcclient.TaxInvoice{
