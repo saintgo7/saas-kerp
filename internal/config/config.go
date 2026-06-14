@@ -88,13 +88,3 @@ func (c *Config) IsProduction() bool {
 func (c *Config) IsDevelopment() bool {
 	return c.App.Env == "development"
 }
-
-// DSN returns PostgreSQL connection string
-func (c *DatabaseConfig) DSN() string {
-	return "host=" + c.Host +
-		" port=" + string(rune(c.Port)) +
-		" user=" + c.User +
-		" password=" + c.Password +
-		" dbname=" + c.Name +
-		" sslmode=" + c.SSLMode
-}
