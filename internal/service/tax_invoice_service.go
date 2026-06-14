@@ -91,46 +91,57 @@ func (s *TaxInvoiceService) Create(ctx context.Context, companyID uuid.UUID, inp
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
-	if err := s.repo.Create(ctx, invoice); err != nil {
-		return nil, fmt.Errorf("failed to create invoice: %w", err)
-	}
-
-	// Create items
-	for i, itemInput := range input.Items {
-		item := &domain.TaxInvoiceItem{
-			ID:             uuid.New(),
-			TaxInvoiceID:   invoice.ID,
-			CompanyID:      companyID,
-			SequenceNumber: i + 1,
-			SupplyDate:     itemInput.SupplyDate,
-			Description:    itemInput.Description,
-			Specification:  itemInput.Specification,
-			Quantity:       itemInput.Quantity,
-			UnitPrice:      itemInput.UnitPrice,
-			Amount:         itemInput.Amount,
-			TaxAmount:      itemInput.TaxAmount,
-			Remarks:        itemInput.Remarks,
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
+	// Persist invoice, items and history atomically so a partial failure
+	// does not leave an orphaned invoice without its items/history.
+	err := s.repo.WithTransaction(ctx, func(repo repository.TaxInvoiceRepository) error {
+		if err := repo.Create(ctx, invoice); err != nil {
+			return fmt.Errorf("failed to create invoice: %w", err)
 		}
 
-		if err := s.repo.CreateItem(ctx, item); err != nil {
-			return nil, fmt.Errorf("failed to create item: %w", err)
-		}
-		invoice.Items = append(invoice.Items, *item)
-	}
+		// Create items
+		for i, itemInput := range input.Items {
+			item := &domain.TaxInvoiceItem{
+				ID:             uuid.New(),
+				TaxInvoiceID:   invoice.ID,
+				CompanyID:      companyID,
+				SequenceNumber: i + 1,
+				SupplyDate:     itemInput.SupplyDate,
+				Description:    itemInput.Description,
+				Specification:  itemInput.Specification,
+				Quantity:       itemInput.Quantity,
+				UnitPrice:      itemInput.UnitPrice,
+				Amount:         itemInput.Amount,
+				TaxAmount:      itemInput.TaxAmount,
+				Remarks:        itemInput.Remarks,
+				CreatedAt:      time.Now(),
+				UpdatedAt:      time.Now(),
+			}
 
-	// Create history
-	history := &domain.TaxInvoiceHistory{
-		ID:           uuid.New(),
-		TaxInvoiceID: invoice.ID,
-		CompanyID:    companyID,
-		NewStatus:    domain.TaxInvoiceStatusDraft,
-		ChangedBy:    userID,
-		ChangeReason: "Invoice created",
-		CreatedAt:    time.Now(),
+			if err := repo.CreateItem(ctx, item); err != nil {
+				return fmt.Errorf("failed to create item: %w", err)
+			}
+			invoice.Items = append(invoice.Items, *item)
+		}
+
+		// Create history
+		history := &domain.TaxInvoiceHistory{
+			ID:           uuid.New(),
+			TaxInvoiceID: invoice.ID,
+			CompanyID:    companyID,
+			NewStatus:    domain.TaxInvoiceStatusDraft,
+			ChangedBy:    userID,
+			ChangeReason: "Invoice created",
+			CreatedAt:    time.Now(),
+		}
+		if err := repo.CreateHistory(ctx, history); err != nil {
+			return fmt.Errorf("failed to create history: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	_ = s.repo.CreateHistory(ctx, history)
 
 	return invoice, nil
 }
