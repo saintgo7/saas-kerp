@@ -28,6 +28,7 @@ type UserRepository interface {
 
 	// Query operations
 	FindByID(ctx context.Context, companyID, id uuid.UUID) (*domain.User, error)
+	FindByUserID(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)
 	FindByEmailAndCompany(ctx context.Context, companyID uuid.UUID, email string) (*domain.User, error)
 	FindAll(ctx context.Context, filter UserFilter) ([]domain.User, int64, error)

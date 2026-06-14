@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -414,7 +415,7 @@ func (s *voucherService) ValidateEntries(ctx context.Context, companyID uuid.UUI
 	}
 
 	// Check balance
-	if totalDebit != totalCredit {
+	if math.Abs(totalDebit-totalCredit) >= domain.BalanceEpsilon {
 		return domain.ErrVoucherUnbalanced
 	}
 

@@ -2,10 +2,16 @@ package domain
 
 import (
 	"errors"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// BalanceEpsilon is the tolerance for comparing monetary float totals.
+// Amounts are stored as decimal(18,2), so half-cent tolerance absorbs
+// float64 summation rounding without masking a genuine imbalance.
+const BalanceEpsilon = 0.005
 
 // VoucherType represents the type of voucher
 type VoucherType string
@@ -186,7 +192,7 @@ func (v *Voucher) Validate() error {
 
 // ValidateBalance validates that debit equals credit
 func (v *Voucher) ValidateBalance() error {
-	if v.TotalDebit != v.TotalCredit {
+	if math.Abs(v.TotalDebit-v.TotalCredit) >= BalanceEpsilon {
 		return ErrVoucherUnbalanced
 	}
 	return nil
@@ -204,7 +210,7 @@ func (v *Voucher) CalculateTotals() {
 
 // IsBalanced returns true if debit equals credit
 func (v *Voucher) IsBalanced() bool {
-	return v.TotalDebit == v.TotalCredit
+	return math.Abs(v.TotalDebit-v.TotalCredit) < BalanceEpsilon
 }
 
 // CanEdit returns true if voucher can be edited
