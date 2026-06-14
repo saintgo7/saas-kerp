@@ -7,9 +7,19 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/saintgo7/saas-kerp/internal/domain"
 )
+
+// accountSortableColumns is the allowlist of columns that may be used in ORDER BY.
+// Prevents SQL injection via the sort_by query parameter.
+var accountSortableColumns = map[string]bool{
+	"code":       true,
+	"name":       true,
+	"sort_order": true,
+	"created_at": true,
+}
 
 // accountRepositoryGorm implements AccountRepository using GORM
 type accountRepositoryGorm struct {
@@ -102,15 +112,18 @@ func (r *accountRepositoryGorm) FindAll(ctx context.Context, filter AccountFilte
 		return nil, 0, err
 	}
 
-	// Apply sorting
-	sortBy := "sort_order"
-	if filter.SortBy != "" {
-		sortBy = filter.SortBy
+	// Apply sorting. Only allowlisted columns may be ordered to prevent SQL injection.
+	if filter.SortBy != "" && accountSortableColumns[filter.SortBy] {
+		query = query.Order(clause.OrderByColumn{
+			Column: clause.Column{Name: filter.SortBy},
+			Desc:   filter.SortDesc,
+		})
+	} else {
+		query = query.Order(clause.OrderByColumn{
+			Column: clause.Column{Name: "sort_order"},
+			Desc:   filter.SortDesc,
+		})
 	}
-	if filter.SortDesc {
-		sortBy = sortBy + " DESC"
-	}
-	query = query.Order(sortBy)
 
 	// Apply pagination
 	if filter.PageSize > 0 {
