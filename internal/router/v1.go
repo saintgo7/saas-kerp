@@ -56,6 +56,9 @@ func registerTenantRoutes(tenant *gin.RouterGroup, h *handler.Handlers) {
 	h.Voucher.RegisterRoutes(tenant)
 	h.Ledger.RegisterRoutes(tenant)
 
+	// Tax invoice routes
+	h.TaxInvoice.RegisterRoutes(tenant)
+
 	// User management routes
 	h.User.RegisterRoutes(tenant)
 

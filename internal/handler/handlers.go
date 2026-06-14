@@ -12,16 +12,17 @@ import (
 
 // Handlers holds all HTTP handlers
 type Handlers struct {
-	Health  *HealthHandler
-	Auth    *AuthHandler
-	Partner *PartnerHandler
-	Voucher *VoucherHandler
-	Ledger  *LedgerHandler
-	Account *AccountHandler
-	User    *UserHandler
-	Role    *RoleHandler
-	Company *CompanyHandler
-	Project *ProjectHandler
+	Health     *HealthHandler
+	Auth       *AuthHandler
+	Partner    *PartnerHandler
+	Voucher    *VoucherHandler
+	Ledger     *LedgerHandler
+	Account    *AccountHandler
+	User       *UserHandler
+	Role       *RoleHandler
+	Company    *CompanyHandler
+	Project    *ProjectHandler
+	TaxInvoice *TaxInvoiceHandler
 }
 
 // NewHandlers creates all handlers
@@ -35,6 +36,7 @@ func NewHandlers(db *gorm.DB, redis *redis.Client, logger *zap.Logger, jwtServic
 	roleRepo := repository.NewRoleRepository(db)
 	companyRepo := repository.NewCompanyRepository(db)
 	projectRepo := repository.NewProjectRepository(db)
+	taxInvoiceRepo := repository.NewTaxInvoiceRepositoryGorm(db)
 
 	// Initialize services
 	partnerService := service.NewPartnerService(partnerRepo)
@@ -45,17 +47,22 @@ func NewHandlers(db *gorm.DB, redis *redis.Client, logger *zap.Logger, jwtServic
 	roleService := service.NewRoleService(roleRepo)
 	companyService := service.NewCompanyService(companyRepo)
 	projectService := service.NewProjectService(projectRepo)
+	// gRPC tax-scraper client is not wired at the cmd level yet; the tax
+	// invoice service guards a nil client and returns an explicit error for
+	// gRPC-dependent operations (transmit/sync), so local CRUD works.
+	taxInvoiceService := service.NewTaxInvoiceService(taxInvoiceRepo, nil)
 
 	return &Handlers{
-		Health:  NewHealthHandler(db, redis, logger, version),
-		Auth:    NewAuthHandler(db, redis, logger, jwtService),
-		Partner: NewPartnerHandler(partnerService),
-		Voucher: NewVoucherHandler(voucherService),
-		Ledger:  NewLedgerHandler(ledgerService, accountService),
-		Account: NewAccountHandler(accountService),
-		User:    NewUserHandler(userService),
-		Role:    NewRoleHandler(roleService),
-		Company: NewCompanyHandler(companyService),
-		Project: NewProjectHandler(projectService),
+		Health:     NewHealthHandler(db, redis, logger, version),
+		Auth:       NewAuthHandler(db, redis, logger, jwtService),
+		Partner:    NewPartnerHandler(partnerService),
+		Voucher:    NewVoucherHandler(voucherService),
+		Ledger:     NewLedgerHandler(ledgerService, accountService),
+		Account:    NewAccountHandler(accountService),
+		User:       NewUserHandler(userService),
+		Role:       NewRoleHandler(roleService),
+		Company:    NewCompanyHandler(companyService),
+		Project:    NewProjectHandler(projectService),
+		TaxInvoice: NewTaxInvoiceHandler(taxInvoiceService),
 	}
 }
