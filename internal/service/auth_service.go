@@ -166,10 +166,9 @@ func (s *AuthService) Refresh(ctx context.Context, input RefreshInput) (*Refresh
 		return nil, domain.ErrRefreshTokenExpired
 	}
 
-	// Find user
-	user, err := s.userRepo.FindByEmail(ctx, "")
+	// Find user by the refresh token's owner ID
+	user, err := s.userRepo.FindByUserID(ctx, rt.UserID)
 	if err != nil {
-		// We need to find user by ID, let's use a direct query
 		return nil, err
 	}
 

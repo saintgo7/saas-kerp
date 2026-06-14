@@ -215,3 +215,11 @@ func (r *taxInvoiceRepositoryGorm) GetSummary(ctx context.Context, companyID uui
 
 	return &summary, nil
 }
+
+// WithTransaction executes a function within a transaction
+func (r *taxInvoiceRepositoryGorm) WithTransaction(ctx context.Context, fn func(repo TaxInvoiceRepository) error) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txRepo := &taxInvoiceRepositoryGorm{db: tx}
+		return fn(txRepo)
+	})
+}
