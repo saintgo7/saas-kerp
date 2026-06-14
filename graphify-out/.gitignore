@@ -1,3 +1,6 @@
-# graphify 산출물 중 대용량/생성물은 추적하지 않는다 (리포트·그래프 JSON만 유지)
 graph.html
 cache/
+*.bak
+2026-*/
+manifest.json
+.graphify_*
