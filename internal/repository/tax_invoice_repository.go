@@ -42,4 +42,7 @@ type TaxInvoiceRepository interface {
 
 	// Summary
 	GetSummary(ctx context.Context, companyID uuid.UUID, startDate, endDate time.Time) (*domain.TaxInvoiceSummary, error)
+
+	// Transaction
+	WithTransaction(ctx context.Context, fn func(repo TaxInvoiceRepository) error) error
 }

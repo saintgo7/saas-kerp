@@ -37,13 +37,15 @@ func CORS(cfg *config.CORSConfig) gin.HandlerFunc {
 		} else if allowedOriginsSet[origin] {
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Vary", "Origin")
+			// Credentials are only valid when echoing a specific origin,
+			// never with the "*" wildcard (browsers reject that combo).
+			c.Header("Access-Control-Allow-Credentials", "true")
 		}
 
 		// Set CORS headers
 		c.Header("Access-Control-Allow-Methods", methodsHeader)
 		c.Header("Access-Control-Allow-Headers", headersHeader)
 		c.Header("Access-Control-Max-Age", maxAgeHeader)
-		c.Header("Access-Control-Allow-Credentials", "true")
 
 		// Handle preflight requests
 		if c.Request.Method == http.MethodOptions {
