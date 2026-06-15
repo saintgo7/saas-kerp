@@ -277,7 +277,7 @@ type VoucherListRequest struct {
 	IncludeEntries bool `form:"include_entries"`
 	Page         int    `form:"page" binding:"omitempty,min=1"`
 	PageSize     int    `form:"page_size" binding:"omitempty,min=1,max=100"`
-	SortBy       string `form:"sort_by"`
+	SortBy       string `form:"sort_by" binding:"omitempty,oneof=voucher_date voucher_no status total_debit total_credit created_at"`
 	SortDesc     bool   `form:"sort_desc"`
 }
 
