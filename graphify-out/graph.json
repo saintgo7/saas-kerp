@@ -965,7 +965,7 @@
       "source_file": "internal/context/helpers.go",
       "source_location": "L67",
       "_origin": "ast",
-      "community": 28,
+      "community": 18,
       "norm_label": "setemail()",
       "id": "context_helpers_setemail"
     },
@@ -985,7 +985,7 @@
       "source_file": "internal/context/helpers.go",
       "source_location": "L82",
       "_origin": "ast",
-      "community": 28,
+      "community": 18,
       "norm_label": "setusername()",
       "id": "context_helpers_setusername"
     },
@@ -1005,7 +1005,7 @@
       "source_file": "internal/context/helpers.go",
       "source_location": "L97",
       "_origin": "ast",
-      "community": 18,
+      "community": 76,
       "norm_label": "setroles()",
       "id": "context_helpers_setroles"
     },
@@ -24581,7 +24581,7 @@
       "source_file": "python-services/shared/tests/test_pkcs7.py",
       "source_location": "L390",
       "_origin": "ast",
-      "community": 16,
+      "community": 54,
       "norm_label": ".test_certificate_info_empty_without_cert()",
       "id": "tests_test_pkcs7_testpkcs7signature_test_certificate_info_empty_without_cert"
     },
@@ -24601,7 +24601,7 @@
       "source_file": "python-services/shared/tests/test_pkcs7.py",
       "source_location": "L416",
       "_origin": "ast",
-      "community": 54,
+      "community": 16,
       "norm_label": ".test_is_certificate_valid_returns_false_without_cert()",
       "id": "tests_test_pkcs7_testpkcs7signature_test_is_certificate_valid_returns_false_without_cert"
     },
@@ -25051,7 +25051,7 @@
       "source_file": "python-services/shared/tests/test_pkcs7.py",
       "source_location": "L391",
       "_origin": "ast",
-      "community": 16,
+      "community": 54,
       "norm_label": "test certificate_info returns empty dict without certificate.",
       "id": "tests_test_pkcs7_rationale_391"
     },
@@ -25071,7 +25071,7 @@
       "source_file": "python-services/shared/tests/test_pkcs7.py",
       "source_location": "L417",
       "_origin": "ast",
-      "community": 54,
+      "community": 16,
       "norm_label": "test is_certificate_valid returns false without certificate.",
       "id": "tests_test_pkcs7_rationale_417"
     },
@@ -124224,5 +124224,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "286db7b82e4d9c3ed1609208dbc88c732fd09d12"
+  "built_at_commit": "b5e36420c29a4f16b2151d56355afe5964e4e2d9"
 }
