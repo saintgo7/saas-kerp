@@ -173,7 +173,7 @@ func (r *projectRepositoryGorm) GetStats(ctx context.Context, companyID uuid.UUI
 	var budgetResult BudgetResult
 	if err := r.db.WithContext(ctx).Model(&domain.Project{}).
 		Where("company_id = ?", companyID).
-		Select("COALESCE(SUM(budget), 0) as total_budget, COALESCE(SUM(actual_cost), 0) as total_actual_cost").
+		Select("COALESCE(SUM(budget_amount), 0) as total_budget, COALESCE(SUM(actual_amount), 0) as total_actual_cost").
 		Scan(&budgetResult).Error; err != nil {
 		return nil, err
 	}
