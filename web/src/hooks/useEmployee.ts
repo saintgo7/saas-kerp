@@ -94,7 +94,7 @@ export function useEmployees(params: EmployeeListParams = {}) {
         total: number;
         page: number;
         limit: number;
-      }>("/api/v1/employees", { params });
+      }>("/employees", { params });
       return data;
     },
   });
@@ -105,7 +105,7 @@ export function useEmployee(id: string) {
   return useQuery({
     queryKey: employeeKeys.detail(id),
     queryFn: async () => {
-      const { data } = await api.get<Employee>(`/api/v1/employees/${id}`);
+      const { data } = await api.get<Employee>(`/employees/${id}`);
       return data;
     },
     enabled: !!id,
@@ -118,7 +118,7 @@ export function useCreateEmployee() {
 
   return useMutation({
     mutationFn: async (input: CreateEmployeeInput) => {
-      const { data } = await api.post<Employee>("/api/v1/employees", input);
+      const { data } = await api.post<Employee>("/employees", input);
       return data;
     },
     onSuccess: () => {
@@ -140,7 +140,7 @@ export function useUpdateEmployee() {
       id,
       ...input
     }: CreateEmployeeInput & { id: string }) => {
-      const { data } = await api.put<Employee>(`/api/v1/employees/${id}`, input);
+      const { data } = await api.put<Employee>(`/employees/${id}`, input);
       return data;
     },
     onSuccess: (data) => {
@@ -160,7 +160,7 @@ export function useDeleteEmployee() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/v1/employees/${id}`);
+      await api.delete(`/employees/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: employeeKeys.lists() });
@@ -186,7 +186,7 @@ export function useChangeEmployeeStatus() {
       status: "active" | "leave" | "resigned";
       resignDate?: string;
     }) => {
-      const { data } = await api.patch<Employee>(`/api/v1/employees/${id}/status`, {
+      const { data } = await api.patch<Employee>(`/employees/${id}/status`, {
         status,
         resignDate,
       });

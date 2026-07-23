@@ -107,7 +107,7 @@ export function useInvoices(params: InvoiceListParams = {}) {
         total: number;
         page: number;
         limit: number;
-      }>("/api/v1/invoices", { params });
+      }>("/invoices", { params });
       return data;
     },
   });
@@ -118,7 +118,7 @@ export function useInvoice(id: string) {
   return useQuery({
     queryKey: invoiceKeys.detail(id),
     queryFn: async () => {
-      const { data } = await api.get<Invoice>(`/api/v1/invoices/${id}`);
+      const { data } = await api.get<Invoice>(`/invoices/${id}`);
       return data;
     },
     enabled: !!id,
@@ -131,7 +131,7 @@ export function useCreateInvoice() {
 
   return useMutation({
     mutationFn: async (input: CreateInvoiceInput) => {
-      const { data } = await api.post<Invoice>("/api/v1/invoices", input);
+      const { data } = await api.post<Invoice>("/invoices", input);
       return data;
     },
     onSuccess: () => {
@@ -153,7 +153,7 @@ export function useUpdateInvoice() {
       id,
       ...input
     }: CreateInvoiceInput & { id: string }) => {
-      const { data } = await api.put<Invoice>(`/api/v1/invoices/${id}`, input);
+      const { data } = await api.put<Invoice>(`/invoices/${id}`, input);
       return data;
     },
     onSuccess: (data) => {
@@ -173,7 +173,7 @@ export function useIssueInvoice() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { data } = await api.post<Invoice>(`/api/v1/invoices/${id}/issue`);
+      const { data } = await api.post<Invoice>(`/invoices/${id}/issue`);
       return data;
     },
     onSuccess: (data) => {
@@ -193,7 +193,7 @@ export function useCancelInvoice() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { data } = await api.post<Invoice>(`/api/v1/invoices/${id}/cancel`);
+      const { data } = await api.post<Invoice>(`/invoices/${id}/cancel`);
       return data;
     },
     onSuccess: (data) => {
@@ -213,7 +213,7 @@ export function useDeleteInvoice() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/v1/invoices/${id}`);
+      await api.delete(`/invoices/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });

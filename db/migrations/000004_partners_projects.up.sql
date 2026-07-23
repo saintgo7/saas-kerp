@@ -52,7 +52,7 @@ CREATE TABLE partners (
     updated_by UUID REFERENCES users(id),
     deleted_at TIMESTAMPTZ,
 
-    UNIQUE(company_id, business_number) WHERE business_number IS NOT NULL
+    UNIQUE(company_id, business_number)
 );
 
 CREATE INDEX idx_partners_company ON partners(company_id);
