@@ -88,7 +88,7 @@ func (r *partnerRepositoryGorm) List(ctx context.Context, filter *PartnerFilter)
 	}
 	if filter.SearchTerm != "" {
 		searchPattern := "%" + filter.SearchTerm + "%"
-		query = query.Where("code ILIKE ? OR name ILIKE ? OR business_number ILIKE ?",
+		query = query.Where("code ILIKE ? OR partner_name ILIKE ? OR business_number ILIKE ?",
 			searchPattern, searchPattern, searchPattern)
 	}
 
