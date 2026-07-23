@@ -56,11 +56,10 @@ func registerTenantRoutes(tenant *gin.RouterGroup, h *handler.Handlers) {
 	h.Voucher.RegisterRoutes(tenant)
 	h.Ledger.RegisterRoutes(tenant)
 
-	// User management routes
-	h.User.RegisterRoutes(tenant)
-
-	// Role management routes
-	h.Role.RegisterRoutes(tenant)
+	// User & role management routes: administrators only
+	adminOnly := tenant.Group("", middleware.RequireAdmin())
+	h.User.RegisterRoutes(adminOnly)
+	h.Role.RegisterRoutes(adminOnly)
 
 	// Company settings routes
 	h.Company.RegisterRoutes(tenant)

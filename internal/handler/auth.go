@@ -298,16 +298,11 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		}
 	}
 
-	// TODO: Send actual email in production
-	// For development, include the token in response
-	responseData := gin.H{
-		"message": result.Message,
-	}
-	if result.ResetToken != "" {
-		// Development only: include reset token in response
-		responseData["reset_token"] = result.ResetToken
-		responseData["note"] = "Development mode: Token included in response. In production, this will be sent via email."
-	}
-
-	response.OK(c, responseData)
+	// TODO: send the reset link to the user's email.
+	// SECURITY: never return the reset token in the HTTP response and never
+	// reveal whether the account exists — a fixed, generic message prevents
+	// token leakage and user enumeration.
+	response.OK(c, gin.H{
+		"message": "If an account with that email exists, a password reset link has been sent",
+	})
 }
