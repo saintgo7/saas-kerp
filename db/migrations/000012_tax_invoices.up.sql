@@ -210,15 +210,15 @@ CREATE POLICY popbill_configs_tenant_policy ON popbill_configs
 -- Triggers for updated_at
 CREATE TRIGGER tax_invoices_updated_at
     BEFORE UPDATE ON tax_invoices
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 
 CREATE TRIGGER tax_invoice_items_updated_at
     BEFORE UPDATE ON tax_invoice_items
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 
 CREATE TRIGGER popbill_configs_updated_at
     BEFORE UPDATE ON popbill_configs
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 
 -- Comments
 COMMENT ON TABLE tax_invoices IS 'Tax invoices (세금계산서) for sales and purchases';
