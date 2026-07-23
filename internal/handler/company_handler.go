@@ -8,6 +8,7 @@ import (
 	appctx "github.com/saintgo7/saas-kerp/internal/context"
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
 
@@ -26,9 +27,9 @@ func (h *CompanyHandler) RegisterRoutes(r *gin.RouterGroup) {
 	company := r.Group("/company")
 	{
 		company.GET("", h.Get)
-		company.PUT("", h.Update)
+		company.PUT("", middleware.RequireAdmin(), h.Update)
 		company.GET("/settings", h.GetSettings)
-		company.PUT("/settings", h.UpdateSettings)
+		company.PUT("/settings", middleware.RequireAdmin(), h.UpdateSettings)
 	}
 }
 
