@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -458,12 +459,11 @@ func (h *LedgerHandler) GetFiscalPeriods(c *gin.Context) {
 		year = time.Now().Format("2006")
 	}
 
-	var yearInt int
-	if _, err := time.Parse("2006", year); err != nil {
+	yearInt, err := strconv.Atoi(year)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse(dto.ErrCodeValidation, "Invalid year"))
 		return
 	}
-	yearInt = time.Now().Year() // Default to current year if parsing issue
 
 	periods, err := h.ledgerService.GetFiscalPeriods(c.Request.Context(), companyID, yearInt)
 	if err != nil {
@@ -491,9 +491,14 @@ func (h *LedgerHandler) GetFiscalPeriod(c *gin.Context) {
 	}
 
 	// Parse year and month from path
-	var year, month int
-	if _, err := c.Params.Get("year"); err {
+	year, err := strconv.Atoi(c.Param("year"))
+	if err != nil {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse(dto.ErrCodeValidation, "Invalid year"))
+		return
+	}
+	month, err := strconv.Atoi(c.Param("month"))
+	if err != nil || month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(dto.ErrCodeValidation, "Invalid month"))
 		return
 	}
 
@@ -525,8 +530,12 @@ func (h *LedgerHandler) CreateFiscalPeriods(c *gin.Context) {
 		return
 	}
 
-	// Parse year from path - simplified
-	year := time.Now().Year()
+	// Parse year from path
+	year, err := strconv.Atoi(c.Param("year"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(dto.ErrCodeValidation, "Invalid year"))
+		return
+	}
 
 	periods, err := h.ledgerService.CreateFiscalPeriods(c.Request.Context(), companyID, year)
 	if err != nil {

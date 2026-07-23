@@ -37,8 +37,9 @@ func NewVoucherRepository(db *gorm.DB) VoucherRepository {
 // Create inserts a new voucher with entries
 func (r *voucherRepositoryGorm) Create(ctx context.Context, voucher *domain.Voucher) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Create voucher
-		if err := tx.Create(voucher).Error; err != nil {
+		// Create voucher (without cascading entries; they are inserted below
+		// with their VoucherID/CompanyID set, to avoid double-insert / PK clash)
+		if err := tx.Omit("Entries").Create(voucher).Error; err != nil {
 			return err
 		}
 
