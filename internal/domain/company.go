@@ -65,9 +65,9 @@ func DefaultCompanySettings() CompanySettings {
 // Company represents a company (tenant) in the system
 type Company struct {
 	BaseModel
-	Code           string          `gorm:"type:varchar(50);not null;uniqueIndex" json:"code"`
-	Name           string          `gorm:"type:varchar(200);not null" json:"name"`
-	NameEn         string          `gorm:"type:varchar(200)" json:"name_en,omitempty"`
+	Code           string          `gorm:"column:code;type:varchar(50)" json:"code"`
+	Name           string          `gorm:"column:company_name;type:varchar(200);not null" json:"name"`
+	NameEn         string          `gorm:"column:company_name_en;type:varchar(200)" json:"name_en,omitempty"`
 	BusinessNumber string          `gorm:"type:varchar(12)" json:"business_number,omitempty"`
 	Representative string          `gorm:"type:varchar(100)" json:"representative,omitempty"`
 	Phone          string          `gorm:"type:varchar(20)" json:"phone,omitempty"`

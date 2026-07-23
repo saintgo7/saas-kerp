@@ -17,9 +17,9 @@ type Partner struct {
 	TenantModel
 
 	// Basic info
-	Code           string `gorm:"type:varchar(20);not null" json:"code"`
-	Name           string `gorm:"type:varchar(100);not null" json:"name"`
-	NameEn         string `gorm:"type:varchar(100)" json:"name_en,omitempty"`
+	Code           string `gorm:"column:code;type:varchar(20)" json:"code"`
+	Name           string `gorm:"column:partner_name;type:varchar(100);not null" json:"name"`
+	NameEn         string `gorm:"column:partner_name_en;type:varchar(100)" json:"name_en,omitempty"`
 	BusinessNumber string `gorm:"type:varchar(12)" json:"business_number,omitempty"`
 
 	// Type
@@ -38,7 +38,7 @@ type Partner struct {
 	AddressDetail string `gorm:"type:varchar(100)" json:"address_detail,omitempty"`
 
 	// Accounting
-	PaymentTermDays int        `gorm:"default:30" json:"payment_term_days"`
+	PaymentTermDays int        `gorm:"column:payment_terms;default:30" json:"payment_term_days"`
 	CreditLimit     float64    `gorm:"type:decimal(18,2);default:0" json:"credit_limit"`
 	ARAccountID     *uuid.UUID `gorm:"type:uuid" json:"ar_account_id,omitempty"` // Accounts Receivable
 	APAccountID     *uuid.UUID `gorm:"type:uuid" json:"ap_account_id,omitempty"` // Accounts Payable

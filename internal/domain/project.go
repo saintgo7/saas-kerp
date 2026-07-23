@@ -54,8 +54,8 @@ type Project struct {
 	EndDate   *time.Time    `json:"end_date,omitempty"`
 
 	// Budget
-	Budget     float64 `gorm:"type:decimal(18,2);default:0" json:"budget"`
-	ActualCost float64 `gorm:"type:decimal(18,2);default:0" json:"actual_cost"`
+	Budget     float64 `gorm:"column:budget_amount;type:decimal(18,2);default:0" json:"budget"`
+	ActualCost float64 `gorm:"column:actual_amount;type:decimal(18,2);default:0" json:"actual_cost"`
 
 	// Status
 	IsActive bool `gorm:"default:true" json:"is_active"`
