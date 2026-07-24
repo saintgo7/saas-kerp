@@ -44,6 +44,20 @@ interface UIState {
   closeModal: () => void;
 }
 
+// Helper function to apply theme to document
+function applyThemeToDocument(theme: Theme) {
+  const root = document.documentElement;
+  root.classList.remove("light", "dark");
+  if (theme === "system") {
+    const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+    root.classList.add(systemTheme);
+  } else {
+    root.classList.add(theme);
+  }
+}
+
 export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
@@ -67,18 +81,7 @@ export const useUIStore = create<UIState>()(
 
       setTheme: (theme) => {
         set({ theme });
-        // Apply theme to document
-        const root = document.documentElement;
-        root.classList.remove("light", "dark");
-        if (theme === "system") {
-          const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-            .matches
-            ? "dark"
-            : "light";
-          root.classList.add(systemTheme);
-        } else {
-          root.classList.add(theme);
-        }
+        applyThemeToDocument(theme);
       },
 
       setGlobalLoading: (loading, message = "") =>
@@ -124,3 +127,20 @@ export const toast = {
   info: (title: string, message?: string) =>
     useUIStore.getState().addToast({ type: "info", title, message }),
 };
+
+// Listen for system theme changes
+if (typeof window !== "undefined") {
+  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  mediaQuery.addEventListener("change", () => {
+    const currentTheme = useUIStore.getState().theme;
+    if (currentTheme === "system") {
+      applyThemeToDocument("system");
+    }
+  });
+
+  // Apply stored theme on initial load (after hydration)
+  useUIStore.persist.onFinishHydration(() => {
+    const theme = useUIStore.getState().theme;
+    applyThemeToDocument(theme);
+  });
+}
