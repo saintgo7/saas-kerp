@@ -103,3 +103,4 @@ vercel-*.html
 
 # Server access guide (contains plaintext private SSH keys — never commit)
 docs/SERVER_ACCESS_GUIDE.md
+graphify-out/
