@@ -48,6 +48,20 @@ func (r *userRepositoryGorm) FindByID(ctx context.Context, companyID, id uuid.UU
 	return &user, nil
 }
 
+func (r *userRepositoryGorm) FindByUserID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	var user domain.User
+	err := r.db.WithContext(ctx).
+		Where("id = ?", id).
+		First(&user).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrUserNotFound
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
 func (r *userRepositoryGorm) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var user domain.User
 	err := r.db.WithContext(ctx).
