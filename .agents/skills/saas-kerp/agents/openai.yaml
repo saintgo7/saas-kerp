@@ -1,0 +1,6 @@
+interface:
+  display_name: "Saas Kerp"
+  short_description: "Repo-specific patterns and workflows for saas-kerp"
+  default_prompt: "Use the saas-kerp repo skill to follow existing architecture, testing, and workflow conventions."
+policy:
+  allow_implicit_invocation: true
