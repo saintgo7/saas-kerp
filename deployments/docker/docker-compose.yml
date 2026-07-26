@@ -51,7 +51,7 @@ services:
       - KERP_REDIS_HOST=redis
       - KERP_REDIS_PORT=6379
       - KERP_NATS_URL=nats://nats:4222
-      - KERP_JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
+      - KERP_JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
       - KERP_LOG_LEVEL=info
     ports:
       - "8080:8080"  # Temporary direct access (bypass Traefik)

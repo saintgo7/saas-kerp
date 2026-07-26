@@ -40,8 +40,17 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("jwt.secret is required"))
 	}
 
-	if c.App.Env == "production" && c.JWT.Secret == "change-me-in-production" {
-		errs = append(errs, errors.New("jwt.secret must be changed in production"))
+	// Reject placeholder or weak JWT secrets for all non-development environments (staging and production)
+	if c.App.Env != "development" {
+		weakSecrets := map[string]bool{
+			"change-me-in-production":         true,
+			"dev-secret-change-in-production": true,
+		}
+		if weakSecrets[c.JWT.Secret] {
+			errs = append(errs, fmt.Errorf("jwt.secret must be changed from the default placeholder in %s environment", c.App.Env))
+		} else if c.JWT.Secret != "" && len(c.JWT.Secret) < 32 {
+			errs = append(errs, fmt.Errorf("jwt.secret is too weak in %s environment (must be at least 32 characters)", c.App.Env))
+		}
 	}
 
 	if c.JWT.AccessTokenTTL <= 0 {
