@@ -1,12 +1,24 @@
 -- K-ERP v0.2 Seed: Demo Company Data
--- Creates a demo company for testing and development
+-- Creates a demo company for testing and development.
+--
+-- DEVELOPMENT / TEST ONLY. Do not run against a production database.
+--
+-- The demo administrator's password hash is NOT stored in this repository.
+-- Supply it at run time as a database setting, e.g.
+--
+--   PGOPTIONS="-c kerp.demo_admin_password_hash=$DEMO_ADMIN_BCRYPT_HASH" \
+--     psql -d kerp -f db/seed/004_demo_company.sql
+--
+-- If the setting is absent the seed aborts with
+-- "unrecognized configuration parameter", which is intentional: it must not be
+-- possible to create a login account with a credential that is public.
 
 -- Create demo company
 INSERT INTO companies (
     id,
     business_number,
-    company_name,
-    company_name_en,
+    name,
+    name_en,
     representative,
     business_type,
     business_item,
@@ -47,7 +59,7 @@ INSERT INTO companies (
 -- Create standard accounts for demo company
 SELECT create_standard_accounts('019478e0-0000-7000-8000-000000000001'::UUID);
 
--- Create demo admin user (password: demo1234!)
+-- Create demo admin user. Password hash is injected at run time (see header).
 INSERT INTO users (
     id,
     company_id,
@@ -61,7 +73,7 @@ INSERT INTO users (
     '019478e0-0000-7000-8000-000000000002'::UUID,
     '019478e0-0000-7000-8000-000000000001'::UUID,
     'admin@demo.co.kr',
-    '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', -- bcrypt hash of 'demo1234!'
+    current_setting('kerp.demo_admin_password_hash'),
     '관리자',
     '010-1234-5678',
     'active',
@@ -72,14 +84,18 @@ INSERT INTO users (
 INSERT INTO roles (
     id,
     company_id,
+    code,
     name,
     description,
-    is_system
+    is_system,
+    is_active
 ) VALUES (
     '019478e0-0000-7000-8000-000000000003'::UUID,
     '019478e0-0000-7000-8000-000000000001'::UUID,
+    'SYSADMIN',
     '시스템관리자',
     'Full system access',
+    TRUE,
     TRUE
 );
 
@@ -89,6 +105,36 @@ SELECT
     '019478e0-0000-7000-8000-000000000003'::UUID,
     id
 FROM permissions;
+
+-- Mirror the junction rows into roles.permissions.
+-- domain.Role.HasPermission() reads ONLY the JSONB column, while this seed (and
+-- the UI) populate the normalized role_permissions table. Leaving the JSONB at
+-- its '[]' default meant the freshly seeded system administrator was denied
+-- every permission. The junction table stays the source of truth; this keeps
+-- the column the application actually reads consistent with it.
+UPDATE roles r
+SET permissions = COALESCE((
+        SELECT jsonb_agg(
+                   jsonb_build_object(
+                       'code', p.code,
+                       'name', p.name,
+                       'description', p.description,
+                       'module', p.module
+                   ) ORDER BY p.code
+               )
+        FROM role_permissions rp
+        JOIN permissions p ON p.id = rp.permission_id
+        WHERE rp.role_id = r.id
+    ), '[]'::jsonb)
+WHERE r.company_id = '019478e0-0000-7000-8000-000000000001'::UUID;
+
+-- Give the demo administrator the app-level admin role.
+-- Scoped by company_id on purpose: users are unique per (company_id, email), so
+-- matching on the address alone would promote a same-named user in every tenant.
+UPDATE users
+SET role = 'admin'
+WHERE company_id = '019478e0-0000-7000-8000-000000000001'::UUID
+  AND email = 'admin@demo.co.kr';
 
 -- Assign admin role to admin user
 INSERT INTO user_roles (user_id, role_id, assigned_by)
@@ -159,5 +205,3 @@ INSERT INTO insurance_workplaces (
     '홍길동',
     TRUE
 );
-
-COMMENT ON COLUMN companies.id IS 'Demo company UUID starts with 019478e0-0000-7000-8000';
