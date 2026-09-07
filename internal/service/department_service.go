@@ -101,6 +101,16 @@ func (s *departmentService) Update(ctx context.Context, dept *domain.Department)
 		(dept.ParentID != nil && existing.ParentID != nil && *dept.ParentID != *existing.ParentID) {
 
 		if dept.ParentID != nil {
+			// A department cannot be its own parent. GetDescendants anchors on
+			// `WHERE parent_id = ?` and therefore never contains the node
+			// itself, so the descendant scan below cannot catch this case: for
+			// a leaf department it returns an empty set and the self-reference
+			// was accepted. Once stored, every recursive walk over that
+			// company's departments looped forever.
+			if *dept.ParentID == dept.ID {
+				return ErrDepartmentCircularRef
+			}
+
 			// Check if new parent is a descendant
 			descendants, err := s.repo.GetDescendants(ctx, dept.CompanyID, dept.ID)
 			if err != nil {
@@ -126,18 +136,36 @@ func (s *departmentService) Update(ctx context.Context, dept *domain.Department)
 	return s.repo.Update(ctx, dept)
 }
 
-// Delete deletes a department
+// Delete deletes a department.
+//
+// The refusal is reported through the declared sentinel errors rather than as
+// errors.New(reason): the handler maps sentinels to 409 Conflict, and an
+// anonymous error string fell through to a generic 500.
 func (s *departmentService) Delete(ctx context.Context, companyID, id uuid.UUID) error {
 	canDelete, reason, err := s.CanDelete(ctx, companyID, id)
 	if err != nil {
 		return err
 	}
 	if !canDelete {
-		return errors.New(reason)
+		switch reason {
+		case reasonDepartmentHasChildren:
+			return ErrDepartmentHasChildren
+		case reasonDepartmentHasEntries:
+			return ErrDepartmentHasTransactions
+		default:
+			return errors.New(reason)
+		}
 	}
 
 	return s.repo.Delete(ctx, companyID, id)
 }
+
+// Reasons reported by CanDelete. They are constants so Delete can map them
+// back onto the sentinel errors without matching free-form strings.
+const (
+	reasonDepartmentHasChildren = "department has child departments"
+	reasonDepartmentHasEntries  = "department has voucher entries"
+)
 
 // GetByID retrieves a department by ID
 func (s *departmentService) GetByID(ctx context.Context, companyID, id uuid.UUID) (*domain.Department, error) {
@@ -180,6 +208,12 @@ func (s *departmentService) Move(ctx context.Context, companyID, id uuid.UUID, n
 
 	// Check for circular reference if moving to a new parent
 	if newParentID != nil {
+		// See Update: GetDescendants excludes the node itself, so the
+		// self-parent case has to be rejected explicitly.
+		if *newParentID == id {
+			return ErrDepartmentCircularRef
+		}
+
 		descendants, err := s.repo.GetDescendants(ctx, companyID, id)
 		if err != nil {
 			return err
@@ -206,10 +240,15 @@ func (s *departmentService) Move(ctx context.Context, companyID, id uuid.UUID, n
 
 // CanDelete checks if a department can be deleted
 func (s *departmentService) CanDelete(ctx context.Context, companyID, id uuid.UUID) (bool, string, error) {
-	// Check if department exists
+	// Check if department exists. Only a genuine miss is reported as
+	// not-found; a database failure must surface as itself, otherwise a broken
+	// connection is reported to the client as a 404.
 	_, err := s.repo.GetByID(ctx, companyID, id)
 	if err != nil {
-		return false, "department not found", ErrDepartmentNotFound
+		if errors.Is(err, domain.ErrDepartmentNotFound) || errors.Is(err, ErrDepartmentNotFound) {
+			return false, "department not found", ErrDepartmentNotFound
+		}
+		return false, "", err
 	}
 
 	// Check for child departments
@@ -218,7 +257,7 @@ func (s *departmentService) CanDelete(ctx context.Context, companyID, id uuid.UU
 		return false, "", err
 	}
 	if hasChildren {
-		return false, "department has child departments", nil
+		return false, reasonDepartmentHasChildren, nil
 	}
 
 	// Check for voucher entries
@@ -227,7 +266,7 @@ func (s *departmentService) CanDelete(ctx context.Context, companyID, id uuid.UU
 		return false, "", err
 	}
 	if hasEntries {
-		return false, "department has voucher entries", nil
+		return false, reasonDepartmentHasEntries, nil
 	}
 
 	return true, "", nil

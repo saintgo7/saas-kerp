@@ -12,10 +12,10 @@ import (
 
 // UserService errors
 var (
-	ErrUserEmailExists       = errors.New("email already exists")
-	ErrUserCannotDeleteSelf  = errors.New("cannot delete your own account")
+	ErrUserEmailExists          = errors.New("email already exists")
+	ErrUserCannotDeleteSelf     = errors.New("cannot delete your own account")
 	ErrUserCannotDeactivateSelf = errors.New("cannot deactivate your own account")
-	ErrInvalidCurrentPassword = errors.New("invalid current password")
+	ErrInvalidCurrentPassword   = errors.New("invalid current password")
 )
 
 // UserService defines the interface for user business logic

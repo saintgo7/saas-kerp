@@ -48,18 +48,65 @@ func (r *userRepositoryGorm) FindByID(ctx context.Context, companyID, id uuid.UU
 	return &user, nil
 }
 
-func (r *userRepositoryGorm) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
-	var user domain.User
+// authUserRow mirrors the RETURNS TABLE shape of auth_find_users_by_email().
+// It is a separate type from domain.User because the function projects a fixed
+// column list; scanning straight into domain.User would make the query depend
+// on the ORM's model metadata for a result set the database, not GORM, defines.
+type authUserRow struct {
+	ID           uuid.UUID
+	CompanyID    uuid.UUID
+	Email        string
+	PasswordHash string
+	Name         string
+	Role         string
+	Status       string
+}
+
+// FindAuthCandidatesByEmail returns every tenant's user with this address.
+//
+// The lookup goes through auth_find_users_by_email(), a SECURITY DEFINER
+// function owned by the NOLOGIN kerp_auth role (000021_auth_bootstrap). A plain
+// SELECT cannot be used: /auth/login runs before the tenant is known, so
+// app.current_tenant is unset, and once the application role loses BYPASSRLS
+// (000016) the users policy matches zero rows and login breaks. The function is
+// the whole privileged surface - "look up a user by e-mail" - and the tables
+// keep RLS + FORCE.
+//
+// The function name is left unqualified on purpose: it is created in
+// current_schema() by the migration, and both kerp_app and the database default
+// put that schema first on search_path, exactly like the unqualified table names
+// migrations 000001-000021 use.
+func (r *userRepositoryGorm) FindAuthCandidatesByEmail(ctx context.Context, email string) ([]domain.User, error) {
+	if email == "" {
+		// An empty address can never match a NOT NULL, non-empty column; skip
+		// the round trip rather than let a caller bug reach the database.
+		return nil, nil
+	}
+
+	var rows []authUserRow
 	err := r.db.WithContext(ctx).
-		Where("email = ?", email).
-		First(&user).Error
+		Raw(`SELECT id, company_id, email, password_hash, name, role, status
+		       FROM auth_find_users_by_email(?)`, email).
+		Scan(&rows).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, domain.ErrUserNotFound
-		}
 		return nil, err
 	}
-	return &user, nil
+
+	users := make([]domain.User, 0, len(rows))
+	for _, row := range rows {
+		users = append(users, domain.User{
+			TenantModel: domain.TenantModel{
+				BaseModel: domain.BaseModel{ID: row.ID},
+				CompanyID: row.CompanyID,
+			},
+			Email:        row.Email,
+			PasswordHash: row.PasswordHash,
+			Name:         row.Name,
+			Role:         domain.UserRole(row.Role),
+			Status:       domain.UserStatus(row.Status),
+		})
+	}
+	return users, nil
 }
 
 func (r *userRepositoryGorm) FindByEmailAndCompany(ctx context.Context, companyID uuid.UUID, email string) (*domain.User, error) {
@@ -99,10 +146,17 @@ func (r *userRepositoryGorm) FindAll(ctx context.Context, filter UserFilter) ([]
 		return nil, 0, err
 	}
 
-	// Apply sorting
+	// Apply sorting.
+	//
+	// GORM splices an Order() string into the SQL verbatim, so a caller-supplied
+	// column name must never reach it. The sibling repositories (accounts,
+	// vouchers) already whitelist; this one interpolated filter.SortBy
+	// directly. UserFilter.SortBy happens not to be populated by any handler
+	// today, which is the only reason it was not exploitable - wiring up a
+	// sort_by query parameter would have made it so.
 	sortBy := "created_at"
-	if filter.SortBy != "" {
-		sortBy = filter.SortBy
+	if column, ok := userSortColumns[filter.SortBy]; ok {
+		sortBy = column
 	}
 	if filter.SortDesc {
 		sortBy += " DESC"
@@ -124,6 +178,18 @@ func (r *userRepositoryGorm) FindAll(ctx context.Context, filter UserFilter) ([]
 	return users, total, nil
 }
 
+// userSortColumns maps the sort keys the API accepts onto real column names.
+// Anything not in this map falls back to the default ordering.
+var userSortColumns = map[string]string{
+	"created_at":    "created_at",
+	"updated_at":    "updated_at",
+	"email":         "email",
+	"name":          "name",
+	"role":          "role",
+	"status":        "status",
+	"last_login_at": "last_login_at",
+}
+
 func (r *userRepositoryGorm) ExistsByEmail(ctx context.Context, companyID uuid.UUID, email string, excludeID *uuid.UUID) (bool, error) {
 	var count int64
 	query := r.db.WithContext(ctx).Model(&domain.User{}).
@@ -139,10 +205,12 @@ func (r *userRepositoryGorm) ExistsByEmail(ctx context.Context, companyID uuid.U
 	return count > 0, nil
 }
 
-func (r *userRepositoryGorm) UpdateLastLogin(ctx context.Context, userID uuid.UUID) error {
+func (r *userRepositoryGorm) UpdateLastLogin(ctx context.Context, companyID, userID uuid.UUID) error {
+	// company_id is in the predicate as well as the RLS policy on purpose; see
+	// the interface comment.
 	return r.db.WithContext(ctx).
 		Model(&domain.User{}).
-		Where("id = ?", userID).
+		Where("company_id = ? AND id = ?", companyID, userID).
 		Update("last_login_at", time.Now()).Error
 }
 
@@ -160,18 +228,48 @@ func (r *refreshTokenRepositoryGorm) Create(ctx context.Context, token *domain.R
 	return r.db.WithContext(ctx).Create(token).Error
 }
 
-func (r *refreshTokenRepositoryGorm) FindByToken(ctx context.Context, token string) (*domain.RefreshToken, error) {
-	var rt domain.RefreshToken
+// authRefreshTokenRow mirrors the RETURNS TABLE shape of
+// auth_find_refresh_token().
+type authRefreshTokenRow struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	CompanyID uuid.UUID
+	ExpiresAt time.Time
+	Revoked   bool
+}
+
+// FindByTokenForAuth resolves a refresh token before the tenant is known.
+//
+// Same reasoning as FindAuthCandidatesByEmail: /auth/refresh has no tenant
+// context until this lookup answers, so it goes through the SECURITY DEFINER
+// auth_find_refresh_token() rather than a policy-filtered SELECT. The function
+// joins users to return the owning company_id, which the caller must install as
+// app.current_tenant before it touches anything else.
+func (r *refreshTokenRepositoryGorm) FindByTokenForAuth(ctx context.Context, token string) (*AuthRefreshToken, error) {
+	if token == "" {
+		return nil, domain.ErrRefreshTokenNotFound
+	}
+
+	var rows []authRefreshTokenRow
 	err := r.db.WithContext(ctx).
-		Where("token = ? AND revoked = false", token).
-		First(&rt).Error
+		Raw(`SELECT id, user_id, company_id, expires_at, revoked
+		       FROM auth_find_refresh_token(?)`, token).
+		Scan(&rows).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, domain.ErrRefreshTokenNotFound
-		}
 		return nil, err
 	}
-	return &rt, nil
+	if len(rows) == 0 {
+		return nil, domain.ErrRefreshTokenNotFound
+	}
+
+	row := rows[0]
+	return &AuthRefreshToken{
+		ID:        row.ID,
+		UserID:    row.UserID,
+		CompanyID: row.CompanyID,
+		ExpiresAt: row.ExpiresAt,
+		Revoked:   row.Revoked,
+	}, nil
 }
 
 func (r *refreshTokenRepositoryGorm) RevokeByUserID(ctx context.Context, userID uuid.UUID) error {

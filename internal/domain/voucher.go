@@ -101,21 +101,22 @@ func (s VoucherStatus) CanReverse() bool {
 
 // Voucher errors
 var (
-	ErrVoucherNotFound       = errors.New("voucher not found")
-	ErrVoucherUnbalanced     = errors.New("voucher debit and credit must be equal")
-	ErrVoucherNoEntries      = errors.New("voucher must have at least one entry")
-	ErrVoucherInvalidStatus  = errors.New("invalid voucher status")
-	ErrVoucherCannotEdit     = errors.New("voucher cannot be edited in current status")
-	ErrVoucherCannotSubmit   = errors.New("voucher cannot be submitted in current status")
-	ErrVoucherCannotApprove  = errors.New("voucher cannot be approved in current status")
-	ErrVoucherCannotReject   = errors.New("voucher cannot be rejected in current status")
-	ErrVoucherCannotPost     = errors.New("voucher cannot be posted in current status")
-	ErrVoucherCannotReverse  = errors.New("voucher cannot be reversed in current status")
-	ErrVoucherCannotCancel   = errors.New("voucher cannot be cancelled in current status")
+	ErrVoucherNotFound        = errors.New("voucher not found")
+	ErrVoucherUnbalanced      = errors.New("voucher debit and credit must be equal")
+	ErrVoucherNoEntries       = errors.New("voucher must have at least one entry")
+	ErrVoucherInvalidStatus   = errors.New("invalid voucher status")
+	ErrVoucherCannotEdit      = errors.New("voucher cannot be edited in current status")
+	ErrVoucherCannotSubmit    = errors.New("voucher cannot be submitted in current status")
+	ErrVoucherCannotApprove   = errors.New("voucher cannot be approved in current status")
+	ErrVoucherCannotReject    = errors.New("voucher cannot be rejected in current status")
+	ErrVoucherCannotPost      = errors.New("voucher cannot be posted in current status")
+	ErrVoucherCannotReverse   = errors.New("voucher cannot be reversed in current status")
+	ErrVoucherCannotCancel    = errors.New("voucher cannot be cancelled in current status")
 	ErrVoucherAlreadyReversed = errors.New("voucher has already been reversed")
-	ErrInvalidVoucherType    = errors.New("invalid voucher type")
-	ErrInvalidVoucherDate    = errors.New("invalid voucher date")
-	ErrPeriodClosed          = errors.New("fiscal period is closed")
+	ErrInvalidVoucherType     = errors.New("invalid voucher type")
+	ErrInvalidVoucherDate     = errors.New("invalid voucher date")
+	ErrVoucherTotalsMismatch  = errors.New("voucher header totals do not match its entries")
+	ErrPeriodClosed           = errors.New("fiscal period is closed")
 )
 
 // Voucher represents a journal voucher (double-entry bookkeeping)
@@ -141,31 +142,31 @@ type Voucher struct {
 	AttachmentCount int `gorm:"default:0" json:"attachment_count"`
 
 	// Approval workflow
-	SubmittedAt *time.Time `json:"submitted_at,omitempty"`
-	SubmittedBy *uuid.UUID `gorm:"type:uuid" json:"submitted_by,omitempty"`
-	ApprovedAt  *time.Time `json:"approved_at,omitempty"`
-	ApprovedBy  *uuid.UUID `gorm:"type:uuid" json:"approved_by,omitempty"`
-	RejectedAt  *time.Time `json:"rejected_at,omitempty"`
-	RejectedBy  *uuid.UUID `gorm:"type:uuid" json:"rejected_by,omitempty"`
-	RejectionReason string `gorm:"type:varchar(500)" json:"rejection_reason,omitempty"`
+	SubmittedAt     *time.Time `json:"submitted_at,omitempty"`
+	SubmittedBy     *uuid.UUID `gorm:"type:uuid" json:"submitted_by,omitempty"`
+	ApprovedAt      *time.Time `json:"approved_at,omitempty"`
+	ApprovedBy      *uuid.UUID `gorm:"type:uuid" json:"approved_by,omitempty"`
+	RejectedAt      *time.Time `json:"rejected_at,omitempty"`
+	RejectedBy      *uuid.UUID `gorm:"type:uuid" json:"rejected_by,omitempty"`
+	RejectionReason string     `gorm:"type:varchar(500)" json:"rejection_reason,omitempty"`
 
 	// Posting
 	PostedAt *time.Time `json:"posted_at,omitempty"`
 	PostedBy *uuid.UUID `gorm:"type:uuid" json:"posted_by,omitempty"`
 
 	// Reversal
-	IsReversal    bool       `gorm:"default:false" json:"is_reversal"`
-	ReversalOfID  *uuid.UUID `gorm:"type:uuid" json:"reversal_of_id,omitempty"`
-	ReversedByID  *uuid.UUID `gorm:"type:uuid" json:"reversed_by_id,omitempty"`
+	IsReversal   bool       `gorm:"default:false" json:"is_reversal"`
+	ReversalOfID *uuid.UUID `gorm:"type:uuid" json:"reversal_of_id,omitempty"`
+	ReversedByID *uuid.UUID `gorm:"type:uuid" json:"reversed_by_id,omitempty"`
 
 	// Audit
 	CreatedBy *uuid.UUID `gorm:"type:uuid" json:"created_by,omitempty"`
 	UpdatedBy *uuid.UUID `gorm:"type:uuid" json:"updated_by,omitempty"`
 
 	// Relations
-	Entries      []VoucherEntry `gorm:"foreignKey:VoucherID" json:"entries,omitempty"`
-	ReversalOf   *Voucher       `gorm:"foreignKey:ReversalOfID" json:"reversal_of,omitempty"`
-	ReversedBy   *Voucher       `gorm:"foreignKey:ReversedByID" json:"reversed_by,omitempty"`
+	Entries    []VoucherEntry `gorm:"foreignKey:VoucherID" json:"entries,omitempty"`
+	ReversalOf *Voucher       `gorm:"foreignKey:ReversalOfID" json:"reversal_of,omitempty"`
+	ReversedBy *Voucher       `gorm:"foreignKey:ReversedByID" json:"reversed_by,omitempty"`
 }
 
 // TableName specifies the table name for GORM
@@ -184,27 +185,40 @@ func (v *Voucher) Validate() error {
 	return nil
 }
 
-// ValidateBalance validates that debit equals credit
+// ValidateBalance validates that debit equals credit.
+//
+// The comparison uses BalanceEpsilon rather than ==: the totals are float64
+// and the database stores DECIMAL(18,2), so an exact comparison either
+// rejects a balanced voucher because of binary representation error or
+// accepts one that the database will store as unbalanced.
 func (v *Voucher) ValidateBalance() error {
-	if v.TotalDebit != v.TotalCredit {
+	if !AmountsEqual(v.TotalDebit, v.TotalCredit) {
 		return ErrVoucherUnbalanced
 	}
 	return nil
 }
 
-// CalculateTotals calculates total debit and credit from entries
+// CalculateTotals calculates total debit and credit from entries.
+//
+// Each line is quantized to the stored scale before it is added, and the
+// resulting totals are quantized as well. This is what makes the header
+// totals agree with SUM(voucher_entries) as computed by PostgreSQL: the
+// database rounds every line independently on INSERT, so summing unrounded
+// Go values would produce a different total.
 func (v *Voucher) CalculateTotals() {
-	v.TotalDebit = 0
-	v.TotalCredit = 0
-	for _, entry := range v.Entries {
-		v.TotalDebit += entry.DebitAmount
-		v.TotalCredit += entry.CreditAmount
+	var debit, credit float64
+	for i := range v.Entries {
+		v.Entries[i].Normalize()
+		debit += v.Entries[i].DebitAmount
+		credit += v.Entries[i].CreditAmount
 	}
+	v.TotalDebit = RoundAmount(debit)
+	v.TotalCredit = RoundAmount(credit)
 }
 
-// IsBalanced returns true if debit equals credit
+// IsBalanced returns true if debit equals credit within BalanceEpsilon.
 func (v *Voucher) IsBalanced() bool {
-	return v.TotalDebit == v.TotalCredit
+	return AmountsEqual(v.TotalDebit, v.TotalCredit)
 }
 
 // CanEdit returns true if voucher can be edited
@@ -271,9 +285,17 @@ func (v *Voucher) Post(userID uuid.UUID) error {
 	return nil
 }
 
+// CanCancel returns true if the voucher may be cancelled from this status.
+// Posted vouchers must be reversed, not cancelled, and a voucher that is
+// already cancelled (or was rejected) must not be cancelled again - doing so
+// would overwrite updated_at and make the audit trail unusable.
+func (s VoucherStatus) CanCancel() bool {
+	return s == VoucherStatusDraft || s == VoucherStatusPending || s == VoucherStatusApproved
+}
+
 // Cancel cancels the voucher
 func (v *Voucher) Cancel() error {
-	if v.Status == VoucherStatusPosted {
+	if !v.Status.CanCancel() {
 		return ErrVoucherCannotCancel
 	}
 	v.Status = VoucherStatusCancelled

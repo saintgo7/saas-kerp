@@ -58,7 +58,7 @@ func newTestVoucher(companyID uuid.UUID) *domain.Voucher {
 	accountID1 := uuid.MustParse("00000000-0000-0000-0000-000000000010")
 	accountID2 := uuid.MustParse("00000000-0000-0000-0000-000000000011")
 
-	return &domain.Voucher{
+	v := &domain.Voucher{
 		TenantModel: domain.TenantModel{
 			BaseModel: domain.BaseModel{
 				ID: uuid.New(),
@@ -86,6 +86,12 @@ func newTestVoucher(companyID uuid.UUID) *domain.Voucher {
 			},
 		},
 	}
+
+	// A voucher read back from the database always carries header totals that
+	// agree with its lines. Post now re-derives them and refuses to post when
+	// they disagree, so the fixture has to be realistic about this.
+	v.CalculateTotals()
+	return v
 }
 
 // ============================================================================
@@ -601,11 +607,16 @@ func TestVoucherService_Reverse(t *testing.T) {
 		voucherRepo.On("GenerateVoucherNo", ctx, companyID, originalVoucher.VoucherType, mock.AnythingOfType("time.Time")).
 			Return("GEN-2024-0002", nil).Once()
 
-		// Create reversal
+		// Creation of the reversal and the stamping of the original happen in
+		// one transaction.
+		voucherRepo.On("WithTransaction", ctx, mock.AnythingOfType("func(repository.VoucherRepository) error")).
+			Return(nil).Once()
 		voucherRepo.On("Create", ctx, mock.AnythingOfType("*domain.Voucher")).Return(nil).Once()
 
-		// Update original to reference reversal
-		voucherRepo.On("Update", ctx, mock.AnythingOfType("*domain.Voucher")).Return(nil).Once()
+		// The original is stamped through MarkReversed, not Update: Update's
+		// column whitelist silently drops reversed_by_id.
+		voucherRepo.On("MarkReversed", ctx, companyID, originalVoucher.ID, mock.AnythingOfType("uuid.UUID")).
+			Return(nil).Once()
 
 		reversal, err := svc.Reverse(ctx, companyID, originalVoucher.ID, userID, reversalDate, description)
 

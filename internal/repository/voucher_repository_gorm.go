@@ -43,10 +43,15 @@ func (r *voucherRepositoryGorm) Create(ctx context.Context, voucher *domain.Vouc
 	})
 }
 
-// Update modifies an existing voucher
+// Update modifies an existing voucher, scoped to its owning company.
+//
+// The whitelist deliberately excludes status and the reversal bookkeeping
+// columns: those move through UpdateStatus and MarkReversed, which enforce
+// their own preconditions.
 func (r *voucherRepositoryGorm) Update(ctx context.Context, voucher *domain.Voucher) error {
 	return r.db.WithContext(ctx).
 		Model(voucher).
+		Where("company_id = ?", voucher.CompanyID).
 		Select("voucher_date", "voucher_type", "description", "reference_type", "reference_id",
 			"total_debit", "total_credit", "updated_by").
 		Updates(voucher).Error
@@ -56,7 +61,7 @@ func (r *voucherRepositoryGorm) Update(ctx context.Context, voucher *domain.Vouc
 func (r *voucherRepositoryGorm) Delete(ctx context.Context, companyID, id uuid.UUID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Delete entries first
-		if err := tx.Where("voucher_id = ?", id).Delete(&domain.VoucherEntry{}).Error; err != nil {
+		if err := tx.Where("company_id = ? AND voucher_id = ?", companyID, id).Delete(&domain.VoucherEntry{}).Error; err != nil {
 			return err
 		}
 
@@ -211,23 +216,34 @@ func (r *voucherRepositoryGorm) CreateEntry(ctx context.Context, entry *domain.V
 	return r.db.WithContext(ctx).Create(entry).Error
 }
 
-// UpdateEntry modifies an existing entry
+// UpdateEntry modifies an existing entry, scoped to its owning company
 func (r *voucherRepositoryGorm) UpdateEntry(ctx context.Context, entry *domain.VoucherEntry) error {
 	return r.db.WithContext(ctx).
 		Model(entry).
+		Where("company_id = ?", entry.CompanyID).
 		Select("line_no", "account_id", "debit_amount", "credit_amount", "description",
 			"partner_id", "department_id", "project_id", "cost_center_id", "tags").
 		Updates(entry).Error
 }
 
-// DeleteEntry removes an entry by ID
-func (r *voucherRepositoryGorm) DeleteEntry(ctx context.Context, id uuid.UUID) error {
-	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.VoucherEntry{}).Error
+// DeleteEntry removes an entry by ID within the owning company.
+//
+// The company_id predicate is part of the repository contract, not a
+// convenience: RLS only isolates tenants when the app.current_tenant GUC has
+// been set on the session (db/migrations/000017_rls_hardening), so a caller
+// that reaches this method with a bare entry UUID must not be able to delete
+// another tenant's row.
+func (r *voucherRepositoryGorm) DeleteEntry(ctx context.Context, companyID, id uuid.UUID) error {
+	return r.db.WithContext(ctx).
+		Where("company_id = ? AND id = ?", companyID, id).
+		Delete(&domain.VoucherEntry{}).Error
 }
 
-// DeleteEntriesByVoucher removes all entries for a voucher
-func (r *voucherRepositoryGorm) DeleteEntriesByVoucher(ctx context.Context, voucherID uuid.UUID) error {
-	return r.db.WithContext(ctx).Where("voucher_id = ?", voucherID).Delete(&domain.VoucherEntry{}).Error
+// DeleteEntriesByVoucher removes all entries for a voucher within the owning company
+func (r *voucherRepositoryGorm) DeleteEntriesByVoucher(ctx context.Context, companyID, voucherID uuid.UUID) error {
+	return r.db.WithContext(ctx).
+		Where("company_id = ? AND voucher_id = ?", companyID, voucherID).
+		Delete(&domain.VoucherEntry{}).Error
 }
 
 // FindEntriesByVoucher retrieves all entries for a voucher
@@ -281,11 +297,43 @@ func (r *voucherRepositoryGorm) UpdateStatus(ctx context.Context, voucher *domai
 
 	return r.db.WithContext(ctx).
 		Model(&domain.Voucher{}).
-		Where("id = ?", voucher.ID).
+		Where("company_id = ? AND id = ?", voucher.CompanyID, voucher.ID).
 		Updates(updates).Error
 }
 
-// GenerateVoucherNo generates a unique voucher number
+// MarkReversed records which voucher reversed this one.
+//
+// This cannot go through Update: that method updates a fixed column
+// whitelist which deliberately excludes the reversal bookkeeping columns, so
+// GORM dropped reversed_by_id silently and the UPDATE reported success while
+// leaving the column NULL. The "already reversed" guard in the service then
+// never fired and one posted voucher could be reversed any number of times.
+func (r *voucherRepositoryGorm) MarkReversed(ctx context.Context, companyID, voucherID, reversalID uuid.UUID) error {
+	result := r.db.WithContext(ctx).
+		Model(&domain.Voucher{}).
+		// reversed_by_id IS NULL makes this the concurrency guard as well:
+		// two simultaneous reversals cannot both claim the same voucher.
+		Where("company_id = ? AND id = ? AND reversed_by_id IS NULL", companyID, voucherID).
+		Updates(map[string]interface{}{
+			"reversed_by_id": reversalID,
+			"updated_at":     time.Now(),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrVoucherAlreadyReversed
+	}
+	return nil
+}
+
+// GenerateVoucherNo generates a unique voucher number.
+//
+// Every failure is now reported. The previous version returned (voucherNo,
+// nil) unconditionally and ignored the result of each fallback statement, so a
+// database without the generate_voucher_number function handed out
+// "<PREFIX>-<year>-000001" to every voucher and all but the first INSERT died
+// on UNIQUE(company_id, voucher_no) with a raw 500.
 func (r *voucherRepositoryGorm) GenerateVoucherNo(ctx context.Context, companyID uuid.UUID, voucherType domain.VoucherType, voucherDate time.Time) (string, error) {
 	var voucherNo string
 
@@ -294,32 +342,38 @@ func (r *voucherRepositoryGorm) GenerateVoucherNo(ctx context.Context, companyID
 		companyID, string(voucherType), voucherDate,
 	).Scan(&voucherNo).Error
 
-	if err != nil {
-		// Fallback: generate manually if function doesn't exist
-		year := voucherDate.Year()
-		prefix := voucherType.GetPrefix()
-
-		var lastNumber int
-		r.db.WithContext(ctx).
-			Table("voucher_sequences").
-			Select("last_number").
-			Where("company_id = ? AND fiscal_year = ? AND voucher_type = ?",
-				companyID, year, string(voucherType)).
-			Scan(&lastNumber)
-
-		lastNumber++
-		voucherNo = fmt.Sprintf("%s-%d-%06d", prefix, year, lastNumber)
-
-		// Update or insert sequence
-		r.db.WithContext(ctx).Exec(`
-			INSERT INTO voucher_sequences (id, company_id, fiscal_year, voucher_type, prefix, last_number, updated_at)
-			VALUES (uuid_generate_v7(), ?, ?, ?, ?, ?, NOW())
-			ON CONFLICT (company_id, fiscal_year, voucher_type)
-			DO UPDATE SET last_number = ?, updated_at = NOW()
-		`, companyID, year, string(voucherType), prefix, lastNumber, lastNumber)
+	if err == nil && voucherNo != "" {
+		return voucherNo, nil
 	}
 
-	return voucherNo, nil
+	// Fallback for databases where the stored function has not been created.
+	// The sequence is bumped in a single atomic statement that returns the
+	// value it reserved: read-modify-write from Go let two concurrent requests
+	// reserve the same number, and writing back a caller-computed value could
+	// even move the sequence backwards.
+	year := voucherDate.Year()
+	prefix := voucherType.GetPrefix()
+
+	var lastNumber int
+	seqErr := r.db.WithContext(ctx).Raw(`
+		INSERT INTO voucher_sequences (company_id, fiscal_year, voucher_type, prefix, last_number, updated_at)
+		VALUES (?, ?, ?, ?, 1, NOW())
+		ON CONFLICT (company_id, fiscal_year, voucher_type)
+		DO UPDATE SET last_number = voucher_sequences.last_number + 1, updated_at = NOW()
+		RETURNING last_number
+	`, companyID, year, string(voucherType), prefix).Scan(&lastNumber).Error
+
+	if seqErr != nil {
+		if err != nil {
+			return "", fmt.Errorf("voucher number generation failed (function: %v): %w", err, seqErr)
+		}
+		return "", fmt.Errorf("voucher number generation failed: %w", seqErr)
+	}
+	if lastNumber <= 0 {
+		return "", fmt.Errorf("voucher number generation returned no sequence value")
+	}
+
+	return fmt.Sprintf("%s-%d-%06d", prefix, year, lastNumber), nil
 }
 
 // WithTransaction executes a function within a transaction

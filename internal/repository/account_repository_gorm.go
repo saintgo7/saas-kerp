@@ -244,9 +244,13 @@ func (r *accountRepositoryGorm) UpdatePath(ctx context.Context, account *domain.
 		newPath = account.Code
 	} else {
 		var parent domain.Account
+		// Both queries are scoped to the owning company. Relying on the
+		// service having looked the account up by company first is a
+		// convention, not a defence: RLS only isolates tenants when the
+		// app.current_tenant GUC is set on the session.
 		if err := r.db.WithContext(ctx).
 			Select("path").
-			Where("id = ?", account.ParentID).
+			Where("company_id = ? AND id = ?", account.CompanyID, account.ParentID).
 			First(&parent).Error; err != nil {
 			return err
 		}
@@ -256,7 +260,7 @@ func (r *accountRepositoryGorm) UpdatePath(ctx context.Context, account *domain.
 	// Update account path
 	return r.db.WithContext(ctx).
 		Model(&domain.Account{}).
-		Where("id = ?", account.ID).
+		Where("company_id = ? AND id = ?", account.CompanyID, account.ID).
 		Update("path", newPath).Error
 }
 

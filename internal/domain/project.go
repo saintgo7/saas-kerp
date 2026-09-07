@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // Project errors
@@ -39,6 +40,13 @@ func (s ProjectStatus) IsValid() bool {
 // Project represents a project for cost tracking
 type Project struct {
 	TenantModel
+
+	// DeletedAt enables GORM soft delete. The table carries deleted_at and
+	// db/migrations/000020_index_hygiene makes the uniqueness partial on
+	// `deleted_at IS NULL`, so a hard delete here would both break audit
+	// foreign keys and waste that work. Tagged json:"-" - gorm.DeletedAt
+	// marshals as {"Time":...,"Valid":...}.
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
 	// Basic info
 	Code        string `gorm:"type:varchar(50);not null;uniqueIndex:idx_projects_company_code" json:"code"`

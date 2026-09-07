@@ -119,26 +119,68 @@ func (r *ledgerRepositoryGorm) CalculatePeriodBalances(ctx context.Context, comp
 		prevMonth = month - 1
 	}
 
-	prevBalances, _ := r.GetBalances(ctx, companyID, prevYear, prevMonth)
+	// A transient failure here must not be swallowed: an empty prevBalances
+	// silently zeroes every opening balance and the wrong closing balances are
+	// then written to ledger_balances permanently.
+	prevBalances, err := r.GetBalances(ctx, companyID, prevYear, prevMonth)
+	if err != nil {
+		return nil, err
+	}
 	prevBalanceMap := make(map[uuid.UUID]*domain.LedgerBalance)
 	for i := range prevBalances {
 		prevBalanceMap[prevBalances[i].AccountID] = &prevBalances[i]
 	}
 
-	// Build new balances
-	var balances []domain.LedgerBalance
+	// The GROUP BY above only yields accounts that were posted to in this
+	// period. Accounts that carry a balance forward but had no movement must
+	// still get a row, otherwise they vanish from the trial balance and the
+	// next period reads no previous balance and restarts them at zero.
+	movements := make(map[uuid.UUID]struct {
+		debit  float64
+		credit float64
+	}, len(results))
+	accountIDs := make([]uuid.UUID, 0, len(results)+len(prevBalances))
+	seen := make(map[uuid.UUID]bool, len(results)+len(prevBalances))
+
 	for _, result := range results {
+		movements[result.AccountID] = struct {
+			debit  float64
+			credit float64
+		}{result.PeriodDebit, result.PeriodCredit}
+		if !seen[result.AccountID] {
+			seen[result.AccountID] = true
+			accountIDs = append(accountIDs, result.AccountID)
+		}
+	}
+	for i := range prevBalances {
+		id := prevBalances[i].AccountID
+		if seen[id] {
+			continue
+		}
+		// Only carry an account forward while it still has a balance; a fully
+		// settled account should not generate empty rows forever.
+		if domain.IsZeroAmount(prevBalances[i].ClosingDebit) && domain.IsZeroAmount(prevBalances[i].ClosingCredit) {
+			continue
+		}
+		seen[id] = true
+		accountIDs = append(accountIDs, id)
+	}
+
+	// Build new balances
+	balances := make([]domain.LedgerBalance, 0, len(accountIDs))
+	for _, accountID := range accountIDs {
+		movement := movements[accountID]
 		balance := domain.LedgerBalance{
 			CompanyID:    companyID,
-			AccountID:    result.AccountID,
+			AccountID:    accountID,
 			FiscalYear:   year,
 			FiscalMonth:  month,
-			PeriodDebit:  result.PeriodDebit,
-			PeriodCredit: result.PeriodCredit,
+			PeriodDebit:  domain.RoundAmount(movement.debit),
+			PeriodCredit: domain.RoundAmount(movement.credit),
 		}
 
 		// Set opening balance from previous period closing
-		if prev, ok := prevBalanceMap[result.AccountID]; ok {
+		if prev, ok := prevBalanceMap[accountID]; ok {
 			balance.OpeningDebit = prev.ClosingDebit
 			balance.OpeningCredit = prev.ClosingCredit
 		}
@@ -429,5 +471,36 @@ func (r *ledgerRepositoryGorm) CarryForwardBalances(ctx context.Context, company
 		targetBalances = append(targetBalances, target)
 	}
 
-	return r.UpsertBalances(ctx, targetBalances)
+	return r.upsertOpeningBalances(ctx, targetBalances)
+}
+
+// upsertOpeningBalances writes carry-forward rows without destroying movement
+// that has already been recorded in the target period.
+//
+// The generic UpsertBalances overwrites period_debit/period_credit and
+// closing_* unconditionally. Using it for carry-forward means that closing
+// January after February vouchers were already posted resets February's
+// period_debit/period_credit to 0 and its closing balances to January's -
+// February's turnover disappears from ledger_balances and from the trial
+// balance, which reads that table only.
+//
+// So on conflict this updates the opening columns from the incoming row and
+// recomputes closing as (new opening + the movement already stored), leaving
+// period_debit/period_credit untouched.
+func (r *ledgerRepositoryGorm) upsertOpeningBalances(ctx context.Context, balances []domain.LedgerBalance) error {
+	if len(balances) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "company_id"}, {Name: "account_id"}, {Name: "fiscal_year"}, {Name: "fiscal_month"}},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"opening_debit":  gorm.Expr("EXCLUDED.opening_debit"),
+				"opening_credit": gorm.Expr("EXCLUDED.opening_credit"),
+				"closing_debit":  gorm.Expr("EXCLUDED.opening_debit + ledger_balances.period_debit"),
+				"closing_credit": gorm.Expr("EXCLUDED.opening_credit + ledger_balances.period_credit"),
+				"updated_at":     gorm.Expr("NOW()"),
+			}),
+		}).
+		CreateInBatches(balances, 100).Error
 }

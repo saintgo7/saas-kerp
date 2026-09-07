@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // Partner errors
@@ -15,6 +16,13 @@ var (
 // Partner represents a business partner (customer/vendor)
 type Partner struct {
 	TenantModel
+
+	// DeletedAt enables GORM soft delete. The table carries deleted_at and
+	// db/migrations/000020_index_hygiene makes the uniqueness partial on
+	// `deleted_at IS NULL`, so a hard delete here would both break audit
+	// foreign keys and waste that work. Tagged json:"-" - gorm.DeletedAt
+	// marshals as {"Time":...,"Valid":...}.
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
 	// Basic info
 	Code           string `gorm:"type:varchar(20);not null" json:"code"`

@@ -42,4 +42,9 @@ type TaxInvoiceRepository interface {
 
 	// Summary
 	GetSummary(ctx context.Context, companyID uuid.UUID, startDate, endDate time.Time) (*domain.TaxInvoiceSummary, error)
+
+	// WithTransaction runs fn against repositories bound to a single
+	// transaction, so that an invoice, its items and its history row either
+	// all land or none do.
+	WithTransaction(ctx context.Context, fn func(repo TaxInvoiceRepository) error) error
 }
