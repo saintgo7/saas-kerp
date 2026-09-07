@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -19,7 +19,7 @@ import {
   CardTitle,
   CardContent,
 } from "@/components/ui";
-import { toast } from "@/stores/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { PRODUCT_UNITS } from "@/constants";
 import type { ProductCategory } from "@/types/inventory";
 
@@ -70,8 +70,6 @@ export function ProductFormPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
 
   const {
     register,
@@ -103,55 +101,29 @@ export function ProductFormPage() {
   const costPrice = watch("costPrice") || 0;
   const margin = unitPrice > 0 ? ((unitPrice - costPrice) / unitPrice) * 100 : 0;
 
-  // Load product data for edit mode
+  // There is no product endpoint on the server, so edit mode shows sample data.
   useEffect(() => {
     if (isEditMode && id) {
-      setIsLoading(true);
-      // TODO: Replace with actual API call
-      setTimeout(() => {
-        // Mock data for edit
-        reset({
-          code: "PRD-001",
-          name: "노트북 컴퓨터 15인치",
-          categoryId: "1",
-          specification: "Intel i7, 16GB RAM, 512GB SSD",
-          unit: "EA",
-          unitPrice: 1500000,
-          costPrice: 1200000,
-          minStock: 5,
-          maxStock: 50,
-          barcode: "8801234567890",
-          description: "고성능 업무용 노트북",
-          isActive: true,
-        });
-        setIsLoading(false);
-      }, 500);
+      reset({
+        code: "PRD-001",
+        name: "노트북 컴퓨터 15인치",
+        categoryId: "1",
+        specification: "Intel i7, 16GB RAM, 512GB SSD",
+        unit: "EA",
+        unitPrice: 1500000,
+        costPrice: 1200000,
+        minStock: 5,
+        maxStock: 50,
+        barcode: "8801234567890",
+        description: "고성능 업무용 노트북",
+        isActive: true,
+      });
     }
   }, [isEditMode, id, reset]);
 
-  // Handle form submission
-  const onSubmit = async (data: ProductFormData) => {
-    setIsSubmitting(true);
-    try {
-      // TODO: Replace with actual API call
-      console.log("Product data:", data);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      toast.success(
-        isEditMode ? "품목 수정 완료" : "품목 등록 완료",
-        isEditMode
-          ? "품목 정보가 성공적으로 수정되었습니다."
-          : "새 품목이 성공적으로 등록되었습니다."
-      );
-      navigate("/inventory/products");
-    } catch {
-      toast.error(
-        isEditMode ? "수정 실패" : "등록 실패",
-        "품목 저장 중 오류가 발생했습니다."
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
+  // Nothing can be saved: the product endpoint does not exist yet.
+  const onSubmit = () => {
+    notifyUnavailable(isEditMode ? "품목 수정" : "품목 등록");
   };
 
   // Generate auto product code
@@ -160,17 +132,6 @@ export function ProductFormPage() {
     const code = `PRD-${timestamp}`;
     reset((prev) => ({ ...prev, code }));
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">데이터를 불러오는 중...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -195,12 +156,14 @@ export function ProductFormPage() {
           <Button variant="outline" onClick={() => navigate(-1)}>
             취소
           </Button>
-          <Button onClick={handleSubmit(onSubmit)} disabled={isSubmitting}>
+          <Button onClick={handleSubmit(onSubmit)}>
             <Save className="h-4 w-4 mr-2" />
-            {isSubmitting ? "저장 중..." : "저장"}
+            저장
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable feature={isEditMode ? "품목 수정" : "품목 등록"} />
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Basic Info */}
@@ -406,9 +369,9 @@ export function ProductFormPage() {
           <Button variant="outline" type="button" onClick={() => navigate(-1)}>
             취소
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit">
             <Save className="h-4 w-4 mr-2" />
-            {isSubmitting ? "저장 중..." : "저장"}
+            저장
           </Button>
         </div>
       </form>

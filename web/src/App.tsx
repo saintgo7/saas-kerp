@@ -1,66 +1,145 @@
+import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useAuthStore } from "@/stores";
+import { ErrorBoundary } from "@/components/common";
+import { Toaster } from "@/components/ui";
 
 // Layouts
 import { MainLayout, AuthLayout } from "@/components/layout";
 
-// Auth Pages
+// Auth pages stay eager: they are the first screen an unauthenticated visitor
+// sees, so there is nothing to gain by deferring them.
 import { LoginPage, RegisterPage, ForgotPasswordPage } from "@/pages/auth";
 
-// Main Pages
-import { DashboardPage } from "@/pages/dashboard";
-import {
-  VoucherListPage,
-  VoucherFormPage,
-  VoucherDetailPage,
-  AccountListPage,
-  AccountFormPage,
-} from "@/pages/accounting";
-import {
-  GeneralLedgerPage,
-  SubsidiaryLedgerPage,
-  TrialBalancePage,
-} from "@/pages/ledger";
-import {
-  FinancialStatementsPage,
-  BalanceSheetPage,
-  IncomeStatementPage,
-  SalesReportPage,
-  ExpenseReportPage,
-  HRReportPage,
-  CustomReportPage,
-} from "@/pages/reports";
-import {
-  InvoiceListPage,
-  InvoiceIssuePage,
-  InvoiceReceivedPage,
-  HometaxSyncPage,
-} from "@/pages/invoice";
-import {
-  EmployeeListPage,
-  EmployeeFormPage,
-  DepartmentPage,
-  PayrollPage,
-  InsurancePage,
-  AttendancePage,
-} from "@/pages/hr";
-import { PartnerListPage, PartnerFormPage } from "@/pages/partner";
-import {
-  ProductListPage,
-  ProductFormPage,
-  StockStatusPage,
-  PurchaseOrderPage,
-  SalesOrderPage,
-} from "@/pages/inventory";
-import {
-  CompanySettingsPage,
-  UserManagementPage,
-  PermissionPage,
-  IntegrationPage,
-  ProfilePage,
-} from "@/pages/settings";
+/**
+ * Everything behind the login is code-split. Previously a single 977 kB chunk
+ * meant the login screen downloaded the HR, inventory and reporting modules
+ * before the user had even typed a password.
+ */
+const DashboardPage = lazy(() =>
+  import("@/pages/dashboard").then((m) => ({ default: m.DashboardPage }))
+);
+
+const VoucherListPage = lazy(() =>
+  import("@/pages/accounting").then((m) => ({ default: m.VoucherListPage }))
+);
+const VoucherFormPage = lazy(() =>
+  import("@/pages/accounting").then((m) => ({ default: m.VoucherFormPage }))
+);
+const VoucherDetailPage = lazy(() =>
+  import("@/pages/accounting").then((m) => ({ default: m.VoucherDetailPage }))
+);
+const AccountListPage = lazy(() =>
+  import("@/pages/accounting").then((m) => ({ default: m.AccountListPage }))
+);
+const AccountFormPage = lazy(() =>
+  import("@/pages/accounting").then((m) => ({ default: m.AccountFormPage }))
+);
+
+const GeneralLedgerPage = lazy(() =>
+  import("@/pages/ledger").then((m) => ({ default: m.GeneralLedgerPage }))
+);
+const SubsidiaryLedgerPage = lazy(() =>
+  import("@/pages/ledger").then((m) => ({ default: m.SubsidiaryLedgerPage }))
+);
+const TrialBalancePage = lazy(() =>
+  import("@/pages/ledger").then((m) => ({ default: m.TrialBalancePage }))
+);
+
+const FinancialStatementsPage = lazy(() =>
+  import("@/pages/reports").then((m) => ({ default: m.FinancialStatementsPage }))
+);
+const BalanceSheetPage = lazy(() =>
+  import("@/pages/reports").then((m) => ({ default: m.BalanceSheetPage }))
+);
+const IncomeStatementPage = lazy(() =>
+  import("@/pages/reports").then((m) => ({ default: m.IncomeStatementPage }))
+);
+const SalesReportPage = lazy(() =>
+  import("@/pages/reports").then((m) => ({ default: m.SalesReportPage }))
+);
+const ExpenseReportPage = lazy(() =>
+  import("@/pages/reports").then((m) => ({ default: m.ExpenseReportPage }))
+);
+const HRReportPage = lazy(() =>
+  import("@/pages/reports").then((m) => ({ default: m.HRReportPage }))
+);
+const CustomReportPage = lazy(() =>
+  import("@/pages/reports").then((m) => ({ default: m.CustomReportPage }))
+);
+
+const InvoiceListPage = lazy(() =>
+  import("@/pages/invoice").then((m) => ({ default: m.InvoiceListPage }))
+);
+const InvoiceIssuePage = lazy(() =>
+  import("@/pages/invoice").then((m) => ({ default: m.InvoiceIssuePage }))
+);
+const InvoiceReceivedPage = lazy(() =>
+  import("@/pages/invoice").then((m) => ({ default: m.InvoiceReceivedPage }))
+);
+const HometaxSyncPage = lazy(() =>
+  import("@/pages/invoice").then((m) => ({ default: m.HometaxSyncPage }))
+);
+
+const EmployeeListPage = lazy(() =>
+  import("@/pages/hr").then((m) => ({ default: m.EmployeeListPage }))
+);
+const EmployeeFormPage = lazy(() =>
+  import("@/pages/hr").then((m) => ({ default: m.EmployeeFormPage }))
+);
+const DepartmentPage = lazy(() =>
+  import("@/pages/hr").then((m) => ({ default: m.DepartmentPage }))
+);
+const PayrollPage = lazy(() =>
+  import("@/pages/hr").then((m) => ({ default: m.PayrollPage }))
+);
+const InsurancePage = lazy(() =>
+  import("@/pages/hr").then((m) => ({ default: m.InsurancePage }))
+);
+const AttendancePage = lazy(() =>
+  import("@/pages/hr").then((m) => ({ default: m.AttendancePage }))
+);
+
+const PartnerListPage = lazy(() =>
+  import("@/pages/partner").then((m) => ({ default: m.PartnerListPage }))
+);
+const PartnerFormPage = lazy(() =>
+  import("@/pages/partner").then((m) => ({ default: m.PartnerFormPage }))
+);
+
+const ProductListPage = lazy(() =>
+  import("@/pages/inventory").then((m) => ({ default: m.ProductListPage }))
+);
+const ProductFormPage = lazy(() =>
+  import("@/pages/inventory").then((m) => ({ default: m.ProductFormPage }))
+);
+const StockStatusPage = lazy(() =>
+  import("@/pages/inventory").then((m) => ({ default: m.StockStatusPage }))
+);
+const PurchaseOrderPage = lazy(() =>
+  import("@/pages/inventory").then((m) => ({ default: m.PurchaseOrderPage }))
+);
+const SalesOrderPage = lazy(() =>
+  import("@/pages/inventory").then((m) => ({ default: m.SalesOrderPage }))
+);
+
+const CompanySettingsPage = lazy(() =>
+  import("@/pages/settings").then((m) => ({ default: m.CompanySettingsPage }))
+);
+const UserManagementPage = lazy(() =>
+  import("@/pages/settings").then((m) => ({ default: m.UserManagementPage }))
+);
+const PermissionPage = lazy(() =>
+  import("@/pages/settings").then((m) => ({ default: m.PermissionPage }))
+);
+const IntegrationPage = lazy(() =>
+  import("@/pages/settings").then((m) => ({ default: m.IntegrationPage }))
+);
+const ProfilePage = lazy(() =>
+  import("@/pages/settings").then((m) => ({ default: m.ProfilePage }))
+);
 
 // Create QueryClient
 const queryClient = new QueryClient({
@@ -95,6 +174,15 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Shown while a route's chunk is being fetched.
+function RouteFallback() {
+  return (
+    <div className="flex h-[60vh] items-center justify-center text-muted-foreground">
+      불러오는 중...
+    </div>
+  );
+}
+
 // Placeholder component for routes not yet implemented
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -107,9 +195,11 @@ function ComingSoon({ title }: { title: string }) {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
           {/* Public Routes */}
           <Route
             element={
@@ -207,10 +297,14 @@ function App() {
 
           {/* 404 */}
           <Route path="*" element={<ComingSoon title="페이지를 찾을 수 없습니다" />} />
-        </Routes>
-      </BrowserRouter>
-      <ReactQueryDevtools initialIsOpen={false} />
-    </QueryClientProvider>
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+        {/* Renders the toast queue; without it every toast.* call is silent. */}
+        <Toaster />
+        <ReactQueryDevtools initialIsOpen={false} />
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

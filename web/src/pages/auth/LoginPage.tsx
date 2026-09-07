@@ -7,6 +7,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { Button, Input, Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui";
 import { Logo } from "@/components/common";
 import { useAuthStore } from "@/stores";
+import { getErrorMessage } from "@/services/api";
 import { toast } from "@/stores/ui";
 
 const loginSchema = z.object({
@@ -34,8 +35,11 @@ export function LoginPage() {
       await login(data.email, data.password);
       toast.success("로그인 성공", "환영합니다!");
       navigate("/dashboard");
-    } catch {
-      toast.error("로그인 실패", "이메일 또는 비밀번호를 확인해주세요.");
+    } catch (err) {
+      toast.error(
+        "로그인 실패",
+        getErrorMessage(err, "이메일 또는 비밀번호를 확인해주세요.")
+      );
     }
   };
 

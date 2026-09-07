@@ -8,6 +8,7 @@ import {
   CardTitle,
   CardContent,
 } from "@/components/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { formatCurrency } from "@/lib/utils";
 
 // Equity component types according to K-IFRS
@@ -27,7 +28,8 @@ interface ChangeRow {
   isBold?: boolean;
 }
 
-// Mock data for development
+// Sample figures shown behind the FeatureUnavailable banner: the backend has
+// no statement of changes in equity endpoint yet.
 const equityComponents: EquityComponent[] = [
   { id: "capital_stock", name: "자본금", nameEn: "Capital Stock" },
   { id: "capital_surplus", name: "자본잉여금", nameEn: "Capital Surplus" },
@@ -37,7 +39,7 @@ const equityComponents: EquityComponent[] = [
   { id: "total", name: "총계", nameEn: "Total" },
 ];
 
-const mockChangeRows: ChangeRow[] = [
+const sampleChangeRows: ChangeRow[] = [
   {
     id: "opening_balance",
     label: "기초잔액",
@@ -217,7 +219,7 @@ export function EquityChangesStatementPage() {
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => notifyUnavailable("내보내기")}>
             <Download className="h-4 w-4 mr-2" />
             내보내기
           </Button>
@@ -227,6 +229,11 @@ export function EquityChangesStatementPage() {
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable
+        feature="자본변동표"
+        detail="서버에 자본변동표 API가 아직 없습니다. 아래 숫자는 화면 구성을 보여주기 위한 예시이며 실제 회계 데이터가 아닙니다."
+      />
 
       {/* Filters */}
       <Card>
@@ -299,7 +306,7 @@ export function EquityChangesStatementPage() {
                 </tr>
               </thead>
               <tbody>
-                {mockChangeRows.map((row) => (
+                {sampleChangeRows.map((row) => (
                   <tr
                     key={row.id}
                     className={`
@@ -359,7 +366,7 @@ export function EquityChangesStatementPage() {
           <CardContent className="p-4">
             <div className="text-sm text-muted-foreground">기초 자본 총계</div>
             <div className="text-2xl font-bold font-mono mt-1">
-              {formatCurrency(mockChangeRows[0].values.total, { showSymbol: false })}
+              {formatCurrency(sampleChangeRows[0].values.total, { showSymbol: false })}
             </div>
           </CardContent>
         </Card>
@@ -368,7 +375,7 @@ export function EquityChangesStatementPage() {
             <div className="text-sm text-muted-foreground">당기 자본 변동</div>
             <div className="text-2xl font-bold font-mono mt-1 text-green-600">
               +{formatCurrency(
-                mockChangeRows.find((r) => r.id === "total_changes")?.values.total || 0,
+                sampleChangeRows.find((r) => r.id === "total_changes")?.values.total || 0,
                 { showSymbol: false }
               )}
             </div>
@@ -379,7 +386,7 @@ export function EquityChangesStatementPage() {
             <div className="text-sm text-muted-foreground">기말 자본 총계</div>
             <div className="text-2xl font-bold font-mono mt-1 text-primary">
               {formatCurrency(
-                mockChangeRows.find((r) => r.id === "closing_balance")?.values.total || 0,
+                sampleChangeRows.find((r) => r.id === "closing_balance")?.values.total || 0,
                 { showSymbol: false }
               )}
             </div>

@@ -1,8 +1,10 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import type { User } from "@/types";
 import { authService } from "@/services/auth";
 import { STORAGE_KEYS } from "@/constants";
+import { createSafeJSONStorage } from "@/lib/storage";
+import { onSessionCleared } from "@/lib/session";
 
 interface AuthState {
   user: User | null;
@@ -42,7 +44,7 @@ export const useAuthStore = create<AuthState>()(
         } catch (err) {
           const error = err as { message?: string };
           set({
-            error: error.message || "Login failed",
+            error: error.message || "로그인에 실패했습니다.",
             isLoading: false,
           });
           throw err;
@@ -71,7 +73,7 @@ export const useAuthStore = create<AuthState>()(
         } catch (err) {
           const error = err as { message?: string };
           set({
-            error: error.message || "Registration failed",
+            error: error.message || "회원가입에 실패했습니다.",
             isLoading: false,
           });
           throw err;
@@ -101,7 +103,11 @@ export const useAuthStore = create<AuthState>()(
         }),
     }),
     {
-      name: STORAGE_KEYS.user,
+      // Own bucket. `STORAGE_KEYS.user` is the authService user cache; sharing
+      // one key meant each writer destroyed the other's format and a refresh
+      // could drop `isAuthenticated` back to false with valid tokens present.
+      name: STORAGE_KEYS.authStore,
+      storage: createJSONStorage(createSafeJSONStorage),
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
@@ -109,3 +115,12 @@ export const useAuthStore = create<AuthState>()(
     }
   )
 );
+
+// A 401 teardown from any HTTP client must also drop the in-memory flag,
+// otherwise PublicRoute bounces the user straight back to /dashboard.
+onSessionCleared(() => {
+  const { user, isAuthenticated } = useAuthStore.getState();
+  if (user !== null || isAuthenticated) {
+    useAuthStore.setState({ user: null, isAuthenticated: false });
+  }
+});

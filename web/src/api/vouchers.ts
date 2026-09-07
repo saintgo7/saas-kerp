@@ -1,185 +1,208 @@
 import { apiClient } from "./client";
-import type {
-  Voucher,
-  VoucherEntry,
-  VoucherStatus,
-  PaginatedResponse,
-  PaginationParams,
-} from "@/types";
+import { compactParams, mapEnvelope, mapPaginated } from "./envelope";
+import type { PaginationParams } from "@/types";
+import {
+  toVoucher,
+  type CreateVoucherInput,
+  type Voucher,
+  type VoucherStatus,
+  type VoucherType,
+} from "@/hooks/useVoucher";
 
 /**
- * Voucher list query parameters
+ * Voucher API client.
+ *
+ * Routes mirror internal/handler/voucher_handler.go:
+ *   GET    /vouchers            (voucher_type, status, date_from, date_to,
+ *                                account_id, partner_id, search, page, page_size)
+ *   GET    /vouchers/pending
+ *   GET    /vouchers/:id
+ *   GET    /vouchers/no/:voucher_no
+ *   POST   /vouchers
+ *   PUT    /vouchers/:id
+ *   DELETE /vouchers/:id
+ *   PUT    /vouchers/:id/entries
+ *   POST   /vouchers/:id/{submit,approve,reject,post,cancel,reverse}
+ *
+ * Removed because the backend has no such route (they were 404s, and
+ * `/vouchers/next-number` was being parsed as `/vouchers/:id` -> invalid UUID):
+ *   /vouchers/:id/approval, /vouchers/next-number, /vouchers/export,
+ *   /vouchers/:id/copy, /vouchers/validate, /vouchers/bulk-approve,
+ *   /vouchers/bulk-reject
  */
+
+// Wire type: internal/dto/voucher_dto.go VoucherResponse
+interface VoucherWire {
+  id: string;
+  voucher_no: string;
+  voucher_date: string;
+  voucher_type: string;
+  voucher_type_label?: string;
+  status: string;
+  status_label?: string;
+  total_debit: number;
+  total_credit: number;
+  description?: string;
+  entries?: {
+    id: string;
+    line_no: number;
+    account_id: string;
+    account_code?: string;
+    account_name?: string;
+    debit_amount: number;
+    credit_amount: number;
+    description?: string;
+    partner_id?: string;
+    partner_name?: string;
+  }[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface VoucherListParams extends PaginationParams {
   search?: string;
   status?: VoucherStatus;
+  voucherType?: VoucherType;
   startDate?: string;
   endDate?: string;
   accountId?: string;
-  createdBy?: string;
-  [key: string]: string | number | boolean | undefined;
+  partnerId?: string;
+  includeEntries?: boolean;
 }
 
-/**
- * Create voucher request data
- */
-export interface CreateVoucherData {
-  voucherDate: string;
-  description: string;
-  entries: Omit<VoucherEntry, "id" | "voucherId" | "account" | "sequence">[];
-}
+export type CreateVoucherData = CreateVoucherInput;
 
-/**
- * Update voucher request data
- */
-export interface UpdateVoucherData extends Partial<CreateVoucherData> {
-  status?: VoucherStatus;
-}
+export type UpdateVoucherData = Omit<CreateVoucherInput, "voucherType">;
 
-/**
- * Voucher summary for list display
- */
-export interface VoucherSummary {
-  id: string;
-  voucherNumber: string;
-  voucherDate: string;
-  description: string;
-  status: VoucherStatus;
-  totalDebit: number;
-  totalCredit: number;
-  entryCount: number;
-  createdBy: string;
-  createdByName?: string;
-  createdAt: string;
-  approvedBy?: string;
-  approvedByName?: string;
-  approvedAt?: string;
-}
+export type VoucherSummary = Voucher;
 
-/**
- * Voucher approval request
- */
+/** approve / reject share one UI action but are two backend routes. */
 export interface ApprovalRequest {
   action: "approve" | "reject";
   comment?: string;
 }
 
-/**
- * Voucher API client
- */
+function toCreateBody(data: CreateVoucherData) {
+  return {
+    voucher_date: data.voucherDate,
+    voucher_type: data.voucherType,
+    description: data.description ?? "",
+    entries: data.entries.map((entry) => ({
+      account_id: entry.accountId,
+      debit_amount: entry.debitAmount,
+      credit_amount: entry.creditAmount,
+      description: entry.description ?? "",
+      ...(entry.partnerId ? { partner_id: entry.partnerId } : {}),
+    })),
+  };
+}
+
 export const vouchersApi = {
-  /**
-   * Get paginated list of vouchers
-   */
+  /** GET /vouchers */
   list: async (params?: VoucherListParams) => {
-    return apiClient.get<PaginatedResponse<VoucherSummary>>("/vouchers", params);
+    const response = await apiClient.get<VoucherWire[]>(
+      "/vouchers",
+      compactParams({
+        page: params?.page,
+        page_size: params?.pageSize,
+        search: params?.search,
+        status: params?.status,
+        voucher_type: params?.voucherType,
+        date_from: params?.startDate,
+        date_to: params?.endDate,
+        account_id: params?.accountId,
+        partner_id: params?.partnerId,
+        include_entries: params?.includeEntries,
+      })
+    );
+    return mapPaginated(response, toVoucher);
   },
 
-  /**
-   * Get a single voucher by ID with full details
-   */
+  /** GET /vouchers/pending */
+  pending: async () => {
+    const response = await apiClient.get<VoucherWire[]>("/vouchers/pending");
+    return { ...response, data: (response.data ?? []).map(toVoucher) };
+  },
+
+  /** GET /vouchers/:id */
   get: async (id: string) => {
-    return apiClient.get<Voucher>(`/vouchers/${id}`);
+    const response = await apiClient.get<VoucherWire>(`/vouchers/${id}`);
+    return mapEnvelope(response, toVoucher);
   },
 
-  /**
-   * Create a new voucher
-   */
+  /** GET /vouchers/no/:voucher_no */
+  getByNo: async (voucherNo: string) => {
+    const response = await apiClient.get<VoucherWire>(
+      `/vouchers/no/${voucherNo}`
+    );
+    return mapEnvelope(response, toVoucher);
+  },
+
+  /** POST /vouchers */
   create: async (data: CreateVoucherData) => {
-    return apiClient.post<Voucher>("/vouchers", data);
+    const response = await apiClient.post<VoucherWire>(
+      "/vouchers",
+      toCreateBody(data)
+    );
+    return mapEnvelope(response, toVoucher);
   },
 
-  /**
-   * Update an existing voucher
-   */
+  /** PUT /vouchers/:id — UpdateVoucherRequest carries no voucher_type */
   update: async (id: string, data: UpdateVoucherData) => {
-    return apiClient.put<Voucher>(`/vouchers/${id}`, data);
-  },
-
-  /**
-   * Delete a voucher (only draft status allowed)
-   */
-  delete: async (id: string) => {
-    return apiClient.delete<void>(`/vouchers/${id}`);
-  },
-
-  /**
-   * Submit voucher for approval
-   */
-  submit: async (id: string) => {
-    return apiClient.post<Voucher>(`/vouchers/${id}/submit`);
-  },
-
-  /**
-   * Approve or reject a voucher
-   */
-  approval: async (id: string, request: ApprovalRequest) => {
-    return apiClient.post<Voucher>(`/vouchers/${id}/approval`, request);
-  },
-
-  /**
-   * Bulk approve vouchers
-   */
-  bulkApprove: async (ids: string[], comment?: string) => {
-    return apiClient.post<{ success: number; failed: number }>(
-      "/vouchers/bulk-approve",
-      { ids, comment }
-    );
-  },
-
-  /**
-   * Bulk reject vouchers
-   */
-  bulkReject: async (ids: string[], comment?: string) => {
-    return apiClient.post<{ success: number; failed: number }>(
-      "/vouchers/bulk-reject",
-      { ids, comment }
-    );
-  },
-
-  /**
-   * Copy a voucher to create a new draft
-   */
-  copy: async (id: string) => {
-    return apiClient.post<Voucher>(`/vouchers/${id}/copy`);
-  },
-
-  /**
-   * Reverse a voucher (create a reversing entry)
-   */
-  reverse: async (id: string, reverseDate?: string) => {
-    return apiClient.post<Voucher>(`/vouchers/${id}/reverse`, { reverseDate });
-  },
-
-  /**
-   * Get next voucher number
-   */
-  getNextNumber: async (date?: string) => {
-    return apiClient.get<{ voucherNumber: string }>("/vouchers/next-number", {
-      date,
+    const { voucher_type: _voucherType, ...body } = toCreateBody({
+      ...data,
+      voucherType: "general",
     });
+    const response = await apiClient.put<VoucherWire>(`/vouchers/${id}`, body);
+    return mapEnvelope(response, toVoucher);
   },
 
-  /**
-   * Export vouchers to Excel
-   */
-  export: async (params?: VoucherListParams) => {
-    return apiClient.get<Blob>("/vouchers/export", {
-      ...params,
-      responseType: "blob",
-    } as Record<string, string | number | boolean | undefined>);
+  /** DELETE /vouchers/:id (draft only) */
+  delete: async (id: string) => {
+    return apiClient.delete<{ message?: string }>(`/vouchers/${id}`);
   },
 
-  /**
-   * Validate voucher entries (check balance)
-   */
-  validate: async (entries: Omit<VoucherEntry, "id" | "voucherId" | "account">[]) => {
-    return apiClient.post<{
-      valid: boolean;
-      totalDebit: number;
-      totalCredit: number;
-      difference: number;
-      errors?: string[];
-    }>("/vouchers/validate", { entries });
+  /** POST /vouchers/:id/submit */
+  submit: async (id: string) => {
+    const response = await apiClient.post<VoucherWire>(
+      `/vouchers/${id}/submit`
+    );
+    return mapEnvelope(response, toVoucher);
+  },
+
+  /** POST /vouchers/:id/approve or /reject (two distinct backend routes) */
+  approval: async (id: string, request: ApprovalRequest) => {
+    const path =
+      request.action === "approve"
+        ? `/vouchers/${id}/approve`
+        : `/vouchers/${id}/reject`;
+    const response = await apiClient.post<VoucherWire>(path, {
+      reason: request.comment ?? "",
+    });
+    return mapEnvelope(response, toVoucher);
+  },
+
+  /** POST /vouchers/:id/post */
+  post: async (id: string) => {
+    const response = await apiClient.post<VoucherWire>(`/vouchers/${id}/post`);
+    return mapEnvelope(response, toVoucher);
+  },
+
+  /** POST /vouchers/:id/cancel */
+  cancel: async (id: string, reason?: string) => {
+    const response = await apiClient.post<VoucherWire>(
+      `/vouchers/${id}/cancel`,
+      { reason: reason ?? "" }
+    );
+    return mapEnvelope(response, toVoucher);
+  },
+
+  /** POST /vouchers/:id/reverse */
+  reverse: async (id: string, reversalDate: string, description?: string) => {
+    const response = await apiClient.post<VoucherWire>(
+      `/vouchers/${id}/reverse`,
+      { reversal_date: reversalDate, description: description ?? "" }
+    );
+    return mapEnvelope(response, toVoucher);
   },
 };

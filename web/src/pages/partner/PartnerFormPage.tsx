@@ -1,20 +1,13 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import {
-  Save,
-  ArrowLeft,
-  Building2,
-  Phone,
-  CreditCard,
-  FileText,
-} from "lucide-react";
+import { Save, ArrowLeft, Building2, Phone } from "lucide-react";
 import {
   Button,
   Input,
-  Textarea,
   Select,
   Card,
   CardHeader,
@@ -23,7 +16,10 @@ import {
   Badge,
 } from "@/components/ui";
 import { toast } from "@/stores/ui";
-import { PARTNER_TYPES, BANKS } from "@/constants";
+import { partnersApi } from "@/api";
+import { getErrorMessage } from "@/services/api";
+import { PARTNER_TYPES } from "@/constants";
+import type { PartnerType } from "@/types";
 
 // Validation schema
 const partnerSchema = z.object({
@@ -41,8 +37,6 @@ const partnerSchema = z.object({
     .optional()
     .or(z.literal("")),
   representativeName: z.string().optional(),
-  businessType: z.string().optional(),
-  businessCategory: z.string().optional(),
 
   // Contact info
   address: z.string().optional(),
@@ -56,43 +50,16 @@ const partnerSchema = z.object({
     .optional()
     .or(z.literal("")),
 
-  // Bank info
-  bankName: z.string().optional(),
-  bankAccount: z.string().optional(),
-  accountHolder: z.string().optional(),
-
-  // Others
-  note: z.string().optional(),
   isActive: z.boolean(),
 });
 
 type PartnerFormData = z.infer<typeof partnerSchema>;
 
-// Mock partner data for edit mode
-const mockPartner: PartnerFormData = {
-  code: "P001",
-  name: "(주)테크솔루션",
-  partnerType: "both",
-  businessNumber: "1234567890",
-  representativeName: "김대표",
-  businessType: "서비스",
-  businessCategory: "소프트웨어 개발",
-  address: "서울시 강남구 테헤란로 123",
-  phone: "0212345678",
-  fax: "0212345679",
-  email: "contact@techsolution.co.kr",
-  bankName: "KB",
-  bankAccount: "123-456-789012",
-  accountHolder: "김대표",
-  note: "주요 고객사",
-  isActive: true,
-};
-
 export function PartnerFormPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { id } = useParams<{ id: string }>();
   const isEditMode = !!id;
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
     register,
@@ -109,16 +76,10 @@ export function PartnerFormPage() {
       partnerType: "",
       businessNumber: "",
       representativeName: "",
-      businessType: "",
-      businessCategory: "",
       address: "",
       phone: "",
       fax: "",
       email: "",
-      bankName: "",
-      bankAccount: "",
-      accountHolder: "",
-      note: "",
       isActive: true,
     },
   });
@@ -126,19 +87,57 @@ export function PartnerFormPage() {
   const isActive = watch("isActive");
   const partnerType = watch("partnerType");
 
-  // Load partner data in edit mode
-  useEffect(() => {
-    if (isEditMode) {
-      // TODO: API call to fetch partner data
-      reset(mockPartner);
-    }
-  }, [isEditMode, reset]);
+  // GET /api/v1/partners/:id
+  const {
+    data: partnerResponse,
+    isLoading: isLoadingPartner,
+    isError: isPartnerError,
+    error: partnerError,
+  } = useQuery({
+    queryKey: ["partners", "detail", id],
+    queryFn: () => partnersApi.get(id as string),
+    enabled: isEditMode,
+  });
 
-  const onSubmit = async (data: PartnerFormData) => {
-    setIsSubmitting(true);
-    try {
-      // TODO: API call
-      console.log("Partner data:", data);
+  // Fill the form once the server answers. Nothing is shown until it does, so
+  // the user never edits placeholder values believing they are real.
+  useEffect(() => {
+    const partner = partnerResponse?.data;
+    if (!partner) return;
+    reset({
+      code: partner.code,
+      name: partner.name,
+      partnerType: partner.partnerType,
+      businessNumber: partner.businessNumber ?? "",
+      representativeName: partner.representativeName ?? "",
+      address: partner.address ?? "",
+      phone: partner.phone ?? "",
+      fax: partner.fax ?? "",
+      email: partner.email ?? "",
+      isActive: partner.isActive,
+    });
+  }, [partnerResponse, reset]);
+
+  const saveMutation = useMutation({
+    mutationFn: (data: PartnerFormData) => {
+      const payload = {
+        code: data.code,
+        name: data.name,
+        partnerType: data.partnerType as PartnerType,
+        businessNumber: data.businessNumber || undefined,
+        representativeName: data.representativeName || undefined,
+        address: data.address || undefined,
+        phone: data.phone || undefined,
+        fax: data.fax || undefined,
+        email: data.email || undefined,
+        isActive: data.isActive,
+      };
+      return isEditMode
+        ? partnersApi.update(id as string, payload)
+        : partnersApi.create(payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["partners"] });
       toast.success(
         isEditMode ? "거래처 수정 완료" : "거래처 등록 완료",
         isEditMode
@@ -146,12 +145,17 @@ export function PartnerFormPage() {
           : "새 거래처가 등록되었습니다."
       );
       navigate("/partners");
-    } catch {
-      toast.error("저장 실패", "거래처 정보 저장 중 오류가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        "저장 실패",
+        getErrorMessage(err, "거래처 정보 저장 중 오류가 발생했습니다.")
+      );
+    },
+  });
+
+  const onSubmit = (data: PartnerFormData) => saveMutation.mutate(data);
+  const isSubmitting = saveMutation.isPending;
 
   // Format business number as user types
   const formatBusinessNumber = (value: string) => {
@@ -160,6 +164,27 @@ export function PartnerFormPage() {
     if (cleaned.length <= 5) return `${cleaned.slice(0, 3)}-${cleaned.slice(3)}`;
     return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 5)}-${cleaned.slice(5)}`;
   };
+
+  if (isEditMode && isLoadingPartner) {
+    return (
+      <div className="py-16 text-center text-muted-foreground">
+        거래처 정보를 불러오는 중...
+      </div>
+    );
+  }
+
+  if (isEditMode && isPartnerError) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-destructive">
+          {getErrorMessage(partnerError, "거래처 정보를 불러오지 못했습니다.")}
+        </p>
+        <Button variant="outline" onClick={() => navigate("/partners")}>
+          목록으로
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -273,16 +298,6 @@ export function PartnerFormPage() {
                   활성 상태
                 </label>
               </div>
-              <Input
-                label="업태"
-                placeholder="서비스, 제조업 등"
-                {...register("businessType")}
-              />
-              <Input
-                label="업종"
-                placeholder="소프트웨어 개발 등"
-                {...register("businessCategory")}
-              />
             </div>
           </CardContent>
         </Card>
@@ -322,61 +337,6 @@ export function PartnerFormPage() {
                 {...register("email")}
               />
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Bank Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center">
-              <CreditCard className="h-5 w-5 mr-2" />
-              계좌 정보
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Controller
-                name="bankName"
-                control={control}
-                render={({ field }) => (
-                  <Select
-                    label="은행"
-                    options={[{ value: "", label: "선택하세요" }, ...BANKS]}
-                    {...field}
-                  />
-                )}
-              />
-              <Input
-                label="계좌번호"
-                placeholder="123-456-789012"
-                {...register("bankAccount")}
-              />
-              <Input
-                label="예금주"
-                placeholder="홍길동"
-                {...register("accountHolder")}
-              />
-            </div>
-            <p className="text-sm text-muted-foreground mt-4">
-              * 계좌 정보는 대금 지급 시 사용됩니다.
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Notes */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center">
-              <FileText className="h-5 w-5 mr-2" />
-              비고
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Textarea
-              placeholder="거래처에 대한 메모를 입력하세요"
-              rows={4}
-              {...register("note")}
-            />
           </CardContent>
         </Card>
 

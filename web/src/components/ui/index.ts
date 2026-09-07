@@ -22,3 +22,4 @@ export {
   TableCell,
   TableCaption,
 } from "./table";
+export { Toaster } from "./toaster";

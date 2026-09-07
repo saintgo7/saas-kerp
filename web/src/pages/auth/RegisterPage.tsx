@@ -7,6 +7,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { Button, Input, Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui";
 import { Logo } from "@/components/common";
 import { useAuthStore } from "@/stores";
+import { getErrorMessage } from "@/services/api";
 import { toast } from "@/stores/ui";
 
 const registerSchema = z
@@ -73,8 +74,11 @@ export function RegisterPage() {
       });
       toast.success("회원가입 완료", "K-ERP에 오신 것을 환영합니다!");
       navigate("/dashboard");
-    } catch {
-      toast.error("회원가입 실패", "입력 정보를 확인해주세요.");
+    } catch (err) {
+      toast.error(
+        "회원가입 실패",
+        getErrorMessage(err, "입력 정보를 확인해주세요.")
+      );
     }
   };
 

@@ -25,8 +25,8 @@ import {
   Badge,
   Modal,
 } from "@/components/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { formatCurrency, cn } from "@/lib/utils";
-import { toast } from "@/stores/ui";
 
 // Invoice type options
 const invoiceTypeOptions = [
@@ -88,8 +88,9 @@ const invoiceSchema = z.object({
 
 type InvoiceFormData = z.infer<typeof invoiceSchema>;
 
-// Mock company data for lookup
-const mockCompanies = [
+// Sample partners used only to populate the search modal; there is no
+// partner lookup behind this screen yet.
+const sampleCompanies = [
   {
     bizNo: "1234567890",
     name: "(주)테스트회사",
@@ -110,7 +111,6 @@ const mockCompanies = [
 
 export function InvoiceIssuePage() {
   const navigate = useNavigate();
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showBuyerSearch, setShowBuyerSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -195,29 +195,24 @@ export function InvoiceIssuePage() {
     setValue(`items.${index}.taxAmount`, taxAmount);
   };
 
-  const onSubmit = async (data: InvoiceFormData) => {
-    setIsSubmitting(true);
-    try {
-      console.log("Invoice data:", data);
-      toast.success("세금계산서 저장 완료", "세금계산서가 저장되었습니다.");
-      navigate("/invoice/list");
-    } catch {
-      toast.error("저장 실패", "세금계산서 저장 중 오류가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
+  // The tax invoice routes are not registered on the server, so nothing can be
+  // saved or issued from this screen yet. Say so instead of faking success.
+  /**
+   * The backend deliberately does not register the tax-invoice routes
+   * (internal/router/v1.go): TaxInvoiceService.TransmitToNTS records an
+   * invoice as "transmitted" without actually sending it to the NTS, so the
+   * routes are held back until that fail-open path is fixed.
+   *
+   * Do not wire these buttons to /tax-invoices until the backend lands — a
+   * screen that reports a filing the NTS never received is worse than one
+   * that says it cannot file yet.
+   */
+  const onSubmit = () => {
+    notifyUnavailable("세금계산서 임시저장");
   };
 
-  const handleIssue = async () => {
-    setIsSubmitting(true);
-    try {
-      toast.success("세금계산서 발행 완료", "세금계산서가 국세청에 전송되었습니다.");
-      navigate("/invoice/list");
-    } catch {
-      toast.error("발행 실패", "세금계산서 발행 중 오류가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
+  const handleIssue = () => {
+    notifyUnavailable("세금계산서 발행");
   };
 
   const addItem = () => {
@@ -233,7 +228,7 @@ export function InvoiceIssuePage() {
     });
   };
 
-  const selectBuyer = (company: (typeof mockCompanies)[0]) => {
+  const selectBuyer = (company: (typeof sampleCompanies)[0]) => {
     setValue("buyerBizNo", company.bizNo);
     setValue("buyerName", company.name);
     setValue("buyerCeoName", company.ceoName);
@@ -244,7 +239,7 @@ export function InvoiceIssuePage() {
     setSearchQuery("");
   };
 
-  const filteredCompanies = mockCompanies.filter(
+  const filteredCompanies = sampleCompanies.filter(
     (c) =>
       c.name.includes(searchQuery) ||
       c.bizNo.includes(searchQuery) ||
@@ -253,6 +248,11 @@ export function InvoiceIssuePage() {
 
   return (
     <div className="space-y-6">
+      <FeatureUnavailable
+        feature="세금계산서 발행"
+        detail="서버에 세금계산서 API가 아직 연결되지 않았습니다. 입력한 내용은 저장되거나 국세청으로 전송되지 않습니다."
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
@@ -270,11 +270,11 @@ export function InvoiceIssuePage() {
           <Button variant="outline" onClick={() => navigate(-1)}>
             취소
           </Button>
-          <Button variant="outline" onClick={handleSubmit(onSubmit)} isLoading={isSubmitting}>
+          <Button variant="outline" onClick={handleSubmit(onSubmit)}>
             <Save className="h-4 w-4 mr-2" />
             임시저장
           </Button>
-          <Button onClick={handleSubmit(handleIssue)} isLoading={isSubmitting}>
+          <Button onClick={handleSubmit(handleIssue)}>
             <Send className="h-4 w-4 mr-2" />
             발행
           </Button>
@@ -608,11 +608,11 @@ export function InvoiceIssuePage() {
           <Button variant="outline" onClick={() => navigate(-1)}>
             취소
           </Button>
-          <Button variant="outline" type="submit" isLoading={isSubmitting}>
+          <Button variant="outline" type="submit">
             <Save className="h-4 w-4 mr-2" />
             임시저장
           </Button>
-          <Button onClick={handleSubmit(handleIssue)} isLoading={isSubmitting}>
+          <Button onClick={handleSubmit(handleIssue)}>
             <Send className="h-4 w-4 mr-2" />
             발행
           </Button>

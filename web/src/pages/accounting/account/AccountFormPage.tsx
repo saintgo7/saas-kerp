@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -22,9 +23,12 @@ import {
 } from "@/components/ui";
 import { toast } from "@/stores/ui";
 import { ACCOUNT_TYPES } from "@/constants";
+import { accountsApi } from "@/api";
+import type { AccountTreeNode } from "@/api/accounts";
+import { getErrorMessage } from "@/services/api";
 import type { AccountType } from "@/types";
 
-// Mock parent accounts for selection
+/** Shape used by the parent-account picker. */
 interface ParentAccount {
   id: string;
   code: string;
@@ -32,23 +36,6 @@ interface ParentAccount {
   type: AccountType;
   level: number;
 }
-
-const mockParentAccounts: ParentAccount[] = [
-  { id: "1", code: "1", name: "자산", type: "asset", level: 1 },
-  { id: "11", code: "11", name: "유동자산", type: "asset", level: 2 },
-  { id: "12", code: "12", name: "비유동자산", type: "asset", level: 2 },
-  { id: "2", code: "2", name: "부채", type: "liability", level: 1 },
-  { id: "21", code: "21", name: "유동부채", type: "liability", level: 2 },
-  { id: "22", code: "22", name: "비유동부채", type: "liability", level: 2 },
-  { id: "3", code: "3", name: "자본", type: "equity", level: 1 },
-  { id: "4", code: "4", name: "수익", type: "revenue", level: 1 },
-  { id: "41", code: "41", name: "매출", type: "revenue", level: 2 },
-  { id: "42", code: "42", name: "영업외수익", type: "revenue", level: 2 },
-  { id: "5", code: "5", name: "비용", type: "expense", level: 1 },
-  { id: "51", code: "51", name: "매출원가", type: "expense", level: 2 },
-  { id: "52", code: "52", name: "판매비와관리비", type: "expense", level: 2 },
-  { id: "53", code: "53", name: "영업외비용", type: "expense", level: 2 },
-];
 
 // Validation schema
 const accountSchema = z.object({
@@ -62,16 +49,6 @@ const accountSchema = z.object({
 
 type AccountFormData = z.infer<typeof accountSchema>;
 
-// Mock account data for edit mode
-const mockAccount: AccountFormData = {
-  code: "111",
-  name: "현금및현금성자산",
-  type: "asset",
-  parentId: "11",
-  description: "현금, 보통예금, 정기예금(3개월 이내) 등 현금성자산을 기록합니다.",
-  isActive: true,
-};
-
 const accountTypeStyles: Record<AccountType, { variant: "default" | "secondary" | "success" | "warning" | "destructive"; label: string }> = {
   asset: { variant: "success", label: "자산" },
   liability: { variant: "warning", label: "부채" },
@@ -82,10 +59,9 @@ const accountTypeStyles: Record<AccountType, { variant: "default" | "secondary" 
 
 export function AccountFormPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { id } = useParams<{ id: string }>();
   const isEditMode = !!id;
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [filteredParents, setFilteredParents] = useState<ParentAccount[]>(mockParentAccounts);
 
   const {
     register,
@@ -111,38 +87,92 @@ export function AccountFormPage() {
   const selectedParentId = watch("parentId");
   const isActive = watch("isActive");
 
-  // Filter parent accounts based on selected type
-  useEffect(() => {
-    if (selectedType) {
-      setFilteredParents(mockParentAccounts.filter((p) => p.type === selectedType));
-    } else {
-      setFilteredParents(mockParentAccounts);
-    }
-  }, [selectedType]);
+  // GET /api/v1/accounts/tree — real parent candidates, not a hardcoded list.
+  const { data: treeResponse } = useQuery({
+    queryKey: ["accounts", "tree"],
+    queryFn: () => accountsApi.tree(),
+  });
 
-  // Clear parent selection when type changes
+  const allParents = useMemo<ParentAccount[]>(() => {
+    const flat: ParentAccount[] = [];
+    const walk = (nodes: AccountTreeNode[]) => {
+      nodes.forEach((node) => {
+        flat.push({
+          id: node.id,
+          code: node.code,
+          name: node.name,
+          type: node.type,
+          level: node.level,
+        });
+        if (node.children?.length) walk(node.children);
+      });
+    };
+    if (treeResponse?.data) walk(treeResponse.data);
+    // An account cannot be its own parent.
+    return isEditMode ? flat.filter((p) => p.id !== id) : flat;
+  }, [treeResponse, isEditMode, id]);
+
+  const filteredParents = useMemo(
+    () =>
+      selectedType
+        ? allParents.filter((p) => p.type === selectedType)
+        : allParents,
+    [allParents, selectedType]
+  );
+
+  // Clear parent selection when the chosen type no longer matches it
   useEffect(() => {
     if (selectedType && selectedParentId) {
-      const parent = mockParentAccounts.find((p) => p.id === selectedParentId);
+      const parent = allParents.find((p) => p.id === selectedParentId);
       if (parent && parent.type !== selectedType) {
         setValue("parentId", "");
       }
     }
-  }, [selectedType, selectedParentId, setValue]);
+  }, [selectedType, selectedParentId, setValue, allParents]);
 
-  // Load account data in edit mode
+  // GET /api/v1/accounts/:id
+  const {
+    data: accountResponse,
+    isLoading: isLoadingAccount,
+    isError: isAccountError,
+    error: accountError,
+  } = useQuery({
+    queryKey: ["accounts", "detail", id],
+    queryFn: () => accountsApi.get(id as string),
+    enabled: isEditMode,
+  });
+
   useEffect(() => {
-    if (isEditMode) {
-      // TODO: API call to fetch account data
-      reset(mockAccount);
-    }
-  }, [isEditMode, reset]);
+    const account = accountResponse?.data;
+    if (!account) return;
+    reset({
+      code: account.code,
+      name: account.name,
+      type: account.type,
+      parentId: account.parentId ?? "",
+      description: account.accountCategory ?? "",
+      isActive: account.isActive,
+    });
+  }, [accountResponse, reset]);
 
-  const onSubmit = async (data: AccountFormData) => {
-    setIsSubmitting(true);
-    try {
-      // TODO: API call
-      console.log("Account data:", data);
+  const saveMutation = useMutation({
+    mutationFn: (data: AccountFormData) => {
+      const payload = {
+        code: data.code,
+        name: data.name,
+        type: data.type as AccountType,
+        parentId: data.parentId || undefined,
+        // The backend has no free-text description; `account_category` is the
+        // closest field it stores (max 50 chars).
+        accountCategory: data.description?.slice(0, 50) || undefined,
+        isActive: data.isActive,
+      };
+      return isEditMode
+        ? accountsApi.update(id as string, { ...payload, isActive: data.isActive })
+        : accountsApi.create(payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
       toast.success(
         isEditMode ? "계정과목 수정 완료" : "계정과목 등록 완료",
         isEditMode
@@ -150,30 +180,52 @@ export function AccountFormPage() {
           : "새 계정과목이 등록되었습니다."
       );
       navigate("/accounting/accounts");
-    } catch {
-      toast.error("저장 실패", "계정과목 저장 중 오류가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        "저장 실패",
+        getErrorMessage(err, "계정과목 저장 중 오류가 발생했습니다.")
+      );
+    },
+  });
+
+  const onSubmit = (data: AccountFormData) => saveMutation.mutate(data);
+  const isSubmitting = saveMutation.isPending;
 
   // Get parent account name
   const getParentName = () => {
     if (!selectedParentId) return null;
-    const parent = mockParentAccounts.find((p) => p.id === selectedParentId);
+    const parent = allParents.find((p) => p.id === selectedParentId);
     return parent ? `${parent.code} - ${parent.name}` : null;
   };
 
   // Generate next code suggestion
   const suggestedCode = () => {
     if (!selectedParentId) return "";
-    const parent = mockParentAccounts.find((p) => p.id === selectedParentId);
-    if (parent) {
-      // Simple suggestion: parent code + next number
-      return `${parent.code}X`;
-    }
-    return "";
+    const parent = allParents.find((p) => p.id === selectedParentId);
+    return parent ? `${parent.code}X` : "";
   };
+
+  if (isEditMode && isLoadingAccount) {
+    return (
+      <div className="py-16 text-center text-muted-foreground">
+        계정과목 정보를 불러오는 중...
+      </div>
+    );
+  }
+
+  if (isEditMode && isAccountError) {
+    return (
+      <div className="space-y-4 py-16 text-center">
+        <p className="text-destructive">
+          {getErrorMessage(accountError, "계정과목 정보를 불러오지 못했습니다.")}
+        </p>
+        <Button variant="outline" onClick={() => navigate("/accounting/accounts")}>
+          목록으로
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

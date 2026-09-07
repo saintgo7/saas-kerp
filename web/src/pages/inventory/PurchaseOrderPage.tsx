@@ -36,6 +36,7 @@ import {
   TableCell,
   Modal,
 } from "@/components/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { PURCHASE_ORDER_STATUS } from "@/constants";
 import type { PurchaseOrder, PurchaseOrderStatus, Product, Warehouse } from "@/types/inventory";
@@ -43,9 +44,9 @@ import type { Partner } from "@/types";
 
 // Mock data
 const mockSuppliers: Partner[] = [
-  { id: "1", companyId: "1", code: "SUP001", name: "A전자 주식회사", partnerType: "supplier", isActive: true, createdAt: "", updatedAt: "" },
-  { id: "2", companyId: "1", code: "SUP002", name: "B산업 주식회사", partnerType: "supplier", isActive: true, createdAt: "", updatedAt: "" },
-  { id: "3", companyId: "1", code: "SUP003", name: "C무역", partnerType: "supplier", isActive: true, createdAt: "", updatedAt: "" },
+  { id: "1", companyId: "1", code: "SUP001", name: "A전자 주식회사", partnerType: "vendor", isActive: true, createdAt: "", updatedAt: "" },
+  { id: "2", companyId: "1", code: "SUP002", name: "B산업 주식회사", partnerType: "vendor", isActive: true, createdAt: "", updatedAt: "" },
+  { id: "3", companyId: "1", code: "SUP003", name: "C무역", partnerType: "vendor", isActive: true, createdAt: "", updatedAt: "" },
 ];
 
 const mockWarehouses: Warehouse[] = [
@@ -241,17 +242,16 @@ export function PurchaseOrderPage() {
     const totalAmount = watchItems.reduce((sum, item) => {
       return sum + (item.quantity || 0) * (item.unitPrice || 0);
     }, 0);
-    const taxAmount = totalAmount * 0.1;
+    // KRW has no sub-won unit: round the VAT and derive the total from it.
+    const taxAmount = Math.round(totalAmount * 0.1);
     return { totalAmount, taxAmount, grandTotal: totalAmount + taxAmount };
   };
 
   const { totalAmount: formTotalAmount, taxAmount: formTaxAmount, grandTotal: formGrandTotal } = calculateTotals();
 
-  // Handle form submission
-  const onSubmit = (data: PurchaseOrderFormData) => {
-    console.log("Purchase order data:", data);
-    setShowFormModal(false);
-    reset();
+  // No purchase order endpoint exists on the server, so nothing is saved.
+  const onSubmit = () => {
+    notifyUnavailable("발주서 저장");
   };
 
   // Open receive modal
@@ -278,6 +278,8 @@ export function PurchaseOrderPage() {
           발주서 작성
         </Button>
       </div>
+
+      <FeatureUnavailable feature="발주 관리" />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -368,7 +370,10 @@ export function PurchaseOrderPage() {
             <Button variant="outline" size="icon">
               <Filter className="h-4 w-4" />
             </Button>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => notifyUnavailable("발주 목록 내보내기")}
+            >
               <Download className="h-4 w-4 mr-2" />
               내보내기
             </Button>
@@ -434,7 +439,11 @@ export function PurchaseOrderPage() {
                       </Button>
                       <div className="absolute right-0 hidden group-hover:block z-10">
                         <div className="bg-popover border rounded-lg shadow-lg py-1 min-w-[120px]">
-                          <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted">
+                          <button
+                            type="button"
+                            className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
+                            onClick={() => notifyUnavailable("발주서 상세 조회")}
+                          >
                             <Eye className="h-4 w-4 mr-2" />
                             상세보기
                           </button>
@@ -448,13 +457,21 @@ export function PurchaseOrderPage() {
                             </button>
                           )}
                           {order.status === "draft" && (
-                            <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted">
+                            <button
+                              type="button"
+                              className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
+                              onClick={() => notifyUnavailable("발주서 수정")}
+                            >
                               <Edit className="h-4 w-4 mr-2" />
                               수정
                             </button>
                           )}
                           {(order.status === "draft" || order.status === "pending") && (
-                            <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive">
+                            <button
+                              type="button"
+                              className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive"
+                              onClick={() => notifyUnavailable("발주서 삭제")}
+                            >
                               <Trash2 className="h-4 w-4 mr-2" />
                               삭제
                             </button>
@@ -759,7 +776,7 @@ export function PurchaseOrderPage() {
               >
                 취소
               </Button>
-              <Button>
+              <Button onClick={() => notifyUnavailable("입고 처리")}>
                 <Package className="h-4 w-4 mr-2" />
                 입고 처리
               </Button>

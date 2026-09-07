@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Download,
   Printer,
@@ -22,13 +21,17 @@ import {
   CardContent,
   Select,
 } from "@/components/ui";
-import { DateRangePicker } from "@/components/common";
+import {
+  DateRangePicker,
+  FeatureUnavailable,
+  notifyUnavailable,
+} from "@/components/common";
 import { formatCurrency, cn } from "@/lib/utils";
-import { reportsApi } from "@/api/reports";
 import type { ExpenseReportData, ExpenseTrendItem } from "@/api/reports";
 
-// Mock data for development
-const mockExpenseReportData: ExpenseReportData = {
+// Sample figures shown behind the FeatureUnavailable banner: the backend has
+// no /reports/expense endpoint, so nothing on this screen comes from the server.
+const sampleExpenseReportData: ExpenseReportData = {
   period: {
     startDate: "2024-01-01",
     endDate: "2024-01-31",
@@ -182,25 +185,8 @@ export function ExpenseReportPage() {
   const [includeBudget, setIncludeBudget] = useState(true);
   const [activeTab, setActiveTab] = useState<"account" | "department" | "trend">("account");
 
-  // Fetch expense report data
-  const {
-    data: expenseReportResponse,
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ["reports", "expense", startDate, endDate, groupBy, includeBudget],
-    queryFn: () =>
-      reportsApi.getExpenseReport({
-        startDate,
-        endDate,
-        groupBy,
-        includeBudget,
-      }),
-    enabled: !!startDate && !!endDate,
-  });
-
-  // Use mock data if no real data
-  const expenseData = expenseReportResponse?.data || mockExpenseReportData;
+  // No expense report endpoint exists yet, so there is nothing to fetch.
+  const expenseData = sampleExpenseReportData;
 
   const handleDateChange = (start: string, end: string) => {
     setStartDate(start);
@@ -264,7 +250,7 @@ export function ExpenseReportPage() {
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => notifyUnavailable("내보내기")}>
             <Download className="h-4 w-4 mr-2" />
             내보내기
           </Button>
@@ -274,6 +260,11 @@ export function ExpenseReportPage() {
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable
+        feature="비용 분석"
+        detail="서버에 비용 분석 API가 아직 없습니다. 아래 숫자는 화면 구성을 보여주기 위한 예시이며 실제 비용 데이터가 아닙니다."
+      />
 
       {/* Filters */}
       <Card>
@@ -417,20 +408,7 @@ export function ExpenseReportPage() {
       </div>
 
       {/* Main Content */}
-      {isLoading ? (
-        <Card>
-          <CardContent className="py-16 flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </CardContent>
-        </Card>
-      ) : error ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <p className="text-destructive">데이터를 불러올 수 없습니다.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <>
+      <>
           {/* Tab Navigation */}
           <div className="flex space-x-1 border-b">
             <button
@@ -726,8 +704,7 @@ export function ExpenseReportPage() {
               </CardContent>
             </Card>
           )}
-        </>
-      )}
+      </>
     </div>
   );
 }

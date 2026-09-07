@@ -33,7 +33,7 @@ import {
   Modal,
 } from "@/components/ui";
 import { formatDate, cn } from "@/lib/utils";
-import { toast } from "@/stores/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 
 // Types
 type AttendanceStatus = "present" | "late" | "absent" | "leave" | "halfday" | "holiday";
@@ -362,17 +362,13 @@ export function AttendancePage() {
     }
   };
 
-  // Handle leave approval
-  const handleApproveLeave = (request: LeaveRequest) => {
-    // TODO: API call
-    toast.success("휴가 승인 완료", `${request.name}님의 휴가가 승인되었습니다.`);
-    setIsLeaveDetailModalOpen(false);
+  // No attendance endpoint exists on the server yet, so approvals go nowhere.
+  const handleApproveLeave = () => {
+    notifyUnavailable("휴가 승인");
   };
 
-  const handleRejectLeave = (request: LeaveRequest) => {
-    // TODO: API call
-    toast.info("휴가 반려", `${request.name}님의 휴가가 반려되었습니다.`);
-    setIsLeaveDetailModalOpen(false);
+  const handleRejectLeave = () => {
+    notifyUnavailable("휴가 반려");
   };
 
   return (
@@ -390,12 +386,17 @@ export function AttendancePage() {
             <Plus className="h-4 w-4 mr-2" />
             휴가 신청
           </Button>
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() => notifyUnavailable("근태 보고서 내보내기")}
+          >
             <Download className="h-4 w-4 mr-2" />
             근태 보고서
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable feature="근태 관리" />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -623,7 +624,12 @@ export function AttendancePage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="icon" title="수정">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="수정"
+                          onClick={() => notifyUnavailable("근태 기록 수정")}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
                       </TableCell>
@@ -810,12 +816,7 @@ export function AttendancePage() {
             <Button variant="outline" onClick={() => setIsLeaveModalOpen(false)}>
               취소
             </Button>
-            <Button
-              onClick={() => {
-                toast.success("휴가 신청 완료", "휴가 신청이 제출되었습니다.");
-                setIsLeaveModalOpen(false);
-              }}
-            >
+            <Button onClick={() => notifyUnavailable("휴가 신청")}>
               신청
             </Button>
           </div>
@@ -885,12 +886,12 @@ export function AttendancePage() {
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button
                   variant="outline"
-                  onClick={() => handleRejectLeave(selectedLeave)}
+                  onClick={handleRejectLeave}
                 >
                   <X className="h-4 w-4 mr-2" />
                   반려
                 </Button>
-                <Button onClick={() => handleApproveLeave(selectedLeave)}>
+                <Button onClick={handleApproveLeave}>
                   <Check className="h-4 w-4 mr-2" />
                   승인
                 </Button>

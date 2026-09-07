@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   FileSpreadsheet,
   FileText,
@@ -32,13 +31,17 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui";
-import { DateRangePicker } from "@/components/common";
+import {
+  DateRangePicker,
+  FeatureUnavailable,
+  notifyUnavailable,
+} from "@/components/common";
 import { formatCurrency, cn } from "@/lib/utils";
-import { reportsApi } from "@/api/reports";
 import type { ReportTemplate, CustomReportData } from "@/api/reports";
 
-// Mock templates
-const mockTemplates: ReportTemplate[] = [
+// Sample catalogue shown behind the FeatureUnavailable banner: the backend has
+// no /reports/templates or /reports/custom endpoint yet.
+const sampleTemplates: ReportTemplate[] = [
   {
     id: "sales-by-partner",
     name: "거래처별 매출 현황",
@@ -167,70 +170,6 @@ const mockTemplates: ReportTemplate[] = [
   },
 ];
 
-// Mock report data generator
-const generateMockReportData = (template: ReportTemplate): CustomReportData => {
-  const mockRows: Record<string, unknown>[] = [];
-
-  // Generate sample data based on template
-  for (let i = 0; i < 15; i++) {
-    const row: Record<string, unknown> = {};
-    template.columns.forEach((col) => {
-      switch (col.type) {
-        case "string":
-          if (col.field.includes("name") || col.field.includes("Name")) {
-            row[col.field] = `샘플 ${col.header} ${i + 1}`;
-          } else if (col.field.includes("Number") || col.field.includes("Code") || col.field.includes("Id")) {
-            row[col.field] = `${col.field.toUpperCase().slice(0, 3)}-${String(i + 1).padStart(4, "0")}`;
-          } else {
-            row[col.field] = `${col.header} ${i + 1}`;
-          }
-          break;
-        case "number":
-          row[col.field] = Math.floor(Math.random() * 1000) + 100;
-          break;
-        case "currency":
-          row[col.field] = Math.floor(Math.random() * 50000000) + 1000000;
-          break;
-        case "date": {
-          const date = new Date();
-          date.setDate(date.getDate() - Math.floor(Math.random() * 365));
-          row[col.field] = date.toISOString().split("T")[0];
-          break;
-        }
-        case "percentage":
-          row[col.field] = Math.floor(Math.random() * 100) + 1;
-          break;
-        default:
-          row[col.field] = `값 ${i + 1}`;
-      }
-    });
-    mockRows.push(row);
-  }
-
-  // Calculate totals for aggregatable columns
-  const totals: Record<string, number> = {};
-  template.columns
-    .filter((col) => col.aggregatable)
-    .forEach((col) => {
-      totals[col.field] = mockRows.reduce((sum, row) => sum + (Number(row[col.field]) || 0), 0);
-    });
-
-  return {
-    templateId: template.id,
-    templateName: template.name,
-    generatedAt: new Date().toISOString(),
-    columns: template.columns,
-    rows: mockRows,
-    totals,
-    pagination: {
-      page: 1,
-      pageSize: 20,
-      totalCount: mockRows.length,
-      totalPages: 1,
-    },
-  };
-};
-
 // Format cell value based on column type
 function formatCellValue(value: unknown, type: string): string {
   if (value === null || value === undefined) return "-";
@@ -263,17 +202,8 @@ export function CustomReportPage() {
   const [showFilters, setShowFilters] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Fetch templates
-  const {
-    data: templatesResponse,
-    isLoading: isLoadingTemplates,
-  } = useQuery({
-    queryKey: ["reports", "templates"],
-    queryFn: () => reportsApi.getTemplates(),
-  });
-
-  // Use mock templates if no real data
-  const templates = templatesResponse?.data || mockTemplates;
+  // No template endpoint exists yet, so there is nothing to fetch.
+  const templates = sampleTemplates;
 
   // Get selected template
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
@@ -298,10 +228,7 @@ export function CustomReportPage() {
 
   const handleGenerateReport = () => {
     if (!selectedTemplate) return;
-
-    // In real implementation, this would call the API
-    const mockData = generateMockReportData(selectedTemplate);
-    setReportData(mockData);
+    notifyUnavailable("맞춤 보고서 생성");
   };
 
   const handleSort = (field: string) => {
@@ -314,8 +241,7 @@ export function CustomReportPage() {
   };
 
   const handleExport = (format: "xlsx" | "pdf") => {
-    // In real implementation, this would call the export API
-    alert(`${format.toUpperCase()} 파일로 내보내기를 시작합니다.`);
+    notifyUnavailable(`맞춤 보고서 ${format.toUpperCase()} 내보내기`);
   };
 
   // Sort and filter rows
@@ -371,6 +297,11 @@ export function CustomReportPage() {
         )}
       </div>
 
+      <FeatureUnavailable
+        feature="맞춤 보고서"
+        detail="서버에 맞춤 보고서 API가 아직 없습니다. 아래 템플릿 목록은 예시이며, 보고서를 생성하거나 내보낼 수 없습니다."
+      />
+
       {/* Template Selection */}
       <Card>
         <CardHeader>
@@ -380,12 +311,7 @@ export function CustomReportPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoadingTemplates ? (
-            <div className="py-8 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {Object.entries(templatesByCategory).map(([category, categoryTemplates]) => (
                 <div key={category} className="space-y-2">
                   <h4 className="text-sm font-medium text-muted-foreground">{category}</h4>
@@ -414,8 +340,7 @@ export function CustomReportPage() {
                   </div>
                 </div>
               ))}
-            </div>
-          )}
+          </div>
         </CardContent>
       </Card>
 

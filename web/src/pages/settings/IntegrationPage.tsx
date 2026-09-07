@@ -39,6 +39,7 @@ import {
 } from "@/components/ui";
 import { formatDate } from "@/lib/utils";
 import { toast } from "@/stores/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 
 // Validation schemas
 const hometaxSchema = z.object({
@@ -180,13 +181,12 @@ export function IntegrationPage() {
   const [showApiKey, setShowApiKey] = useState<string | null>(null);
   const [deleteApiKeyModalOpen, setDeleteApiKeyModalOpen] = useState(false);
   const [apiKeyToDelete, setApiKeyToDelete] = useState<string | null>(null);
-  const [isSyncing, setIsSyncing] = useState<string | null>(null);
+  const [isSyncing] = useState<string | null>(null);
 
   // Hometax form
   const {
     register: registerHometax,
     handleSubmit: handleSubmitHometax,
-    reset: resetHometax,
     formState: { errors: hometaxErrors },
   } = useForm<HometaxFormData>({
     resolver: zodResolver(hometaxSchema),
@@ -209,94 +209,36 @@ export function IntegrationPage() {
   const {
     register: registerApiKey,
     handleSubmit: handleSubmitApiKey,
-    reset: resetApiKey,
     formState: { errors: apiKeyErrors },
   } = useForm<ApiKeyFormData>({
     resolver: zodResolver(apiKeySchema),
   });
 
-  // Handle Hometax connection
-  const onSubmitHometax = async (data: HometaxFormData) => {
-    try {
-      // TODO: API call to connect Hometax
-      console.log("Hometax data:", data);
-      setIntegrations(
-        integrations.map((i) =>
-          i.id === "hometax"
-            ? { ...i, status: "connected", lastSync: new Date().toISOString() }
-            : i
-        )
-      );
-      toast.success("연동 완료", "홈택스 연동이 완료되었습니다.");
-      setHometaxModalOpen(false);
-      resetHometax();
-    } catch {
-      toast.error("연동 실패", "홈택스 연동 중 오류가 발생했습니다.");
-    }
+  // Hometax connection.
+  //
+  // The backend registers no integration routes (internal/router/v1.go), so
+  // nothing can be connected from here. The previous implementation logged the
+  // whole form — including `certPassword`, the 공인인증서 password — to the
+  // browser console and then reported success. Credentials must never be
+  // written to the console, and a connection that never happened must not be
+  // reported as complete.
+  const onSubmitHometax = () => {
+    notifyUnavailable("홈택스 연동");
   };
 
-  // Handle EDI connection
-  const onSubmitEdi = async (data: EdiFormData) => {
-    try {
-      // TODO: API call to connect EDI
-      console.log("EDI data:", data);
-      setIntegrations(
-        integrations.map((i) =>
-          i.id === selectedEdiType
-            ? { ...i, status: "connected", lastSync: new Date().toISOString(), errorMessage: undefined }
-            : i
-        )
-      );
-      toast.success("연동 완료", "EDI 연동이 완료되었습니다.");
-      setEdiModalOpen(false);
-      resetEdi();
-    } catch {
-      toast.error("연동 실패", "EDI 연동 중 오류가 발생했습니다.");
-    }
+  // EDI connection. Same story: the form carries an EDI account password.
+  const onSubmitEdi = () => {
+    notifyUnavailable("EDI 연동");
   };
 
-  // Handle API Key creation
-  const onSubmitApiKey = async (data: ApiKeyFormData) => {
-    try {
-      // Generate random API key (in real implementation, this would come from server)
-      const newKey = `kerp_api_${Math.random().toString(36).substring(2)}${Date.now().toString(36)}`;
-      const newApiKey: ApiKey = {
-        id: Date.now().toString(),
-        name: data.name,
-        key: newKey,
-        description: data.description,
-        createdAt: new Date().toISOString().split("T")[0],
-        isActive: true,
-      };
-      setApiKeys([...apiKeys, newApiKey]);
-      toast.success("생성 완료", "새 API 키가 생성되었습니다. 키를 안전한 곳에 저장하세요.");
-      setApiKeyModalOpen(false);
-      resetApiKey();
-      setShowApiKey(newApiKey.id);
-    } catch {
-      toast.error("생성 실패", "API 키 생성 중 오류가 발생했습니다.");
-    }
+  // API key issuance must happen server-side; a key minted in the browser is
+  // not a credential the server would ever accept.
+  const onSubmitApiKey = () => {
+    notifyUnavailable("API 키 발급");
   };
 
-  // Handle sync
-  const handleSync = async (integrationId: string) => {
-    setIsSyncing(integrationId);
-    try {
-      // TODO: API call to sync
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      setIntegrations(
-        integrations.map((i) =>
-          i.id === integrationId
-            ? { ...i, lastSync: new Date().toISOString() }
-            : i
-        )
-      );
-      toast.success("동기화 완료", "데이터 동기화가 완료되었습니다.");
-    } catch {
-      toast.error("동기화 실패", "데이터 동기화 중 오류가 발생했습니다.");
-    } finally {
-      setIsSyncing(null);
-    }
+  const handleSync = (_integrationId: string) => {
+    notifyUnavailable("연동 동기화");
   };
 
   // Handle disconnect
@@ -336,12 +278,11 @@ export function IntegrationPage() {
   };
 
   const confirmDeleteApiKey = () => {
-    if (apiKeyToDelete) {
-      setApiKeys(apiKeys.filter((k) => k.id !== apiKeyToDelete));
-      toast.success("삭제 완료", "API 키가 삭제되었습니다.");
-    }
+    // There is no API-key endpoint to delete against, so nothing is removed.
+    void apiKeyToDelete;
     setDeleteApiKeyModalOpen(false);
     setApiKeyToDelete(null);
+    notifyUnavailable("API 키 삭제");
   };
 
   // Open EDI modal
@@ -369,6 +310,11 @@ export function IntegrationPage() {
           <p className="text-muted-foreground">외부 시스템 연동 및 API 키를 관리합니다.</p>
         </div>
       </div>
+
+      <FeatureUnavailable
+        feature="외부 시스템 연동"
+        detail="서버에 홈택스·EDI 연동 및 API 키 발급 엔드포인트가 아직 없습니다. 아래 연동 상태와 API 키 목록은 예시이며, 입력한 인증서 비밀번호나 EDI 계정 정보는 어디에도 저장되지 않습니다."
+      />
 
       {/* Hometax Integration */}
       <Card>

@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Download,
   Printer,
@@ -22,13 +21,17 @@ import {
   Select,
   Badge,
 } from "@/components/ui";
-import { DateRangePicker } from "@/components/common";
+import {
+  DateRangePicker,
+  FeatureUnavailable,
+  notifyUnavailable,
+} from "@/components/common";
 import { formatCurrency, cn } from "@/lib/utils";
-import { reportsApi } from "@/api/reports";
 import type { SalesReportData, SalesTrendItem } from "@/api/reports";
 
-// Mock data for development
-const mockSalesReportData: SalesReportData = {
+// Sample figures shown behind the FeatureUnavailable banner: the backend has
+// no /reports/sales endpoint, so nothing on this screen comes from the server.
+const sampleSalesReportData: SalesReportData = {
   period: {
     startDate: "2024-01-01",
     endDate: "2024-01-31",
@@ -162,24 +165,8 @@ export function SalesReportPage() {
   const [groupBy, setGroupBy] = useState<"day" | "week" | "month">("day");
   const [activeTab, setActiveTab] = useState<"trend" | "partner" | "product">("trend");
 
-  // Fetch sales report data
-  const {
-    data: salesReportResponse,
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ["reports", "sales", startDate, endDate, groupBy],
-    queryFn: () =>
-      reportsApi.getSalesReport({
-        startDate,
-        endDate,
-        groupBy,
-      }),
-    enabled: !!startDate && !!endDate,
-  });
-
-  // Use mock data if no real data
-  const salesData = salesReportResponse?.data || mockSalesReportData;
+  // No sales report endpoint exists yet, so there is nothing to fetch.
+  const salesData = sampleSalesReportData;
 
   const handleDateChange = (start: string, end: string) => {
     setStartDate(start);
@@ -246,7 +233,7 @@ export function SalesReportPage() {
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => notifyUnavailable("내보내기")}>
             <Download className="h-4 w-4 mr-2" />
             내보내기
           </Button>
@@ -256,6 +243,11 @@ export function SalesReportPage() {
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable
+        feature="매출 분석"
+        detail="서버에 매출 분석 API가 아직 없습니다. 아래 숫자는 화면 구성을 보여주기 위한 예시이며 실제 매출 데이터가 아닙니다."
+      />
 
       {/* Filters */}
       <Card>
@@ -375,20 +367,7 @@ export function SalesReportPage() {
       </div>
 
       {/* Main Content */}
-      {isLoading ? (
-        <Card>
-          <CardContent className="py-16 flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </CardContent>
-        </Card>
-      ) : error ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <p className="text-destructive">데이터를 불러올 수 없습니다.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <>
+      <>
           {/* Tab Navigation */}
           <div className="flex space-x-1 border-b">
             <button
@@ -590,8 +569,7 @@ export function SalesReportPage() {
               </CardContent>
             </Card>
           )}
-        </>
-      )}
+      </>
     </div>
   );
 }

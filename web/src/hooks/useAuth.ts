@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authService } from "@/services/auth";
+import { getErrorMessage } from "@/services/api";
 import { useAuthStore } from "@/stores";
 import { toast } from "@/stores/ui";
 
@@ -15,7 +16,8 @@ export function useCurrentUser() {
 
   return useQuery({
     queryKey: authKeys.me(),
-    queryFn: authService.getCurrentUser,
+    // Bound call: getCurrentUser reads `this.getStoredUser()`.
+    queryFn: () => authService.getCurrentUser(),
     enabled: isAuthenticated,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
@@ -33,8 +35,11 @@ export function useLogin() {
       queryClient.invalidateQueries({ queryKey: authKeys.all });
       toast.success("로그인 성공", "환영합니다!");
     },
-    onError: (error: Error) => {
-      toast.error("로그인 실패", error.message || "이메일 또는 비밀번호를 확인하세요.");
+    onError: (error: unknown) => {
+      toast.error(
+        "로그인 실패",
+        getErrorMessage(error, "이메일 또는 비밀번호를 확인하세요.")
+      );
     },
   });
 }
@@ -56,12 +61,16 @@ export function useLogout() {
 // Register mutation
 export function useRegister() {
   return useMutation({
-    mutationFn: authService.register,
+    mutationFn: (data: Parameters<typeof authService.register>[0]) =>
+      authService.register(data),
     onSuccess: () => {
       toast.success("회원가입 완료", "로그인 페이지로 이동합니다.");
     },
-    onError: (error: Error) => {
-      toast.error("회원가입 실패", error.message || "회원가입 중 오류가 발생했습니다.");
+    onError: (error: unknown) => {
+      toast.error(
+        "회원가입 실패",
+        getErrorMessage(error, "회원가입 중 오류가 발생했습니다.")
+      );
     },
   });
 }

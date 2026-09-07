@@ -37,6 +37,7 @@ import {
   TableCell,
   Modal,
 } from "@/components/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { SALES_ORDER_STATUS } from "@/constants";
 import type { SalesOrder, SalesOrderStatus, Product, Warehouse } from "@/types/inventory";
@@ -268,17 +269,16 @@ export function SalesOrderPage() {
     const totalAmount = watchItems.reduce((sum, item) => {
       return sum + (item.quantity || 0) * (item.unitPrice || 0);
     }, 0);
-    const taxAmount = totalAmount * 0.1;
+    // KRW has no sub-won unit: round the VAT and derive the total from it.
+    const taxAmount = Math.round(totalAmount * 0.1);
     return { totalAmount, taxAmount, grandTotal: totalAmount + taxAmount };
   };
 
   const { totalAmount: formTotalAmount, taxAmount: formTaxAmount, grandTotal: formGrandTotal } = calculateTotals();
 
-  // Handle form submission
-  const onSubmit = (data: SalesOrderFormData) => {
-    console.log("Sales order data:", data);
-    setShowFormModal(false);
-    reset();
+  // No sales order endpoint exists on the server, so nothing is saved.
+  const onSubmit = () => {
+    notifyUnavailable("수주서 저장");
   };
 
   // Open ship modal
@@ -305,6 +305,8 @@ export function SalesOrderPage() {
           수주 등록
         </Button>
       </div>
+
+      <FeatureUnavailable feature="수주 관리" />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -411,7 +413,10 @@ export function SalesOrderPage() {
             <Button variant="outline" size="icon">
               <Filter className="h-4 w-4" />
             </Button>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => notifyUnavailable("수주 목록 내보내기")}
+            >
               <Download className="h-4 w-4 mr-2" />
               내보내기
             </Button>
@@ -477,7 +482,11 @@ export function SalesOrderPage() {
                       </Button>
                       <div className="absolute right-0 hidden group-hover:block z-10">
                         <div className="bg-popover border rounded-lg shadow-lg py-1 min-w-[130px]">
-                          <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted">
+                          <button
+                            type="button"
+                            className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
+                            onClick={() => notifyUnavailable("수주서 상세 조회")}
+                          >
                             <Eye className="h-4 w-4 mr-2" />
                             상세보기
                           </button>
@@ -491,19 +500,31 @@ export function SalesOrderPage() {
                             </button>
                           )}
                           {order.status === "completed" && (
-                            <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted">
+                            <button
+                              type="button"
+                              className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
+                              onClick={() => notifyUnavailable("수주 세금계산서 발행")}
+                            >
                               <FileText className="h-4 w-4 mr-2" />
                               세금계산서
                             </button>
                           )}
                           {order.status === "draft" && (
-                            <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted">
+                            <button
+                              type="button"
+                              className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
+                              onClick={() => notifyUnavailable("수주서 수정")}
+                            >
                               <Edit className="h-4 w-4 mr-2" />
                               수정
                             </button>
                           )}
                           {(order.status === "draft" || order.status === "pending") && (
-                            <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive">
+                            <button
+                              type="button"
+                              className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive"
+                              onClick={() => notifyUnavailable("수주서 삭제")}
+                            >
                               <Trash2 className="h-4 w-4 mr-2" />
                               삭제
                             </button>
@@ -808,7 +829,7 @@ export function SalesOrderPage() {
               >
                 취소
               </Button>
-              <Button>
+              <Button onClick={() => notifyUnavailable("출고 처리")}>
                 <Truck className="h-4 w-4 mr-2" />
                 출고 처리
               </Button>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { FileText, Scale, TrendingUp, PieChart, Download, Printer } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
+import { notifyUnavailable } from "@/components/common";
 import { cn } from "@/lib/utils";
 
 // Import actual report components
@@ -67,7 +68,10 @@ export function FinancialStatementsPage() {
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() => notifyUnavailable("재무제표 전체 내보내기")}
+          >
             <Download className="h-4 w-4 mr-2" />
             전체 내보내기
           </Button>

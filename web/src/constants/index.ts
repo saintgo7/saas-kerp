@@ -13,12 +13,11 @@ export const DATETIME_FORMAT = "YYYY-MM-DD HH:mm:ss";
 export const MONTH_FORMAT = "YYYY-MM";
 
 // User Roles
+// Roles must match internal/domain/user.go (admin | user | viewer)
 export const USER_ROLES: Record<UserRole, string> = {
   admin: "관리자",
-  manager: "매니저",
-  accountant: "회계담당",
-  hr: "인사담당",
   user: "일반사용자",
+  viewer: "읽기전용",
 };
 
 // Account Types (계정 유형)
@@ -61,10 +60,11 @@ export const EMPLOYEE_STATUS: SelectOption[] = [
 ];
 
 // Partner Types (거래처 유형)
+// Values must match internal/dto/partner_dto.go (oneof=customer vendor both)
 export const PARTNER_TYPES: SelectOption[] = [
   { value: "customer", label: "고객" },
-  { value: "supplier", label: "거래처" },
-  { value: "both", label: "고객/거래처" },
+  { value: "vendor", label: "공급업체" },
+  { value: "both", label: "고객/공급업체" },
 ];
 
 // Payroll Status (급여 상태)
@@ -184,7 +184,7 @@ export const MAIN_MENU: MenuItem[] = [
       { id: "invoice-issue", label: "매출발행", path: "/invoice/issue" },
       { id: "invoice-received", label: "매입관리", path: "/invoice/received" },
       { id: "invoice-list", label: "발행내역", path: "/invoice/list" },
-      { id: "invoice-hometax", label: "홈택스연동", path: "/invoice/hometax", roles: ["admin", "accountant"] },
+      { id: "invoice-hometax", label: "홈택스연동", path: "/invoice/hometax", roles: ["admin", "user"] },
     ],
   },
   {
@@ -195,7 +195,7 @@ export const MAIN_MENU: MenuItem[] = [
       { id: "employee", label: "직원관리", path: "/hr/employee" },
       { id: "department", label: "부서관리", path: "/hr/department" },
       { id: "payroll", label: "급여관리", path: "/hr/payroll" },
-      { id: "insurance", label: "4대보험", path: "/hr/insurance", roles: ["admin", "hr"] },
+      { id: "insurance", label: "4대보험", path: "/hr/insurance", roles: ["admin", "user"] },
       { id: "attendance", label: "근태관리", path: "/hr/attendance" },
     ],
   },
@@ -266,7 +266,11 @@ export const TOAST_DURATION = {
 export const STORAGE_KEYS = {
   accessToken: "kerp_access_token",
   refreshToken: "kerp_refresh_token",
+  // Cache written by authService (raw User object)
   user: "kerp_user",
+  // zustand persist bucket for the auth store ({ state, version } wrapper).
+  // Kept separate from `user` so the two writers cannot corrupt each other.
+  authStore: "kerp_auth",
   theme: "kerp_theme",
   sidebarCollapsed: "kerp_sidebar_collapsed",
   recentSearches: "kerp_recent_searches",

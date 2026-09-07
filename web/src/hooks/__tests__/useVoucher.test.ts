@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/__tests__/mocks/server';
-import { createWrapper, createMockVoucher } from '@/__tests__/test-utils';
+import {
+  createWrapper,
+  createMockVoucher,
+  envelope,
+  errorEnvelope,
+} from '@/__tests__/test-utils';
 import {
   useVouchers,
   useVoucher,
@@ -13,7 +18,8 @@ import {
   voucherKeys,
 } from '../useVoucher';
 
-const API_BASE = '/api';
+// Must match constants/index.ts API_BASE_URL and the Gin router (/api/v1).
+const API_BASE = '/api/v1';
 
 describe('useVoucher Hooks', () => {
   beforeEach(() => {
@@ -33,12 +39,11 @@ describe('useVoucher Hooks', () => {
 
       server.use(
         http.get(`${API_BASE}/vouchers`, () => {
-          return HttpResponse.json({
-            data: mockVouchers,
-            total: 2,
-            page: 1,
-            limit: 20,
-          });
+          return HttpResponse.json(
+            envelope(mockVouchers, {
+              pagination: { page: 1, per_page: 20, total: 2, total_pages: 1 },
+            })
+          );
         })
       );
 
@@ -60,17 +65,16 @@ describe('useVoucher Hooks', () => {
       server.use(
         http.get(`${API_BASE}/vouchers`, ({ request }) => {
           capturedParams = new URL(request.url).searchParams;
-          return HttpResponse.json({
-            data: [createMockVoucher({ status: 'draft' })],
-            total: 1,
-            page: 1,
-            limit: 10,
-          });
+          return HttpResponse.json(
+            envelope([createMockVoucher({ status: 'draft' })], {
+              pagination: { page: 1, per_page: 10, total: 1, total_pages: 1 },
+            })
+          );
         })
       );
 
       const { result } = renderHook(
-        () => useVouchers({ status: 'draft', page: 1, limit: 10 }),
+        () => useVouchers({ status: 'draft', page: 1, pageSize: 10 }),
         { wrapper: createWrapper() }
       );
 
@@ -81,14 +85,15 @@ describe('useVoucher Hooks', () => {
       expect(capturedParams).toBeDefined();
       expect(capturedParams!.get('status')).toBe('draft');
       expect(capturedParams!.get('page')).toBe('1');
-      expect(capturedParams!.get('limit')).toBe('10');
+      // The Go handler reads `page_size`, not `limit`
+      expect(capturedParams!.get('page_size')).toBe('10');
     });
 
     it('should handle fetch error', async () => {
       server.use(
         http.get(`${API_BASE}/vouchers`, () => {
           return HttpResponse.json(
-            { error: { message: 'Server error' } },
+            errorEnvelope('SRV_001', 'Server error'),
             { status: 500 }
           );
         })
@@ -114,7 +119,7 @@ describe('useVoucher Hooks', () => {
 
       server.use(
         http.get(`${API_BASE}/vouchers/vch-test-001`, () => {
-          return HttpResponse.json(mockVoucher);
+          return HttpResponse.json(envelope(mockVoucher));
         })
       );
 
@@ -142,7 +147,7 @@ describe('useVoucher Hooks', () => {
       server.use(
         http.get(`${API_BASE}/vouchers/nonexistent`, () => {
           return HttpResponse.json(
-            { error: { code: 'NOT_FOUND', message: 'Voucher not found' } },
+            errorEnvelope('RES_001', 'Voucher not found'),
             { status: 404 }
           );
         })
@@ -166,25 +171,28 @@ describe('useVoucher Hooks', () => {
     it('should create voucher successfully', async () => {
       const newVoucher = {
         voucherDate: '2026-01-15',
+        voucherType: 'general' as const,
         description: 'New test voucher',
         entries: [
-          { accountCode: '101', debitAmount: 10000, creditAmount: 0 },
-          { accountCode: '201', debitAmount: 0, creditAmount: 10000 },
+          { accountId: 'acc-001', debitAmount: 10000, creditAmount: 0 },
+          { accountId: 'acc-003', debitAmount: 0, creditAmount: 10000 },
         ],
       };
 
+      let capturedBody: Record<string, unknown> | undefined;
+
       server.use(
         http.post(`${API_BASE}/vouchers`, async ({ request }) => {
-          const body = await request.json() as Record<string, unknown>;
+          capturedBody = (await request.json()) as Record<string, unknown>;
           return HttpResponse.json(
-            {
-              id: 'vch-new-001',
-              voucherNo: 'GJ-2026-000001',
-              ...body,
-              status: 'draft',
-              totalDebit: 10000,
-              totalCredit: 10000,
-            },
+            envelope(
+              createMockVoucher({
+                id: 'vch-new-001',
+                status: 'draft',
+                total_debit: 10000,
+                total_credit: 10000,
+              })
+            ),
             { status: 201 }
           );
         })
@@ -202,27 +210,33 @@ describe('useVoucher Hooks', () => {
 
       expect(result.current.data?.id).toBe('vch-new-001');
       expect(result.current.data?.status).toBe('draft');
+
+      // The backend requires snake_case and a voucher_type
+      expect(capturedBody).toMatchObject({
+        voucher_date: '2026-01-15',
+        voucher_type: 'general',
+        entries: [
+          { account_id: 'acc-001', debit_amount: 10000, credit_amount: 0 },
+          { account_id: 'acc-003', debit_amount: 0, credit_amount: 10000 },
+        ],
+      });
     });
 
     it('should handle validation error for unbalanced voucher', async () => {
       const unbalancedVoucher = {
         voucherDate: '2026-01-15',
+        voucherType: 'general' as const,
         description: 'Unbalanced voucher',
         entries: [
-          { accountCode: '101', debitAmount: 10000, creditAmount: 0 },
-          { accountCode: '201', debitAmount: 0, creditAmount: 5000 }, // Not balanced
+          { accountId: 'acc-001', debitAmount: 10000, creditAmount: 0 },
+          { accountId: 'acc-003', debitAmount: 0, creditAmount: 5000 }, // Not balanced
         ],
       };
 
       server.use(
         http.post(`${API_BASE}/vouchers`, () => {
           return HttpResponse.json(
-            {
-              error: {
-                code: 'VALIDATION_ERROR',
-                message: 'Debit and credit must be equal',
-              },
-            },
+            errorEnvelope('VAL_001', 'Debit and credit must be equal'),
             { status: 400 }
           );
         })
@@ -249,21 +263,27 @@ describe('useVoucher Hooks', () => {
       const updatedVoucher = {
         id: 'vch-001',
         voucherDate: '2026-01-16',
+        voucherType: 'general' as const,
         description: 'Updated description',
         entries: [
-          { accountCode: '101', debitAmount: 20000, creditAmount: 0 },
-          { accountCode: '201', debitAmount: 0, creditAmount: 20000 },
+          { accountId: 'acc-001', debitAmount: 20000, creditAmount: 0 },
+          { accountId: 'acc-003', debitAmount: 0, creditAmount: 20000 },
         ],
       };
 
+      let capturedBody: Record<string, unknown> | undefined;
+
       server.use(
         http.put(`${API_BASE}/vouchers/vch-001`, async ({ request }) => {
-          const body = await request.json() as Record<string, unknown>;
-          return HttpResponse.json({
-            id: 'vch-001',
-            ...body,
-            updatedAt: new Date().toISOString(),
-          });
+          capturedBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope(
+              createMockVoucher({
+                id: 'vch-001',
+                description: 'Updated description',
+              })
+            )
+          );
         })
       );
 
@@ -278,13 +298,16 @@ describe('useVoucher Hooks', () => {
       });
 
       expect(result.current.data?.description).toBe('Updated description');
+      // UpdateVoucherRequest carries no voucher_type
+      expect(capturedBody).not.toHaveProperty('voucher_type');
+      expect(capturedBody).toMatchObject({ voucher_date: '2026-01-16' });
     });
 
     it('should handle not found error', async () => {
       server.use(
         http.put(`${API_BASE}/vouchers/nonexistent`, () => {
           return HttpResponse.json(
-            { error: { code: 'NOT_FOUND', message: 'Voucher not found' } },
+            errorEnvelope('RES_001', 'Voucher not found'),
             { status: 404 }
           );
         })
@@ -298,6 +321,7 @@ describe('useVoucher Hooks', () => {
         result.current.mutateAsync({
           id: 'nonexistent',
           voucherDate: '2026-01-15',
+          voucherType: 'general' as const,
           description: 'Test',
           entries: [],
         })
@@ -313,7 +337,7 @@ describe('useVoucher Hooks', () => {
     it('should delete voucher successfully', async () => {
       server.use(
         http.delete(`${API_BASE}/vouchers/vch-001`, () => {
-          return HttpResponse.json({ success: true });
+          return HttpResponse.json(envelope({ message: 'deleted' }));
         })
       );
 
@@ -332,12 +356,7 @@ describe('useVoucher Hooks', () => {
       server.use(
         http.delete(`${API_BASE}/vouchers/vch-posted`, () => {
           return HttpResponse.json(
-            {
-              error: {
-                code: 'INVALID_STATUS',
-                message: 'Only draft vouchers can be deleted',
-              },
-            },
+            errorEnvelope('BIZ_001', 'Only draft vouchers can be deleted'),
             { status: 400 }
           );
         })
@@ -363,11 +382,9 @@ describe('useVoucher Hooks', () => {
     it('should approve voucher successfully', async () => {
       server.use(
         http.post(`${API_BASE}/vouchers/vch-001/approve`, () => {
-          return HttpResponse.json({
-            id: 'vch-001',
-            status: 'approved',
-            approvedAt: new Date().toISOString(),
-          });
+          return HttpResponse.json(
+            envelope(createMockVoucher({ id: 'vch-001', status: 'approved' }))
+          );
         })
       );
 
@@ -388,12 +405,7 @@ describe('useVoucher Hooks', () => {
       server.use(
         http.post(`${API_BASE}/vouchers/vch-draft/approve`, () => {
           return HttpResponse.json(
-            {
-              error: {
-                code: 'INVALID_STATUS',
-                message: 'Voucher is not in pending status',
-              },
-            },
+            errorEnvelope('BIZ_002', 'Voucher is not in pending status'),
             { status: 400 }
           );
         })
@@ -419,10 +431,10 @@ describe('useVoucher Hooks', () => {
     it('should generate correct query keys', () => {
       expect(voucherKeys.all).toEqual(['vouchers']);
       expect(voucherKeys.lists()).toEqual(['vouchers', 'list']);
-      expect(voucherKeys.list({ page: 1, limit: 10 })).toEqual([
+      expect(voucherKeys.list({ page: 1, pageSize: 10 })).toEqual([
         'vouchers',
         'list',
-        { page: 1, limit: 10 },
+        { page: 1, pageSize: 10 },
       ]);
       expect(voucherKeys.details()).toEqual(['vouchers', 'detail']);
       expect(voucherKeys.detail('vch-001')).toEqual(['vouchers', 'detail', 'vch-001']);

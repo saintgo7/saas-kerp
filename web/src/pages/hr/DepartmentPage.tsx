@@ -23,7 +23,7 @@ import {
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { toast } from "@/stores/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { cn } from "@/lib/utils";
 
 // Types
@@ -346,7 +346,6 @@ export function DepartmentPage() {
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_parentForNewDept, setParentForNewDept] = useState<Department | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [departmentToDelete, setDepartmentToDelete] = useState<Department | null>(
@@ -428,28 +427,14 @@ export function DepartmentPage() {
     setIsModalOpen(true);
   };
 
-  // Submit handler
-  const onSubmit = (data: DepartmentFormData) => {
-    // TODO: API call
-    console.log("Department data:", data);
-    if (modalMode === "create") {
-      toast.success("부서 등록 완료", "새 부서가 등록되었습니다.");
-    } else {
-      toast.success("부서 수정 완료", "부서 정보가 수정되었습니다.");
-    }
-    setIsModalOpen(false);
-    reset();
+  // No department endpoint exists on the server yet, so nothing can be saved.
+  const onSubmit = () => {
+    notifyUnavailable(modalMode === "create" ? "부서 등록" : "부서 수정");
   };
 
   // Delete confirmation
   const handleDeleteConfirm = () => {
-    if (departmentToDelete) {
-      // TODO: API call
-      console.log("Delete department:", departmentToDelete.id);
-      toast.success("부서 삭제 완료", "부서가 삭제되었습니다.");
-      setIsDeleteModalOpen(false);
-      setDepartmentToDelete(null);
-    }
+    notifyUnavailable("부서 삭제");
   };
 
   return (
@@ -465,6 +450,8 @@ export function DepartmentPage() {
           부서 등록
         </Button>
       </div>
+
+      <FeatureUnavailable feature="부서 관리" />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

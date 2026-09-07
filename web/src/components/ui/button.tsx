@@ -44,9 +44,15 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, isLoading, children, disabled, ...props }, ref) => {
+  (
+    { className, variant, size, isLoading, children, disabled, type, ...props },
+    ref
+  ) => {
     return (
       <button
+        // HTML defaults <button> to type="submit". Inside a <form> that turned
+        // every "cancel" / "add row" button into a form submission.
+        type={type ?? "button"}
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         disabled={disabled || isLoading}

@@ -1,10 +1,11 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { STORAGE_KEYS } from "@/constants";
+import { createSafeJSONStorage } from "@/lib/storage";
 
 type Theme = "light" | "dark" | "system";
 
-interface Toast {
+export interface Toast {
   id: string;
   type: "success" | "error" | "warning" | "info";
   title: string;
@@ -43,6 +44,12 @@ interface UIState {
   openModal: (content: React.ReactNode) => void;
   closeModal: () => void;
 }
+
+// Toasts are transient; never let the queue grow without bound.
+const MAX_TOASTS = 5;
+
+// Default lifetime (ms) used by the Toaster when a toast omits `duration`.
+export const DEFAULT_TOAST_DURATION = 4000;
 
 // Helper function to apply theme to document
 function applyThemeToDocument(theme: Theme) {
@@ -88,12 +95,17 @@ export const useUIStore = create<UIState>()(
         set({ globalLoading: loading, loadingMessage: message }),
 
       addToast: (toast) =>
-        set((state) => ({
-          toasts: [
+        set((state) => {
+          const next = [
             ...state.toasts,
             { ...toast, id: `toast_${Date.now()}_${Math.random()}` },
-          ],
-        })),
+          ];
+          // Hard cap so the array cannot grow without bound if no Toaster is
+          // mounted or a burst of errors arrives faster than they dismiss.
+          return {
+            toasts: next.length > MAX_TOASTS ? next.slice(-MAX_TOASTS) : next,
+          };
+        }),
 
       removeToast: (id) =>
         set((state) => ({
@@ -108,6 +120,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: STORAGE_KEYS.sidebarCollapsed,
+      storage: createJSONStorage(createSafeJSONStorage),
       partialize: (state) => ({
         sidebarCollapsed: state.sidebarCollapsed,
         theme: state.theme,

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { VoucherFormPage } from '../VoucherFormPage';
 
 // Mock navigate
@@ -14,13 +15,43 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// Wrapper component with Router
+/**
+ * The account picker now loads the real chart of accounts from
+ * GET /api/v1/accounts (msw serves it from src/__tests__/mocks/handlers.ts),
+ * so the page needs a QueryClientProvider.
+ */
 function renderVoucherFormPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0, staleTime: 0 },
+      mutations: { retry: false },
+    },
+  });
+
   return render(
-    <BrowserRouter>
-      <VoucherFormPage />
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <VoucherFormPage />
+      </BrowserRouter>
+    </QueryClientProvider>
   );
+}
+
+/**
+ * The form has one voucher-type select plus one select per entry row. Entry
+ * selects are the ones whose `name` is `entries.<n>.accountId`.
+ */
+function getAccountSelects() {
+  return screen
+    .getAllByRole('combobox')
+    .filter((el) => (el.getAttribute('name') ?? '').startsWith('entries.'));
+}
+
+/** Wait until the chart of accounts has arrived and populated the selects. */
+async function waitForAccounts() {
+  await waitFor(() => {
+    expect(getAccountSelects()[0].querySelectorAll('option').length).toBeGreaterThan(1);
+  });
 }
 
 beforeEach(() => {
@@ -62,8 +93,7 @@ describe('VoucherFormPage', () => {
       renderVoucherFormPage();
 
       // Should have 2 account select dropdowns (initial entries)
-      const accountSelects = screen.getAllByRole('combobox');
-      expect(accountSelects).toHaveLength(2);
+      expect(getAccountSelects()).toHaveLength(2);
     });
 
     it('should render action buttons', () => {
@@ -96,11 +126,11 @@ describe('VoucherFormPage', () => {
 
       const addButton = screen.getByRole('button', { name: /분개 추가/i });
 
-      expect(screen.getAllByRole('combobox')).toHaveLength(2);
+      expect(getAccountSelects()).toHaveLength(2);
 
       await user.click(addButton);
 
-      expect(screen.getAllByRole('combobox')).toHaveLength(3);
+      expect(getAccountSelects()).toHaveLength(3);
     });
 
     it('should remove entry row', async () => {
@@ -111,7 +141,7 @@ describe('VoucherFormPage', () => {
       const addButton = screen.getByRole('button', { name: /분개 추가/i });
       await user.click(addButton);
 
-      expect(screen.getAllByRole('combobox')).toHaveLength(3);
+      expect(getAccountSelects()).toHaveLength(3);
 
       // Find and click delete button (Trash icon)
       const deleteButtons = screen.getAllByRole('button').filter(
@@ -123,7 +153,7 @@ describe('VoucherFormPage', () => {
       const enabledDeleteBtn = deleteButtons.find(btn => !btn.hasAttribute('disabled'));
       if (enabledDeleteBtn) {
         await user.click(enabledDeleteBtn);
-        expect(screen.getAllByRole('combobox')).toHaveLength(2);
+        expect(getAccountSelects()).toHaveLength(2);
       }
     });
 
@@ -274,15 +304,10 @@ describe('VoucherFormPage', () => {
       await user.type(descriptionInput, 'Test voucher');
 
       // Fill entries with unbalanced amounts
-      const accountSelects = screen.getAllByRole('combobox');
-      await user.click(accountSelects[0]);
-      // Use getAllByText and select the first match
-      const cashOptions = screen.getAllByText('101 현금');
-      await user.click(cashOptions[0]);
-
-      await user.click(accountSelects[1]);
-      const salesOptions = screen.getAllByText('401 상품매출');
-      await user.click(salesOptions[0]);
+      await waitForAccounts();
+      const accountSelects = getAccountSelects();
+      await user.selectOptions(accountSelects[0], 'acc-001');
+      await user.selectOptions(accountSelects[1], 'acc-004');
 
       const numberInputs = screen.getAllByRole('spinbutton');
       await user.clear(numberInputs[0]);
@@ -373,15 +398,11 @@ describe('VoucherFormPage', () => {
       const descriptionInput = screen.getByLabelText(/적요/i);
       await user.type(descriptionInput, 'Test voucher description');
 
-      // Select accounts - use getAllByText since options may appear multiple times
-      const accountSelects = screen.getAllByRole('combobox');
-      await user.click(accountSelects[0]);
-      const cashOptions = screen.getAllByText('101 현금');
-      await user.click(cashOptions[0]);
-
-      await user.click(accountSelects[1]);
-      const salesOptions = screen.getAllByText('401 상품매출');
-      await user.click(salesOptions[0]);
+      // Select accounts served by msw
+      await waitForAccounts();
+      const accountSelects = getAccountSelects();
+      await user.selectOptions(accountSelects[0], 'acc-001');
+      await user.selectOptions(accountSelects[1], 'acc-004');
 
       // Enter balanced amounts
       const numberInputs = screen.getAllByRole('spinbutton');
@@ -405,31 +426,29 @@ describe('VoucherFormPage', () => {
   // ==========================================================================
 
   describe('account selection', () => {
-    it('should display account options', async () => {
-      const user = userEvent.setup();
+    it('should display account options fetched from the API', async () => {
       renderVoucherFormPage();
 
-      const accountSelects = screen.getAllByRole('combobox');
-      await user.click(accountSelects[0]);
+      await waitForAccounts();
 
-      // Use getAllByText since options may appear in multiple places
-      expect(screen.getAllByText('101 현금').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('102 보통예금').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('401 상품매출').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('501 상품매입').length).toBeGreaterThan(0);
+      // Labels come from GET /api/v1/accounts, not a hardcoded list
+      expect(screen.getAllByText('101 Cash').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('102 Bank').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('401 Sales Revenue').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('501 COGS').length).toBeGreaterThan(0);
     });
 
     it('should select account and update display', async () => {
       const user = userEvent.setup();
       renderVoucherFormPage();
 
-      const accountSelects = screen.getAllByRole('combobox');
-      await user.click(accountSelects[0]);
-      const cashOptions = screen.getAllByText('101 현금');
-      await user.click(cashOptions[0]);
+      await waitForAccounts();
+      const accountSelects = getAccountSelects();
+      await user.selectOptions(accountSelects[0], 'acc-001');
 
-      // The select should now show the selected value
-      expect(accountSelects[0]).toHaveTextContent('101 현금');
+      // The select now holds the account id, showing its code and name
+      expect(accountSelects[0]).toHaveValue('acc-001');
+      expect(accountSelects[0]).toHaveTextContent('101 Cash');
     });
   });
 

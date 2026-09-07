@@ -24,7 +24,11 @@ export function formatCurrency(
     return `${showSymbol ? "" : ""}${(amount / 10000).toFixed(0)}만`;
   }
 
-  const formatted = new Intl.NumberFormat("ko-KR").format(amount);
+  // KRW has no sub-unit; without this the default maximumFractionDigits of 3
+  // renders VAT like "3,333.3원".
+  const formatted = new Intl.NumberFormat("ko-KR", {
+    maximumFractionDigits: 0,
+  }).format(amount);
   return showSymbol ? `${formatted}원` : formatted;
 }
 

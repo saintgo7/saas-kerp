@@ -25,12 +25,14 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { formatCurrency, formatDate, formatBusinessNumber } from "@/lib/utils";
 import { INVOICE_STATUS } from "@/constants";
 import type { InvoiceStatus } from "@/types";
 
-// Mock data
-const mockInvoices = [
+// Sample rows shown behind the FeatureUnavailable banner: the tax invoice
+// routes are not registered on the server, so nothing here is real data.
+const sampleInvoices = [
   {
     id: "1",
     invoiceNumber: "20240115-001",
@@ -97,7 +99,7 @@ export function InvoiceListPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>("");
   const [direction, setDirection] = useState<string>("");
 
-  const filteredInvoices = mockInvoices.filter((invoice) => {
+  const filteredInvoices = sampleInvoices.filter((invoice) => {
     const matchesSearch =
       invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
       invoice.buyerName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -119,7 +121,10 @@ export function InvoiceListPage() {
           <p className="text-muted-foreground">세금계산서를 발행하고 관리합니다.</p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() => notifyUnavailable("홈택스 연동")}
+          >
             <Upload className="h-4 w-4 mr-2" />
             홈택스 연동
           </Button>
@@ -131,6 +136,11 @@ export function InvoiceListPage() {
           </Link>
         </div>
       </div>
+
+      <FeatureUnavailable
+        feature="세금계산서"
+        detail="서버에 세금계산서 API가 아직 연결되지 않았습니다. 아래 목록은 화면 구성을 보여주기 위한 예시이며 실제 세금계산서가 아닙니다."
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -198,7 +208,10 @@ export function InvoiceListPage() {
                 </option>
               ))}
             </select>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => notifyUnavailable("내보내기")}
+            >
               <Download className="h-4 w-4 mr-2" />
               내보내기
             </Button>
@@ -273,7 +286,11 @@ export function InvoiceListPage() {
                             상세보기
                           </Link>
                           {invoice.status === "issued" && (
-                            <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted">
+                            <button
+                              type="button"
+                              onClick={() => notifyUnavailable("국세청 전송")}
+                              className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
+                            >
                               <Send className="h-4 w-4 mr-2" />
                               국세청 전송
                             </button>
@@ -287,7 +304,11 @@ export function InvoiceListPage() {
                               수정
                             </Link>
                           )}
-                          <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted">
+                          <button
+                            type="button"
+                            onClick={() => notifyUnavailable("PDF 다운로드")}
+                            className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
+                          >
                             <Download className="h-4 w-4 mr-2" />
                             PDF 다운로드
                           </button>

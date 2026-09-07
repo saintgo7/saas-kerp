@@ -75,41 +75,122 @@ export const mockLocalStorage = () => {
   };
 };
 
+// ---------------------------------------------------------------------------
 // Test data factories
-export const createMockVoucher = (overrides = {}) => ({
+//
+// The *Wire factories mirror what the Go handlers actually serialize
+// (snake_case, see internal/dto/*.go). Use them for HTTP fixtures. The plain
+// factories produce the camelCase domain types the UI works with, for
+// assertions on hook/store output.
+// ---------------------------------------------------------------------------
+
+/** internal/dto/voucher_dto.go VoucherResponse */
+export const createMockVoucherWire = (overrides: Record<string, unknown> = {}) => ({
   id: `vch-${Date.now()}`,
-  voucherNo: 'GJ-2026-000001',
-  voucherDate: '2026-01-15',
-  voucherType: 'general',
+  voucher_no: 'GJ-2026-000001',
+  voucher_date: '2026-01-15',
+  voucher_type: 'general',
+  voucher_type_label: '일반전표',
   status: 'draft',
+  status_label: '작성중',
   description: 'Test voucher',
-  totalDebit: 100000,
-  totalCredit: 100000,
+  total_debit: 100000,
+  total_credit: 100000,
   entries: [
-    { id: 'ent-1', lineNo: 1, accountId: 'acc-1', debitAmount: 100000, creditAmount: 0 },
-    { id: 'ent-2', lineNo: 2, accountId: 'acc-2', debitAmount: 0, creditAmount: 100000 },
+    {
+      id: 'ent-1',
+      line_no: 1,
+      account_id: 'acc-1',
+      account_code: '101',
+      account_name: 'Cash',
+      debit_amount: 100000,
+      credit_amount: 0,
+    },
+    {
+      id: 'ent-2',
+      line_no: 2,
+      account_id: 'acc-2',
+      account_code: '201',
+      account_name: 'Accounts Payable',
+      debit_amount: 0,
+      credit_amount: 100000,
+    },
   ],
+  created_at: '2026-01-15T00:00:00Z',
+  updated_at: '2026-01-15T00:00:00Z',
   ...overrides,
 });
 
-export const createMockAccount = (overrides = {}) => ({
+/** Backwards-compatible alias: the fixture is a wire payload. */
+export const createMockVoucher = createMockVoucherWire;
+
+/** internal/dto/account_dto.go AccountResponse */
+export const createMockAccountWire = (overrides: Record<string, unknown> = {}) => ({
   id: `acc-${Date.now()}`,
   code: '101',
   name: 'Test Account',
-  accountType: 'asset',
-  accountNature: 'debit',
-  isActive: true,
-  allowDirectPosting: true,
+  level: 1,
+  account_type: 'asset',
+  account_type_label: '자산',
+  account_nature: 'debit',
+  account_nature_label: '차변',
+  is_active: true,
+  is_control_account: false,
+  allow_direct_posting: true,
+  sort_order: 0,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
   ...overrides,
 });
 
-export const createMockUser = (overrides = {}) => ({
-  id: `usr-${Date.now()}`,
+export const createMockAccount = createMockAccountWire;
+
+/** internal/service/auth_service.go UserResponse */
+export const createMockUserWire = (overrides: Record<string, unknown> = {}) => ({
+  id: 'usr-001',
+  company_id: 'comp-001',
   email: 'test@example.com',
   name: 'Test User',
+  role: 'admin',
+  status: 'active',
+  ...overrides,
+});
+
+/** The camelCase `User` the auth store holds after mapping. */
+export const createMockUser = (overrides = {}) => ({
+  id: 'usr-001',
+  email: 'test@example.com',
+  name: 'Test User',
+  phone: undefined,
   role: 'admin' as const,
   companyId: 'comp-001',
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
+  createdAt: '',
+  updatedAt: '',
   ...overrides,
+});
+
+/** internal/service/auth_service.go LoginResult / RegisterResult */
+export const createMockAuthPayload = (
+  user: Record<string, unknown> = createMockUserWire(),
+  overrides: Record<string, unknown> = {}
+) => ({
+  access_token: 'test-access-token',
+  refresh_token: 'test-refresh-token',
+  token_type: 'Bearer',
+  expires_in: 3600,
+  user,
+  ...overrides,
+});
+
+/** Standard success envelope (internal/dto/common.go Response). */
+export const envelope = <T,>(data: T, meta?: Record<string, unknown>) => ({
+  success: true,
+  data,
+  ...(meta ? { meta } : {}),
+});
+
+/** Standard error envelope. */
+export const errorEnvelope = (code: string, message: string) => ({
+  success: false,
+  error: { code, message },
 });

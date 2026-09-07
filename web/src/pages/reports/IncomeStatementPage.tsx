@@ -15,186 +15,11 @@ import {
   CardTitle,
   CardContent,
 } from "@/components/ui";
-import { DateRangePicker } from "@/components/common";
+import { DateRangePicker, notifyUnavailable } from "@/components/common";
 import { formatCurrency } from "@/lib/utils";
 import { ledgerApi } from "@/api";
-import type { IncomeStatementData, IncomeStatementSection } from "@/api/ledger";
-
-// Mock data for development
-const mockIncomeStatementData: IncomeStatementData = {
-  period: {
-    startDate: "2024-01-01",
-    endDate: "2024-01-31",
-  },
-  comparisonPeriod: {
-    startDate: "2023-12-01",
-    endDate: "2023-12-31",
-  },
-  revenue: {
-    title: "매출",
-    accounts: [
-      {
-        accountId: "401",
-        accountCode: "401",
-        accountName: "상품매출",
-        level: 1,
-        currentAmount: 50000000,
-        previousAmount: 45000000,
-      },
-      {
-        accountId: "402",
-        accountCode: "402",
-        accountName: "제품매출",
-        level: 1,
-        currentAmount: 30000000,
-        previousAmount: 28000000,
-      },
-      {
-        accountId: "410",
-        accountCode: "410",
-        accountName: "서비스매출",
-        level: 1,
-        currentAmount: 10000000,
-        previousAmount: 8000000,
-      },
-    ],
-    total: 90000000,
-    previousTotal: 81000000,
-  },
-  costOfSales: {
-    title: "매출원가",
-    accounts: [
-      {
-        accountId: "501",
-        accountCode: "501",
-        accountName: "상품매입원가",
-        level: 1,
-        currentAmount: 35000000,
-        previousAmount: 32000000,
-      },
-      {
-        accountId: "502",
-        accountCode: "502",
-        accountName: "제조원가",
-        level: 1,
-        currentAmount: 15000000,
-        previousAmount: 14000000,
-      },
-    ],
-    total: 50000000,
-    previousTotal: 46000000,
-  },
-  grossProfit: 40000000,
-  previousGrossProfit: 35000000,
-  operatingExpenses: {
-    title: "판매비와 관리비",
-    accounts: [
-      {
-        accountId: "801",
-        accountCode: "801",
-        accountName: "급여",
-        level: 1,
-        currentAmount: 15000000,
-        previousAmount: 14000000,
-      },
-      {
-        accountId: "802",
-        accountCode: "802",
-        accountName: "복리후생비",
-        level: 1,
-        currentAmount: 2000000,
-        previousAmount: 1800000,
-      },
-      {
-        accountId: "803",
-        accountCode: "803",
-        accountName: "여비교통비",
-        level: 1,
-        currentAmount: 1500000,
-        previousAmount: 1200000,
-      },
-      {
-        accountId: "804",
-        accountCode: "804",
-        accountName: "통신비",
-        level: 1,
-        currentAmount: 500000,
-        previousAmount: 450000,
-      },
-      {
-        accountId: "805",
-        accountCode: "805",
-        accountName: "소모품비",
-        level: 1,
-        currentAmount: 800000,
-        previousAmount: 700000,
-      },
-      {
-        accountId: "810",
-        accountCode: "810",
-        accountName: "지급임차료",
-        level: 1,
-        currentAmount: 3000000,
-        previousAmount: 3000000,
-      },
-      {
-        accountId: "820",
-        accountCode: "820",
-        accountName: "감가상각비",
-        level: 1,
-        currentAmount: 1200000,
-        previousAmount: 1200000,
-      },
-    ],
-    total: 24000000,
-    previousTotal: 22350000,
-  },
-  operatingIncome: 16000000,
-  previousOperatingIncome: 12650000,
-  nonOperatingIncome: {
-    title: "영업외수익",
-    accounts: [
-      {
-        accountId: "901",
-        accountCode: "901",
-        accountName: "이자수익",
-        level: 1,
-        currentAmount: 500000,
-        previousAmount: 400000,
-      },
-      {
-        accountId: "902",
-        accountCode: "902",
-        accountName: "외환차익",
-        level: 1,
-        currentAmount: 300000,
-        previousAmount: 200000,
-      },
-    ],
-    total: 800000,
-    previousTotal: 600000,
-  },
-  nonOperatingExpenses: {
-    title: "영업외비용",
-    accounts: [
-      {
-        accountId: "951",
-        accountCode: "951",
-        accountName: "이자비용",
-        level: 1,
-        currentAmount: 800000,
-        previousAmount: 900000,
-      },
-    ],
-    total: 800000,
-    previousTotal: 900000,
-  },
-  incomeBeforeTax: 16000000,
-  previousIncomeBeforeTax: 12350000,
-  incomeTax: 3200000,
-  netIncome: 12800000,
-  previousNetIncome: 9880000,
-};
+import { getErrorMessage } from "@/services/api";
+import type { IncomeStatementSection } from "@/api/ledger";
 
 export function IncomeStatementPage() {
   const today = new Date();
@@ -221,8 +46,8 @@ export function IncomeStatementPage() {
     enabled: !!startDate && !!endDate,
   });
 
-  // Use mock data if no real data
-  const incomeStatementData = incomeStatementResponse?.data || mockIncomeStatementData;
+  // Never fall back to sample figures on a financial statement.
+  const incomeStatementData = incomeStatementResponse?.data ?? null;
 
   const handleDateChange = (start: string, end: string) => {
     setStartDate(start);
@@ -346,15 +171,15 @@ export function IncomeStatementPage() {
 
   // Calculate gross margin and operating margin
   const grossMargin =
-    incomeStatementData.revenue.total > 0
+    incomeStatementData && incomeStatementData.revenue.total > 0
       ? (incomeStatementData.grossProfit / incomeStatementData.revenue.total) * 100
       : 0;
   const operatingMargin =
-    incomeStatementData.revenue.total > 0
+    incomeStatementData && incomeStatementData.revenue.total > 0
       ? (incomeStatementData.operatingIncome / incomeStatementData.revenue.total) * 100
       : 0;
   const netMargin =
-    incomeStatementData.revenue.total > 0
+    incomeStatementData && incomeStatementData.revenue.total > 0
       ? (incomeStatementData.netIncome / incomeStatementData.revenue.total) * 100
       : 0;
 
@@ -369,7 +194,7 @@ export function IncomeStatementPage() {
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => notifyUnavailable("내보내기")}>
             <Download className="h-4 w-4 mr-2" />
             내보내기
           </Button>
@@ -417,6 +242,7 @@ export function IncomeStatementPage() {
       </Card>
 
       {/* KPI Cards */}
+      {incomeStatementData && (
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
@@ -499,6 +325,7 @@ export function IncomeStatementPage() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Income Statement Content */}
       {isLoading ? (
@@ -510,7 +337,17 @@ export function IncomeStatementPage() {
       ) : error ? (
         <Card>
           <CardContent className="py-16 text-center">
-            <p className="text-destructive">데이터를 불러올 수 없습니다.</p>
+            <p className="text-destructive">
+              {getErrorMessage(error, "손익계산서 조회에 실패했습니다.")}
+            </p>
+          </CardContent>
+        </Card>
+      ) : !incomeStatementData ? (
+        <Card>
+          <CardContent className="py-16 text-center">
+            <p className="text-muted-foreground">
+              조회된 손익계산서 데이터가 없습니다.
+            </p>
           </CardContent>
         </Card>
       ) : (

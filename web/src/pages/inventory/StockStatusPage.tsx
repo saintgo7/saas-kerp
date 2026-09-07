@@ -29,6 +29,7 @@ import {
   TableCell,
   Modal,
 } from "@/components/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { STOCK_MOVEMENT_TYPES } from "@/constants";
 import type {
@@ -167,12 +168,17 @@ export function StockStatusPage() {
             <ArrowRightLeft className="h-4 w-4 mr-2" />
             재고 조정
           </Button>
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() => notifyUnavailable("재고 현황 새로고침")}
+          >
             <RefreshCw className="h-4 w-4 mr-2" />
             새로고침
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable feature="재고 현황" />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -312,7 +318,10 @@ export function StockStatusPage() {
                 <Button variant="outline" size="icon">
                   <Filter className="h-4 w-4" />
                 </Button>
-                <Button variant="outline">
+                <Button
+                  variant="outline"
+                  onClick={() => notifyUnavailable("재고 현황 내보내기")}
+                >
                   <Download className="h-4 w-4 mr-2" />
                   내보내기
                 </Button>
@@ -521,7 +530,11 @@ export function StockStatusPage() {
                       <Link to="/inventory/purchase/new">
                         <Button size="sm">발주하기</Button>
                       </Link>
-                      <Button variant="ghost" size="sm">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => notifyUnavailable("재고 알림 확인 처리")}
+                      >
                         확인
                       </Button>
                     </div>
@@ -631,7 +644,7 @@ export function StockStatusPage() {
             <Button variant="outline" onClick={() => setShowAdjustmentModal(false)}>
               취소
             </Button>
-            <Button>조정 적용</Button>
+            <Button onClick={() => notifyUnavailable("재고 조정")}>조정 적용</Button>
           </div>
         </div>
       </Modal>

@@ -5,6 +5,8 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from "axios";
 import { API_BASE_URL, STORAGE_KEYS } from "@/constants";
+import { safeStorage } from "@/lib/storage";
+import { clearSession, redirectToLogin } from "@/lib/session";
 import type { ApiResponse, AuthTokens } from "@/types";
 
 // Create axios instance
@@ -16,39 +18,114 @@ const api: AxiosInstance = axios.create({
   },
 });
 
-// Token management
-let isRefreshing = false;
-let refreshSubscribers: ((token: string) => void)[] = [];
+/**
+ * Normalized error shape every caller can rely on.
+ */
+export interface ApiRequestError {
+  status?: number;
+  /** internal/errors/codes.go vocabulary, e.g. "VAL_001". */
+  code?: string;
+  message: string;
+  detail?: string;
+  details?: { field: string; message: string }[];
+}
 
-function subscribeTokenRefresh(callback: (token: string) => void): void {
-  refreshSubscribers.push(callback);
+/**
+ * Endpoints whose own 401 means "these credentials are wrong", not
+ * "the access token expired". Refreshing or redirecting on those turns a
+ * failed login into a full page reload that wipes the form and the error.
+ */
+const AUTH_ENDPOINTS = [
+  "/auth/login",
+  "/auth/register",
+  "/auth/refresh",
+  "/auth/forgot-password",
+];
+
+function isAuthEndpoint(url?: string): boolean {
+  if (!url) return false;
+  return AUTH_ENDPOINTS.some((endpoint) => url.includes(endpoint));
+}
+
+// ---------------------------------------------------------------------------
+// Token management
+// ---------------------------------------------------------------------------
+
+let isRefreshing = false;
+let refreshSubscribers: {
+  resolve: (token: string) => void;
+  reject: (error: unknown) => void;
+}[] = [];
+
+function subscribeTokenRefresh(
+  resolve: (token: string) => void,
+  reject: (error: unknown) => void
+): void {
+  refreshSubscribers.push({ resolve, reject });
 }
 
 function onTokenRefreshed(token: string): void {
-  refreshSubscribers.forEach((callback) => callback(token));
+  const subscribers = refreshSubscribers;
   refreshSubscribers = [];
+  subscribers.forEach(({ resolve }) => resolve(token));
+}
+
+/**
+ * Every queued request must be settled when a refresh fails, otherwise the
+ * promises stay pending forever and their screens spin until a reload.
+ */
+function onTokenRefreshFailed(error: unknown): void {
+  const subscribers = refreshSubscribers;
+  refreshSubscribers = [];
+  subscribers.forEach(({ reject }) => reject(error));
 }
 
 function getAccessToken(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.accessToken);
+  return safeStorage.getItem(STORAGE_KEYS.accessToken);
 }
 
 function getRefreshToken(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.refreshToken);
+  return safeStorage.getItem(STORAGE_KEYS.refreshToken);
 }
 
 function setTokens(tokens: AuthTokens): void {
-  localStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
-  localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
+  if (!tokens?.accessToken || !tokens?.refreshToken) {
+    throw new Error("Invalid token payload received from the server");
+  }
+  safeStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
+  safeStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
 }
 
 function clearTokens(): void {
-  localStorage.removeItem(STORAGE_KEYS.accessToken);
-  localStorage.removeItem(STORAGE_KEYS.refreshToken);
-  localStorage.removeItem(STORAGE_KEYS.user);
+  clearSession();
 }
 
-// Request interceptor
+// Backend token payload (snake_case, see internal/service/auth_service.go)
+interface BackendTokenPayload {
+  access_token: string;
+  refresh_token: string;
+  token_type?: string;
+  expires_in?: number;
+}
+
+/**
+ * Maps the backend's snake_case token payload onto the frontend shape.
+ * Returns null when the payload is not usable, so we never persist the
+ * string "undefined" into localStorage.
+ */
+function mapTokens(payload: BackendTokenPayload | undefined): AuthTokens | null {
+  if (!payload?.access_token || !payload?.refresh_token) return null;
+  return {
+    accessToken: payload.access_token,
+    refreshToken: payload.refresh_token,
+    expiresAt: Date.now() + (payload.expires_in ?? 0) * 1000,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Interceptors
+// ---------------------------------------------------------------------------
+
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = getAccessToken();
@@ -57,81 +134,114 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error: AxiosError) => {
-    return Promise.reject(error);
-  }
+  (error: AxiosError) => Promise.reject(error)
 );
 
-// Response interceptor
+/**
+ * The API has exactly one error shape (internal/dto/common.go):
+ *   { success: false, error: { code, message, detail?, details? }, meta }
+ * There is no top-level `message` — reading one is why server errors used to
+ * reach the user as a generic axios string. Codes come from
+ * internal/errors/codes.go ("VAL_001", "AUTH_001", "RES_001", ...).
+ */
+function normalizeError(error: AxiosError<ApiResponse<unknown>>): ApiRequestError {
+  const body = error.response?.data;
+  return {
+    status: error.response?.status,
+    code: body?.error?.code,
+    message:
+      body?.error?.message || error.message || "요청을 처리하지 못했습니다.",
+    detail: body?.error?.detail,
+    details: body?.error?.details,
+  };
+}
+
+async function performRefresh(): Promise<string> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    throw new Error("No refresh token available");
+  }
+
+  // /auth/refresh is a public route (internal/router/v1.go): the refresh token
+  // in the body is the credential, so no Authorization header is sent. Using
+  // the bare `axios` (not the `api` instance) also keeps this call out of the
+  // response interceptor, so a failed refresh cannot recurse into itself.
+  const response = await axios.post<ApiResponse<BackendTokenPayload>>(
+    `${API_BASE_URL}/auth/refresh`,
+    { refresh_token: refreshToken }
+  );
+
+  const tokens = mapTokens(response.data?.data);
+  if (!response.data?.success || !tokens) {
+    throw new Error("Token refresh returned an unusable payload");
+  }
+
+  setTokens(tokens);
+  return tokens.accessToken;
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<ApiResponse<unknown>>) => {
-    const originalRequest = error.config as AxiosRequestConfig & {
-      _retry?: boolean;
-    };
+    const originalRequest = error.config as
+      | (AxiosRequestConfig & { _retry?: boolean })
+      | undefined;
 
-    // Handle 401 Unauthorized
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    const shouldAttemptRefresh =
+      error.response?.status === 401 &&
+      originalRequest !== undefined &&
+      !originalRequest._retry &&
+      !isAuthEndpoint(originalRequest.url);
+
+    if (shouldAttemptRefresh && originalRequest) {
       if (isRefreshing) {
-        // Wait for token refresh
-        return new Promise((resolve) => {
-          subscribeTokenRefresh((token: string) => {
-            if (originalRequest.headers) {
-              originalRequest.headers.Authorization = `Bearer ${token}`;
-            }
-            resolve(api(originalRequest));
-          });
+        // Queue behind the in-flight refresh; both outcomes settle the promise.
+        return new Promise((resolve, reject) => {
+          subscribeTokenRefresh(
+            (token: string) => {
+              originalRequest._retry = true;
+              originalRequest.headers = {
+                ...originalRequest.headers,
+                Authorization: `Bearer ${token}`,
+              };
+              resolve(api(originalRequest));
+            },
+            (refreshError) => reject(refreshError)
+          );
         });
       }
 
       originalRequest._retry = true;
       isRefreshing = true;
 
-      const refreshToken = getRefreshToken();
-      if (!refreshToken) {
-        clearTokens();
-        window.location.href = "/login";
-        return Promise.reject(error);
-      }
-
       try {
-        const response = await axios.post<ApiResponse<AuthTokens>>(
-          `${API_BASE_URL}/auth/refresh`,
-          { refreshToken }
-        );
-
-        if (response.data.success) {
-          const tokens = response.data.data;
-          setTokens(tokens);
-          onTokenRefreshed(tokens.accessToken);
-
-          if (originalRequest.headers) {
-            originalRequest.headers.Authorization = `Bearer ${tokens.accessToken}`;
-          }
-          return api(originalRequest);
-        }
+        const token = await performRefresh();
+        onTokenRefreshed(token);
+        originalRequest.headers = {
+          ...originalRequest.headers,
+          Authorization: `Bearer ${token}`,
+        };
+        return await api(originalRequest);
       } catch (refreshError) {
+        onTokenRefreshFailed(refreshError);
         clearTokens();
-        window.location.href = "/login";
-        return Promise.reject(refreshError);
+        redirectToLogin();
+        return Promise.reject(normalizeError(error));
       } finally {
+        // Reset on every path, including the early failures above, otherwise
+        // the flag stays true and every later 401 queues up forever.
         isRefreshing = false;
       }
     }
 
-    // Handle other errors
-    const errorMessage =
-      error.response?.data?.message || error.message || "An error occurred";
-
-    return Promise.reject({
-      status: error.response?.status,
-      message: errorMessage,
-      errors: error.response?.data?.errors,
-    });
+    return Promise.reject(normalizeError(error));
   }
 );
 
-// API helper methods
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 export const apiClient = {
   get: <T>(url: string, config?: AxiosRequestConfig) =>
     api.get<ApiResponse<T>>(url, config).then((res) => res.data),
@@ -147,8 +257,24 @@ export const apiClient = {
 
   delete: <T>(url: string, config?: AxiosRequestConfig) =>
     api.delete<ApiResponse<T>>(url, config).then((res) => res.data),
+
+  /** Binary download (exports). Returns the raw Blob, never JSON-parsed. */
+  getBlob: (url: string, config?: AxiosRequestConfig) =>
+    api
+      .get<Blob>(url, { ...config, responseType: "blob" })
+      .then((res) => res.data),
 };
 
-// Export utilities
-export { setTokens, clearTokens, getAccessToken };
+/** Human-readable message for any rejection thrown by this module. */
+export function getErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) return message;
+  }
+  return fallback;
+}
+
+export { setTokens, clearTokens, getAccessToken, mapTokens };
+export type { BackendTokenPayload };
 export default api;

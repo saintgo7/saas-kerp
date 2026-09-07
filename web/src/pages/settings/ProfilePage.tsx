@@ -36,7 +36,10 @@ import {
 } from "@/components/ui";
 import { formatDate, formatPhoneNumber } from "@/lib/utils";
 import { toast } from "@/stores/ui";
-// import { useAuthStore } from "@/stores"; // TODO: Use when API is ready
+import { useAuthStore } from "@/stores";
+import { authService, } from "@/services/auth";
+import { getErrorMessage } from "@/services/api";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { USER_ROLES } from "@/constants";
 
 // Validation schemas
@@ -65,26 +68,6 @@ const passwordSchema = z
 
 type ProfileFormData = z.infer<typeof profileSchema>;
 type PasswordFormData = z.infer<typeof passwordSchema>;
-
-// Mock user data (would come from auth store in real app)
-const mockUser = {
-  id: "1",
-  email: "admin@techsolution.co.kr",
-  name: "김관리",
-  phone: "01012345678",
-  role: "admin" as const,
-  companyId: "company1",
-  company: {
-    id: "company1",
-    name: "(주)테크솔루션",
-    businessNumber: "1234567890",
-    representativeName: "김대표",
-    createdAt: "2023-01-01",
-    updatedAt: "2024-01-15",
-  },
-  createdAt: "2023-01-01",
-  updatedAt: "2024-01-15",
-};
 
 // Mock notification settings
 interface NotificationSetting {
@@ -201,8 +184,9 @@ export function ProfilePage() {
     mockNotificationSettings
   );
 
-  // In real app, would use auth store
-  const user = mockUser;
+  // The signed-in user, not a hardcoded demo account. Every visitor used to
+  // see "김관리 / admin@techsolution.co.kr" regardless of who was logged in.
+  const user = useAuthStore((state) => state.user);
 
   // Profile form
   const {
@@ -211,10 +195,10 @@ export function ProfilePage() {
     formState: { errors: profileErrors },
   } = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
-    defaultValues: {
-      name: user.name,
-      phone: user.phone,
-      email: user.email,
+    values: {
+      name: user?.name ?? "",
+      phone: user?.phone ?? "",
+      email: user?.email ?? "",
     },
   });
 
@@ -228,30 +212,25 @@ export function ProfilePage() {
     resolver: zodResolver(passwordSchema),
   });
 
-  // Handle profile save
-  const onSubmitProfile = async (data: ProfileFormData) => {
-    setIsSubmitting(true);
-    try {
-      // TODO: API call to update profile
-      console.log("Profile data:", data);
-      toast.success("저장 완료", "프로필 정보가 저장되었습니다.");
-    } catch {
-      toast.error("저장 실패", "프로필 저장 중 오류가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
+  // The backend has no "update my own profile" route: /users/:id is the admin
+  // CRUD endpoint (and would let a user rewrite their own role), and it carries
+  // no phone field at all. Say so rather than pretending the save worked.
+  const onSubmitProfile = () => {
+    notifyUnavailable("프로필 수정");
   };
 
-  // Handle password change
+  // PUT /api/v1/auth/password (internal/handler/auth.go ChangePasswordRequest)
   const onSubmitPassword = async (data: PasswordFormData) => {
     setIsSubmitting(true);
     try {
-      // TODO: API call to change password
-      console.log("Password change:", data);
+      await authService.changePassword(data.currentPassword, data.newPassword);
       toast.success("변경 완료", "비밀번호가 변경되었습니다.");
       resetPassword();
-    } catch {
-      toast.error("변경 실패", "비밀번호 변경 중 오류가 발생했습니다.");
+    } catch (err) {
+      toast.error(
+        "변경 실패",
+        getErrorMessage(err, "비밀번호 변경 중 오류가 발생했습니다.")
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -269,8 +248,22 @@ export function ProfilePage() {
           : setting
       )
     );
-    toast.success("설정 저장", "알림 설정이 변경되었습니다.");
+    // Toggling is local only: there is no notification-settings endpoint.
+    notifyUnavailable("알림 설정 저장");
   };
+
+  if (!user) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">내 프로필</h1>
+        </div>
+        <p className="text-muted-foreground">
+          로그인 정보를 불러오지 못했습니다. 다시 로그인해 주십시오.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -297,9 +290,6 @@ export function ProfilePage() {
                 <Shield className="h-3 w-3 mr-1" />
                 {USER_ROLES[user.role]}
               </Badge>
-              <p className="text-sm text-muted-foreground mt-2">
-                {user.company?.name}
-              </p>
               <div className="w-full mt-6 space-y-3">
                 <div className="flex items-center text-sm">
                   <Mail className="h-4 w-4 mr-3 text-muted-foreground" />
@@ -311,10 +301,14 @@ export function ProfilePage() {
                     <span>{formatPhoneNumber(user.phone)}</span>
                   </div>
                 )}
-                <div className="flex items-center text-sm">
-                  <Clock className="h-4 w-4 mr-3 text-muted-foreground" />
-                  <span>가입일: {formatDate(user.createdAt, { format: "short" })}</span>
-                </div>
+                {user.createdAt && (
+                  <div className="flex items-center text-sm">
+                    <Clock className="h-4 w-4 mr-3 text-muted-foreground" />
+                    <span>
+                      가입일: {formatDate(user.createdAt, { format: "short" })}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
@@ -335,7 +329,11 @@ export function ProfilePage() {
                   저장
                 </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                <FeatureUnavailable
+                  feature="프로필 수정"
+                  detail="서버에 본인 프로필 수정 API가 아직 없어 변경 내용은 저장되지 않습니다. 비밀번호 변경은 아래에서 정상 동작합니다."
+                />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input
                     label="이름"
@@ -463,6 +461,11 @@ export function ProfilePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <FeatureUnavailable
+                feature="알림 설정"
+                detail="서버에 알림 설정 API가 없어 변경 내용은 저장되지 않습니다. 아래 값은 예시입니다."
+                className="mb-4"
+              />
               <div className="space-y-4">
                 {notificationSettings.map((setting) => (
                   <div
@@ -512,6 +515,11 @@ export function ProfilePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <FeatureUnavailable
+                feature="로그인 이력"
+                detail="서버에 로그인 이력 API가 없어 아래 표는 예시 데이터입니다."
+                className="mb-4"
+              />
               <Table>
                 <TableHeader>
                   <TableRow>

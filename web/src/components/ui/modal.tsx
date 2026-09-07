@@ -29,24 +29,36 @@ export function Modal({
   className,
   size = "md",
 }: ModalProps) {
-  // Close on escape key
+  // Keep the latest onClose without making it an effect dependency: callers
+  // pass an inline arrow, so a changing identity re-ran the effect on every
+  // render and reset body scroll while the modal was still open.
+  const onCloseRef = React.useRef(onClose);
   React.useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Close on escape key, and lock background scroll only while open.
+  React.useEffect(() => {
+    if (!isOpen) return;
+
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
       }
     };
 
-    if (isOpen) {
-      document.addEventListener("keydown", handleEscape);
-      document.body.style.overflow = "hidden";
-    }
+    document.addEventListener("keydown", handleEscape);
+
+    // Restore whatever the previous value was rather than forcing "unset",
+    // so closing a nested modal does not unlock the one still open.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
 
     return () => {
       document.removeEventListener("keydown", handleEscape);
-      document.body.style.overflow = "unset";
+      document.body.style.overflow = previousOverflow;
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

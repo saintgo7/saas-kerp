@@ -15,82 +15,12 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui";
-import { DateRangePicker } from "@/components/common";
+import { DateRangePicker, notifyUnavailable } from "@/components/common";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { ledgerApi, accountsApi } from "@/api";
-import type { GeneralLedgerData } from "@/api/ledger";
-import type { Account, AccountType } from "@/types";
+import { getErrorMessage } from "@/services/api";
+import type { AccountType } from "@/types";
 import { ACCOUNT_TYPES } from "@/constants";
-
-// Mock data for development
-const mockLedgerData: GeneralLedgerData = {
-  account: {
-    id: "1",
-    companyId: "1",
-    code: "101",
-    name: "현금",
-    type: "asset",
-    level: 1,
-    isActive: true,
-  },
-  openingBalance: 5000000,
-  entries: [
-    {
-      date: "2024-01-05",
-      voucherId: "v1",
-      voucherNumber: "2024-0001",
-      description: "상품매출 현금입금",
-      debitAmount: 1100000,
-      creditAmount: 0,
-      balance: 6100000,
-      entryDescription: "A상사 판매대금",
-    },
-    {
-      date: "2024-01-10",
-      voucherId: "v2",
-      voucherNumber: "2024-0010",
-      description: "사무용품 구입",
-      debitAmount: 0,
-      creditAmount: 150000,
-      balance: 5950000,
-      entryDescription: "문구류 구입",
-    },
-    {
-      date: "2024-01-15",
-      voucherId: "v3",
-      voucherNumber: "2024-0015",
-      description: "현금매출",
-      debitAmount: 500000,
-      creditAmount: 0,
-      balance: 6450000,
-      entryDescription: "소매매출",
-    },
-    {
-      date: "2024-01-20",
-      voucherId: "v4",
-      voucherNumber: "2024-0020",
-      description: "교통비 지출",
-      debitAmount: 0,
-      creditAmount: 50000,
-      balance: 6400000,
-      entryDescription: "출장 택시비",
-    },
-  ],
-  totalDebit: 1600000,
-  totalCredit: 200000,
-  closingBalance: 6400000,
-};
-
-const mockAccounts: Account[] = [
-  { id: "1", companyId: "1", code: "101", name: "현금", type: "asset", level: 1, isActive: true },
-  { id: "2", companyId: "1", code: "102", name: "보통예금", type: "asset", level: 1, isActive: true },
-  { id: "3", companyId: "1", code: "108", name: "받을어음", type: "asset", level: 1, isActive: true },
-  { id: "4", companyId: "1", code: "109", name: "외상매출금", type: "asset", level: 1, isActive: true },
-  { id: "5", companyId: "1", code: "201", name: "지급어음", type: "liability", level: 1, isActive: true },
-  { id: "6", companyId: "1", code: "202", name: "외상매입금", type: "liability", level: 1, isActive: true },
-  { id: "7", companyId: "1", code: "401", name: "상품매출", type: "revenue", level: 1, isActive: true },
-  { id: "8", companyId: "1", code: "501", name: "상품매입", type: "expense", level: 1, isActive: true },
-];
 
 export function GeneralLedgerPage() {
   const today = new Date();
@@ -103,7 +33,11 @@ export function GeneralLedgerPage() {
   const [searchTerm, setSearchTerm] = useState("");
 
   // Fetch accounts
-  const { data: accountsResponse } = useQuery({
+  const {
+    data: accountsResponse,
+    isLoading: isAccountsLoading,
+    error: accountsError,
+  } = useQuery({
     queryKey: ["accounts", "list", selectedAccountType],
     queryFn: () =>
       accountsApi.list({
@@ -113,7 +47,12 @@ export function GeneralLedgerPage() {
       }),
   });
 
-  const accounts = accountsResponse?.data?.items || mockAccounts;
+  // No sample fallback: a chart of accounts that does not exist on the server
+  // must not look like a real one.
+  const accounts = useMemo(
+    () => accountsResponse?.data?.items ?? [],
+    [accountsResponse]
+  );
 
   // Filter accounts by search term
   const filteredAccounts = useMemo(() => {
@@ -131,6 +70,7 @@ export function GeneralLedgerPage() {
     data: ledgerResponse,
     isLoading,
     error,
+    refetch,
   } = useQuery({
     queryKey: ["ledger", "general", selectedAccountId, startDate, endDate],
     queryFn: () =>
@@ -138,8 +78,7 @@ export function GeneralLedgerPage() {
     enabled: !!selectedAccountId && !!startDate && !!endDate,
   });
 
-  // Use mock data if no real data
-  const ledgerData = ledgerResponse?.data || (selectedAccountId ? mockLedgerData : null);
+  const ledgerData = ledgerResponse?.data ?? null;
 
   const handleDateChange = (start: string, end: string) => {
     setStartDate(start);
@@ -155,8 +94,7 @@ export function GeneralLedgerPage() {
   };
 
   const handleExport = () => {
-    // TODO: Implement export
-    console.log("Export general ledger");
+    notifyUnavailable("총계정원장 내보내기");
   };
 
   const handlePrint = () => {
@@ -219,7 +157,23 @@ export function GeneralLedgerPage() {
 
             {/* Account List */}
             <div className="max-h-[400px] overflow-y-auto border rounded-lg divide-y">
-              {filteredAccounts.map((account) => (
+              {isAccountsLoading ? (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                  계정과목을 불러오는 중입니다.
+                </div>
+              ) : accountsError ? (
+                <div className="px-3 py-6 text-center text-sm text-destructive">
+                  {getErrorMessage(
+                    accountsError,
+                    "계정과목 조회에 실패했습니다."
+                  )}
+                </div>
+              ) : filteredAccounts.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                  조회된 계정과목이 없습니다.
+                </div>
+              ) : (
+                filteredAccounts.map((account) => (
                 <button
                   key={account.id}
                   className={`w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-muted text-left ${
@@ -237,7 +191,8 @@ export function GeneralLedgerPage() {
                     {getAccountTypeLabel(account.type)}
                   </span>
                 </button>
-              ))}
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
@@ -258,7 +213,7 @@ export function GeneralLedgerPage() {
                 </div>
                 <Button
                   onClick={() => {
-                    // Refresh data
+                    void refetch();
                   }}
                   disabled={!selectedAccountId}
                 >
@@ -286,7 +241,9 @@ export function GeneralLedgerPage() {
           ) : error ? (
             <Card>
               <CardContent className="py-16 text-center">
-                <p className="text-destructive">데이터를 불러올 수 없습니다.</p>
+                <p className="text-destructive">
+                  {getErrorMessage(error, "총계정원장 조회에 실패했습니다.")}
+                </p>
               </CardContent>
             </Card>
           ) : ledgerData ? (
@@ -366,7 +323,9 @@ export function GeneralLedgerPage() {
 
                       {/* Transaction Rows */}
                       {ledgerData.entries.map((entry, index) => (
-                        <TableRow key={index}>
+                        <TableRow
+                          key={`${entry.voucherId}-${entry.date}-${entry.voucherNumber}-${index}`}
+                        >
                           <TableCell>{formatDate(entry.date)}</TableCell>
                           <TableCell>
                             <a
@@ -428,7 +387,15 @@ export function GeneralLedgerPage() {
                 </CardContent>
               </Card>
             </>
-          ) : null}
+          ) : (
+            <Card>
+              <CardContent className="py-16 text-center">
+                <p className="text-muted-foreground">
+                  조회된 원장 데이터가 없습니다.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>
