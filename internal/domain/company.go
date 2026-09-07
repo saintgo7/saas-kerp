@@ -85,7 +85,7 @@ type Company struct {
 
 // TableName returns the table name for Company
 func (Company) TableName() string {
-	return "kerp.companies"
+	return "companies"
 }
 
 // NewCompany creates a new company

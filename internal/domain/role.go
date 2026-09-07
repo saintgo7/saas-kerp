@@ -37,7 +37,7 @@ type Role struct {
 
 // TableName returns the table name for Role
 func (Role) TableName() string {
-	return "kerp.roles"
+	return "roles"
 }
 
 // NewRole creates a new role

@@ -82,7 +82,7 @@ type User struct {
 
 // TableName returns the table name for User
 func (User) TableName() string {
-	return "kerp.users"
+	return "users"
 }
 
 // NewUser creates a new user with the given details
@@ -166,7 +166,7 @@ type RefreshToken struct {
 
 // TableName returns the table name for RefreshToken
 func (RefreshToken) TableName() string {
-	return "kerp.refresh_tokens"
+	return "refresh_tokens"
 }
 
 // IsExpired checks if the refresh token is expired
