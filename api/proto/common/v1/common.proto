@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package kerp.common.v1;
 
-option go_package = "github.com/kerp/api/proto/common/v1;commonv1";
+option go_package = "github.com/saintgo7/saas-kerp/api/proto/common/v1;commonv1";
 
 import "google/protobuf/timestamp.proto";
 
