@@ -7,9 +7,11 @@ to the TaxInvoiceService for business logic.
 
 import asyncio
 import signal
+import sys
 import time
 from concurrent import futures
-from typing import Any, AsyncIterator, Optional
+from pathlib import Path
+from typing import Any, AsyncIterator
 
 import grpc
 import structlog
@@ -18,6 +20,34 @@ from grpc_reflection.v1alpha import reflection
 
 from config import get_settings
 from src.services.tax_service import TaxInvoiceService
+
+# Make `python-services/` importable for the shared security helpers.
+_PYTHON_SERVICES_ROOT = str(Path(__file__).resolve().parents[2])
+if _PYTHON_SERVICES_ROOT not in sys.path:
+    sys.path.append(_PYTHON_SERVICES_ROOT)
+
+from shared.grpc_security import (  # noqa: E402
+    ServerSecurity,
+    bind_port,
+    build_interceptors,
+    reflection_enabled,
+)
+
+# Maps service-layer error codes to gRPC status codes, so a caller can tell an
+# unimplemented path from a rejected credential from a genuine upstream fault.
+# Previously every failure came back as INTERNAL with the raw exception text.
+ERROR_CODE_TO_STATUS = {
+    "HOMETAX_NOT_ENABLED": grpc.StatusCode.UNIMPLEMENTED,
+    "NOT_IMPLEMENTED": grpc.StatusCode.UNIMPLEMENTED,
+    "LOGIN_FAILED": grpc.StatusCode.UNAUTHENTICATED,
+    "SESSION_INVALID": grpc.StatusCode.UNAUTHENTICATED,
+    "INVALID_BUSINESS_NUMBER": grpc.StatusCode.INVALID_ARGUMENT,
+    "INVALID_INVOICE_NUMBER": grpc.StatusCode.INVALID_ARGUMENT,
+    "SCRAPE_FAILED": grpc.StatusCode.UNAVAILABLE,
+    "RESULT_UNDETERMINED": grpc.StatusCode.UNKNOWN,
+    "UPSTREAM_UNAVAILABLE": grpc.StatusCode.UNAVAILABLE,
+    "INTERNAL_ERROR": grpc.StatusCode.INTERNAL,
+}
 
 # Import generated proto code (will be available after proto generation)
 try:
@@ -39,6 +69,27 @@ class TaxInvoiceServicer:
         self.service = TaxInvoiceService()
         self.log = logger.bind(component="TaxInvoiceServicer")
         self._start_time = time.time()
+
+    @staticmethod
+    def _apply_error_status(
+        context: grpc.aio.ServicerContext,
+        result: dict,
+        default: grpc.StatusCode = grpc.StatusCode.INTERNAL,
+    ) -> None:
+        """
+        Set the gRPC status from a service result's error code.
+
+        The response carries the service's own stable message; internal detail
+        stays in the server log.
+
+        Args:
+            context: gRPC servicer context
+            result: Service-layer result dictionary
+            default: Status to use when the code is unrecognised
+        """
+        code = result.get("error_code", "")
+        context.set_code(ERROR_CODE_TO_STATUS.get(code, default))
+        context.set_details(result.get("error_message") or code or "Request failed")
 
     async def Login(
         self,
@@ -63,8 +114,7 @@ class TaxInvoiceServicer:
         )
 
         if not result["success"]:
-            context.set_code(grpc.StatusCode.UNAUTHENTICATED)
-            context.set_details(result.get("error_message", "Login failed"))
+            self._apply_error_status(context, result, grpc.StatusCode.UNAUTHENTICATED)
 
         return tax_pb2.LoginResponse(
             success=result["success"],
@@ -86,7 +136,10 @@ class TaxInvoiceServicer:
             session_id=request.session_id[:8] + "..." if request.session_id else "",
         )
 
-        result = await self.service.logout(session_id=request.session_id)
+        result = await self.service.logout(
+            session_id=request.session_id,
+            company_id=request.company_id,
+        )
 
         return tax_pb2.LogoutResponse(
             success=result["success"],
@@ -118,11 +171,11 @@ class TaxInvoiceServicer:
             business_number=request.business_number if request.HasField("business_number") else None,
             page=request.page or 1,
             page_size=request.page_size or 50,
+            company_id=request.company_id,
         )
 
         if not result["success"]:
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(result.get("error_message", "Query failed"))
+            self._apply_error_status(context, result)
 
         # Convert invoices to proto messages
         proto_invoices = [
@@ -159,11 +212,12 @@ class TaxInvoiceServicer:
             invoice_data=invoice_data,
             provider=provider,
             transmit_immediately=request.transmit_immediately,
+            company_id=request.company_id,
+            idempotency_key=request.idempotency_key,
         )
 
         if not result["success"]:
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(result.get("error_message", "Issue failed"))
+            self._apply_error_status(context, result)
 
         return tax_pb2.IssueTaxInvoiceResponse(
             success=result["success"],
@@ -190,11 +244,11 @@ class TaxInvoiceServicer:
             session_id=request.session_id,
             invoice_number=request.invoice_number,
             cancel_reason=request.cancel_reason,
+            company_id=request.company_id,
         )
 
         if not result["success"]:
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(result.get("error_message", "Cancel failed"))
+            self._apply_error_status(context, result)
 
         return tax_pb2.CancelTaxInvoiceResponse(
             success=result["success"],
@@ -217,11 +271,11 @@ class TaxInvoiceServicer:
         result = await self.service.get_invoice_status(
             session_id=request.session_id,
             invoice_number=request.invoice_number,
+            company_id=request.company_id,
         )
 
         if not result["success"]:
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(result.get("error_message", "Status query failed"))
+            self._apply_error_status(context, result)
 
         return tax_pb2.GetTaxInvoiceStatusResponse(
             success=result["success"],
@@ -257,8 +311,7 @@ class TaxInvoiceServicer:
         )
 
         if not result["success"]:
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(result.get("error_message", "Sync failed"))
+            self._apply_error_status(context, result)
 
         return tax_pb2.SyncFromHometaxResponse(
             success=result["success"],
@@ -280,30 +333,40 @@ class TaxInvoiceServicer:
             session_id=request.session_id[:8] + "..." if request.session_id else "",
         )
 
-        # This is a placeholder for streaming notifications
-        # In production, this would connect to a message queue or webhook system
-        while not context.cancelled():
-            await asyncio.sleep(30)  # Poll interval
-            # Check for new notifications and yield them
-            # yield tax_pb2.InvoiceNotification(...)
+        # Not implemented. The previous body looped on a 30-second sleep and
+        # never yielded: every caller waited forever and each connection pinned
+        # a coroutine, with no ceiling on how many.
+        await context.abort(
+            grpc.StatusCode.UNIMPLEMENTED,
+            "StreamInvoiceNotifications is not implemented",
+        )
+        # `abort` raises; the yield below only marks this as an async generator.
+        yield  # pragma: no cover
 
     async def HealthCheck(
         self,
         request: Any,
         context: grpc.aio.ServicerContext,
     ) -> Any:
-        """Handle HealthCheck RPC."""
+        """
+        Handle HealthCheck RPC.
+
+        Reports what is actually true. Returning a hardcoded `healthy=True` with
+        both dependencies pinned to True meant a dead browser or an expired
+        Popbill token still looked healthy, so an orchestrator never restarted
+        the pod.
+        """
         uptime = time.time() - self._start_time
         settings = get_settings()
 
+        services = await self.service.dependency_health()
+        healthy = all(services.values())
+
         return tax_pb2.HealthCheckResponse(
-            healthy=True,
+            healthy=healthy,
             version=settings.service_version,
             uptime=f"{uptime:.2f}s",
-            services={
-                "hometax_scraper": True,
-                "popbill_client": True,
-            },
+            services=services,
         )
 
     def _map_auth_type(self, proto_auth_type: int) -> str:
@@ -439,12 +502,28 @@ async def serve() -> None:
         version=settings.service_version,
     )
 
+    # Fail closed: without the generated stubs this process would bind the port,
+    # serve only a health check, report healthy, and answer every real RPC with
+    # UNIMPLEMENTED. Refuse to start instead.
+    if not PROTO_AVAILABLE:
+        raise RuntimeError(
+            "Generated protobuf modules are missing (src/grpc_gen). Run "
+            "scripts/generate_grpc.sh before starting the service."
+        )
+
+    security = ServerSecurity.from_env(environment=settings.environment)
+
     # Create gRPC server
     server = grpc.aio.server(
         futures.ThreadPoolExecutor(max_workers=settings.grpc_max_workers),
+        interceptors=build_interceptors(security),
         options=[
-            ("grpc.max_send_message_length", 50 * 1024 * 1024),
-            ("grpc.max_receive_message_length", 50 * 1024 * 1024),
+            # Tax invoice payloads are small. A 50MB ceiling on both directions
+            # is a free memory-exhaustion lever for any caller that reaches the
+            # port.
+            ("grpc.max_send_message_length", 8 * 1024 * 1024),
+            ("grpc.max_receive_message_length", 8 * 1024 * 1024),
+            ("grpc.max_concurrent_streams", 64),
             ("grpc.keepalive_time_ms", 30000),
             ("grpc.keepalive_timeout_ms", 5000),
         ],
@@ -453,51 +532,45 @@ async def serve() -> None:
     # Create servicer
     tax_servicer = TaxInvoiceServicer()
 
-    # Register services
-    if PROTO_AVAILABLE:
-        tax_pb2_grpc.add_TaxInvoiceServiceServicer_to_server(tax_servicer, server)
-        log.info("tax_invoice_service_registered")
-
-        # Optionally register PopbillService
-        # popbill_servicer = PopbillServicer()
-        # tax_pb2_grpc.add_PopbillServiceServicer_to_server(popbill_servicer, server)
-    else:
-        log.warning("proto_not_available", message="Run scripts/generate_grpc.sh first")
+    tax_pb2_grpc.add_TaxInvoiceServiceServicer_to_server(tax_servicer, server)
+    log.info("tax_invoice_service_registered")
 
     # Register health check service
     health_servicer = health.HealthServicer()
     health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
     health_servicer.set("", health_pb2.HealthCheckResponse.SERVING)
 
-    if PROTO_AVAILABLE:
-        health_servicer.set(
-            tax_pb2.DESCRIPTOR.services_by_name["TaxInvoiceService"].full_name,
-            health_pb2.HealthCheckResponse.SERVING,
-        )
+    health_servicer.set(
+        tax_pb2.DESCRIPTOR.services_by_name["TaxInvoiceService"].full_name,
+        health_pb2.HealthCheckResponse.SERVING,
+    )
 
     log.info("health_service_registered")
 
-    # Enable reflection for development
-    if settings.grpc_reflection_enabled:
-        service_names = [
-            reflection.SERVICE_NAME,
-            health_pb2.DESCRIPTOR.services_by_name["Health"].full_name,
-        ]
-        if PROTO_AVAILABLE:
-            service_names.append(
-                tax_pb2.DESCRIPTOR.services_by_name["TaxInvoiceService"].full_name
-            )
-        reflection.enable_server_reflection(service_names, server)
+    # Reflection hands out the full service schema; keep it out of production
+    # unless explicitly re-enabled.
+    if reflection_enabled(settings.environment, settings.grpc_reflection_enabled):
+        reflection.enable_server_reflection(
+            [
+                reflection.SERVICE_NAME,
+                health_pb2.DESCRIPTOR.services_by_name["Health"].full_name,
+                tax_pb2.DESCRIPTOR.services_by_name["TaxInvoiceService"].full_name,
+            ],
+            server,
+        )
         log.info("grpc_reflection_enabled")
 
-    # Start server
+    # Start server -- TLS when configured, and never unauthenticated plaintext
+    # in production without an explicit opt-in.
     listen_addr = settings.grpc_address
-    server.add_insecure_port(listen_addr)
+    bind_port(server, listen_addr, security)
 
     log.info(
         "starting_grpc_server",
         address=listen_addr,
         environment=settings.environment,
+        tls=security.tls_enabled,
+        auth=bool(security.auth_token),
     )
     await server.start()
 

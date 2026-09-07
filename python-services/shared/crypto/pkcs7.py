@@ -7,15 +7,35 @@ PKCS#7 is used for:
 
 Required for 4대보험 EDI communication and electronic document signing.
 """
-import hashlib
-from typing import Union, Optional
+from typing import Optional
 from datetime import datetime, timezone
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.serialization import pkcs7
 from cryptography.x509.oid import NameOID
+
+
+class VerificationUnavailableError(RuntimeError):
+    """
+    Raised when a signature cannot be checked at all (no peer certificate).
+
+    Distinct from a verification *failure* so callers cannot conflate "we could
+    not check" with "it checked out".
+    """
+
+
+class PaddingError(ValueError):
+    """
+    Raised for any PKCS#7 unpadding failure.
+
+    Deliberately carries a single, constant message: distinguishing "bad padding
+    length" from "bad padding bytes" hands an attacker a padding oracle.
+    """
+
+    def __init__(self, message: str = "Invalid padding") -> None:
+        super().__init__(message)
 
 
 class PKCS7Padding:
@@ -70,20 +90,29 @@ class PKCS7Padding:
             ValueError: If padding is invalid
         """
         if not data:
-            raise ValueError("Data is empty")
+            raise PaddingError()
 
         if len(data) % self._block_size != 0:
-            raise ValueError("Data length is not a multiple of block size")
+            raise PaddingError()
 
         padding_len = data[-1]
 
-        if padding_len == 0 or padding_len > self._block_size:
-            raise ValueError(f"Invalid padding length: {padding_len}")
+        # Check length and every padding byte without early exit and without
+        # distinguishing the failure mode. A caller-visible difference between
+        # "bad length" and "bad bytes", or an early return on the first
+        # mismatched byte, is a padding oracle: an attacker who can submit
+        # tampered ciphertext (there is no MAC on the wire) recovers plaintext
+        # byte by byte from the difference.
+        valid = 1 if 1 <= padding_len <= self._block_size else 0
+        # Compare a fixed number of trailing bytes regardless of padding_len.
+        for i in range(1, self._block_size + 1):
+            in_padding = 1 if i <= padding_len else 0
+            byte_matches = 1 if (i <= len(data) and data[-i] == padding_len) else 0
+            # Only bytes claimed to be padding must match.
+            valid &= byte_matches | (1 - in_padding)
 
-        # Verify all padding bytes
-        for i in range(1, padding_len + 1):
-            if data[-i] != padding_len:
-                raise ValueError("Invalid padding bytes")
+        if not valid:
+            raise PaddingError()
 
         return data[:-padding_len]
 
@@ -131,6 +160,10 @@ class PKCS7Signature:
         """
         self._private_key = None
         self._certificate = None
+        # Certificate of the counterparty (공단). Separate from `_certificate`,
+        # which is ours: our own certificate must never be used to verify a
+        # signature that is supposed to have come from someone else.
+        self._peer_certificate = None
 
         if private_key_path:
             self._load_private_key(private_key_path, private_key_password)
@@ -260,22 +293,83 @@ class PKCS7Signature:
             hashes.SHA256(),
         )
 
+    def load_peer_certificate(self, path: str) -> None:
+        """
+        Load the counterparty's signing certificate into the trust store.
+
+        Responses must be verified against the *peer's* certificate, not ours.
+        Verifying with `self._certificate` (our own signing certificate) only
+        proves that we could have produced the signature, which is no proof at
+        all about the peer.
+
+        Args:
+            path: Path to the peer certificate (PEM or DER)
+
+        Raises:
+            ValueError: If the certificate cannot be parsed
+        """
+        with open(path, "rb") as f:
+            cert_data = f.read()
+        try:
+            self._peer_certificate = x509.load_pem_x509_certificate(cert_data)
+        except ValueError:
+            self._peer_certificate = x509.load_der_x509_certificate(cert_data)
+
+    def load_peer_certificate_bytes(self, cert_data: bytes) -> None:
+        """
+        Load the counterparty's signing certificate from bytes.
+
+        Args:
+            cert_data: PEM or DER-encoded certificate
+        """
+        try:
+            self._peer_certificate = x509.load_pem_x509_certificate(cert_data)
+        except ValueError:
+            self._peer_certificate = x509.load_der_x509_certificate(cert_data)
+
+    @property
+    def can_verify(self) -> bool:
+        """Whether a peer certificate is available to verify incoming signatures."""
+        return self._peer_certificate is not None
+
+    @property
+    def can_sign(self) -> bool:
+        """Whether a private key is available to produce signatures."""
+        return self._private_key is not None
+
     def verify_raw(self, data: bytes, signature: bytes, public_key=None) -> bool:
         """
-        Verify raw RSA signature.
+        Verify a raw RSA signature against the peer's certificate.
 
         Args:
             data: Original data
             signature: Signature to verify
-            public_key: Public key (uses certificate's key if not provided)
+            public_key: Explicit public key; otherwise the loaded peer certificate
 
         Returns:
-            True if signature is valid
+            True if the signature is valid, False otherwise
+
+        Raises:
+            VerificationUnavailableError: If no peer certificate/public key is
+                configured. This is deliberately not `return False` and not
+                `return True` -- the caller must be able to tell "the peer's
+                signature is wrong" apart from "we are unable to check", and
+                must refuse the message in both cases.
         """
         if public_key is None:
-            if not self._certificate:
-                raise ValueError("Certificate not loaded")
-            public_key = self._certificate.public_key()
+            if self._peer_certificate is None:
+                raise VerificationUnavailableError(
+                    "No peer certificate loaded; cannot verify the counterparty's "
+                    "signature. Configure the issuing agency's certificate via "
+                    "load_peer_certificate(). Verifying against our own signing "
+                    "certificate would prove nothing."
+                )
+            if not self._is_certificate_currently_valid(self._peer_certificate):
+                raise VerificationUnavailableError(
+                    "Peer certificate is outside its validity period; refusing to "
+                    "verify against it."
+                )
+            public_key = self._peer_certificate.public_key()
 
         try:
             public_key.verify(
@@ -287,6 +381,14 @@ class PKCS7Signature:
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def _is_certificate_currently_valid(certificate) -> bool:
+        """Check a certificate's validity window against the current UTC time."""
+        now = datetime.now(timezone.utc)
+        return (
+            certificate.not_valid_before_utc <= now <= certificate.not_valid_after_utc
+        )
 
     @property
     def certificate_info(self) -> dict:
@@ -373,8 +475,8 @@ def generate_test_keypair() -> tuple[bytes, bytes]:
         .issuer_name(issuer)
         .public_key(private_key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.utcnow())
-        .not_valid_after(datetime.utcnow() + timedelta(days=365))
+        .not_valid_before(datetime.now(timezone.utc))
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=365))
         .sign(private_key, hashes.SHA256())
     )
 

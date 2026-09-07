@@ -7,23 +7,37 @@ management, integrating with the National Tax Service (NTS).
 API Documentation: https://developers.popbill.com
 """
 
+import asyncio
 import base64
 import hashlib
 import hmac
-import json
 import time
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 import httpx
 import structlog
 
 logger = structlog.get_logger()
+
+
+def _quote_segment(value: str) -> str:
+    """
+    Percent-encode a value for use as a single URL path segment.
+
+    Interpolating a raw 사업자등록번호 or 세금계산서 번호 into the path let a value
+    containing "/" or ".." address a different Popbill endpoint than intended.
+
+    Args:
+        value: Raw path segment value
+
+    Returns:
+        The value with every reserved character encoded
+    """
+    return quote(str(value), safe="")
 
 
 class PopbillError(Exception):
@@ -189,8 +203,14 @@ class PopbillClient:
         """
         self.config = config
         self.log = logger.bind(component="PopbillClient")
-        self._access_token: Optional[str] = None
-        self._token_expires_at: Optional[datetime] = None
+        # Token cache keyed by 사업자등록번호. A single shared token was reused
+        # for every tenant: whichever company authenticated first supplied the
+        # credential attached to every later request.
+        self._tokens: dict[str, tuple[str, datetime]] = {}
+        # One lock per tenant, so a token refresh does not stampede and does not
+        # block other tenants.
+        self._token_locks: dict[str, asyncio.Lock] = {}
+        self._closed = False
         self._client = httpx.AsyncClient(
             timeout=config.timeout,
             headers={
@@ -199,8 +219,14 @@ class PopbillClient:
             },
         )
 
+    @property
+    def is_closed(self) -> bool:
+        """Whether this client has been closed."""
+        return self._closed
+
     async def close(self) -> None:
         """Close the HTTP client."""
+        self._closed = True
         await self._client.aclose()
 
     async def _get_access_token(self, corp_num: str) -> str:
@@ -212,19 +238,36 @@ class PopbillClient:
         Returns:
             Access token string
         """
-        # Check if existing token is still valid
-        if (
-            self._access_token
-            and self._token_expires_at
-            and datetime.now() < self._token_expires_at - timedelta(minutes=5)
-        ):
-            return self._access_token
+        cached = self._tokens.get(corp_num)
+        if cached and datetime.now() < cached[1] - timedelta(minutes=5):
+            return cached[0]
 
-        # Request new token
+        lock = self._token_locks.setdefault(corp_num, asyncio.Lock())
+        async with lock:
+            # Re-check inside the lock: concurrent callers would otherwise each
+            # issue their own token request (thundering herd).
+            cached = self._tokens.get(corp_num)
+            if cached and datetime.now() < cached[1] - timedelta(minutes=5):
+                return cached[0]
+
+            return await self._request_access_token(corp_num)
+
+    async def _request_access_token(self, corp_num: str) -> str:
+        """
+        Request a fresh access token for one 사업자등록번호.
+
+        Args:
+            corp_num: Business registration number the token is scoped to
+
+        Returns:
+            Access token string
+
+        Raises:
+            PopbillError: If the token request fails
+        """
         self.log.info("requesting_access_token", corp_num=corp_num[:6] + "****")
 
         timestamp = str(int(time.time()))
-        service_id = "POPBILL"
 
         # Create signature
         sig_target = f"{self.config.link_id}\n{timestamp}\n"
@@ -245,21 +288,44 @@ class PopbillClient:
         url = f"{self.config.base_url}/POPBILL/Token"
         payload = {
             "access_id": self.config.link_id,
+            # The token must be scoped to the requesting 사업자등록번호. Omitting
+            # it produced one token that was then reused across tenants.
+            "CorpNum": corp_num,
             "scope": ["111"],  # Tax invoice scope
         }
 
         response = await self._client.post(url, headers=headers, json=payload)
 
         if response.status_code != 200:
-            raise PopbillError("TOKEN_ERROR", f"Failed to get access token: {response.text}")
+            # The upstream response body has carried internal detail; log it,
+            # do not put it in the exception that travels to the client.
+            self.log.error(
+                "token_request_failed",
+                status_code=response.status_code,
+                body=response.text[:500],
+            )
+            raise PopbillError(
+                "TOKEN_ERROR",
+                f"Failed to get access token (HTTP {response.status_code})",
+            )
 
-        data = response.json()
-        self._access_token = data.get("access_token")
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise PopbillError("TOKEN_ERROR", "Token response was not JSON") from exc
+
+        token = data.get("access_token")
+        if not token:
+            raise PopbillError("TOKEN_ERROR", "Token response carried no access_token")
+
         expires_in = data.get("expires_in", 3600)
-        self._token_expires_at = datetime.now() + timedelta(seconds=expires_in)
+        self._tokens[corp_num] = (
+            token,
+            datetime.now() + timedelta(seconds=expires_in),
+        )
 
         self.log.info("access_token_obtained", expires_in=expires_in)
-        return self._access_token
+        return token
 
     async def _request(
         self,
@@ -302,12 +368,24 @@ class PopbillClient:
                     raise ValueError(f"Unsupported HTTP method: {method}")
 
                 if response.status_code == 200:
-                    return response.json()
+                    try:
+                        return response.json()
+                    except ValueError as exc:
+                        raise PopbillError(
+                            "INVALID_RESPONSE",
+                            "Upstream returned a non-JSON success response",
+                        ) from exc
 
-                # Handle API errors
-                error_data = response.json()
-                error_code = str(error_data.get("code", "UNKNOWN"))
-                error_msg = error_data.get("message", "Unknown error")
+                # Handle API errors. An upstream HTML error page is not JSON,
+                # and the resulting JSONDecodeError is not an httpx.RequestError,
+                # so it used to escape this handler entirely.
+                try:
+                    error_data = response.json()
+                    error_code = str(error_data.get("code", "UNKNOWN"))
+                    error_msg = error_data.get("message", "Unknown error")
+                except ValueError:
+                    error_code = f"HTTP_{response.status_code}"
+                    error_msg = f"Upstream error (HTTP {response.status_code})"
 
                 self.log.warning(
                     "api_error",
@@ -321,6 +399,12 @@ class PopbillClient:
                 if 400 <= response.status_code < 500:
                     raise PopbillError(error_code, error_msg)
 
+                # 5xx: back off before the next attempt. Without this the loop
+                # fired all three attempts back to back with no delay.
+                if attempt == self.config.retry_count - 1:
+                    raise PopbillError(error_code, error_msg)
+                await self._sleep_for_retry()
+
             except httpx.RequestError as e:
                 self.log.warning(
                     "request_error",
@@ -329,7 +413,11 @@ class PopbillClient:
                     error=str(e),
                 )
                 if attempt == self.config.retry_count - 1:
-                    raise PopbillError("REQUEST_ERROR", f"Request failed: {str(e)}")
+                    # The transport error text can carry internal hostnames and
+                    # proxy detail; it is already in the log line above.
+                    raise PopbillError(
+                        "REQUEST_ERROR", "Popbill 요청이 실패했습니다"
+                    ) from e
 
                 await self._sleep_for_retry()
 
@@ -337,8 +425,6 @@ class PopbillClient:
 
     async def _sleep_for_retry(self) -> None:
         """Sleep before retry."""
-        import asyncio
-
         await asyncio.sleep(self.config.retry_delay)
 
     async def issue_tax_invoice(
@@ -369,7 +455,7 @@ class PopbillClient:
             amount=invoice.total_amount,
         )
 
-        endpoint = f"/Taxinvoice/{corp_num}"
+        endpoint = f"/Taxinvoice/{_quote_segment(corp_num)}"
         payload = {
             **invoice.to_dict(),
             "memo": memo,
@@ -429,7 +515,7 @@ class PopbillClient:
             invoice_number=invoice_number,
         )
 
-        endpoint = f"/Taxinvoice/{corp_num}/{invoice_number}"
+        endpoint = f"/Taxinvoice/{_quote_segment(corp_num)}/{_quote_segment(invoice_number)}"
 
         try:
             response = await self._request("GET", endpoint, corp_num, user_id=user_id)
@@ -464,7 +550,7 @@ class PopbillClient:
             invoice_number=invoice_number,
         )
 
-        endpoint = f"/Taxinvoice/{corp_num}/{invoice_number}/Cancel"
+        endpoint = f"/Taxinvoice/{_quote_segment(corp_num)}/{_quote_segment(invoice_number)}/Cancel"
         payload = {"memo": cancel_reason}
 
         try:
@@ -493,7 +579,7 @@ class PopbillClient:
         """
         self.log.info("checking_balance", corp_num=corp_num[:6] + "****")
 
-        endpoint = f"/Taxinvoice/{corp_num}/Balance"
+        endpoint = f"/Taxinvoice/{_quote_segment(corp_num)}/Balance"
 
         try:
             response = await self._request("GET", endpoint, corp_num)
@@ -538,7 +624,7 @@ class PopbillClient:
             date_range=f"{start_date}-{end_date}",
         )
 
-        endpoint = f"/Taxinvoice/{corp_num}/Search"
+        endpoint = f"/Taxinvoice/{_quote_segment(corp_num)}/Search"
         params = {
             "DType": "W",  # Search by write date
             "SDate": start_date,
@@ -583,7 +669,7 @@ class PopbillClient:
             callback_url=callback_url,
         )
 
-        endpoint = f"/Taxinvoice/{corp_num}/Webhook"
+        endpoint = f"/Taxinvoice/{_quote_segment(corp_num)}/Webhook"
         payload = {
             "callbackURL": callback_url,
         }
@@ -620,7 +706,7 @@ class PopbillClient:
             invoice_number=invoice_number,
         )
 
-        endpoint = f"/Taxinvoice/{corp_num}/{invoice_number}/Request"
+        endpoint = f"/Taxinvoice/{_quote_segment(corp_num)}/{_quote_segment(invoice_number)}/Request"
 
         try:
             await self._request("POST", endpoint, corp_num, user_id=user_id)

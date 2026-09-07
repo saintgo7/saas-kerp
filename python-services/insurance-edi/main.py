@@ -5,13 +5,30 @@ import asyncio
 import signal
 import sys
 from concurrent import futures
+from pathlib import Path
 
 import grpc
 import structlog
+from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 
 from config import settings
 
-# Configure structured logging
+# Make `python-services/` importable for the shared modules.
+_PYTHON_SERVICES_ROOT = str(Path(__file__).resolve().parents[1])
+if _PYTHON_SERVICES_ROOT not in sys.path:
+    sys.path.append(_PYTHON_SERVICES_ROOT)
+
+from shared.grpc_security import (  # noqa: E402
+    ServerSecurity,
+    bind_port,
+    build_interceptors,
+    reflection_enabled,
+)
+from shared.utils.validators import scrub_log_processor  # noqa: E402
+
+# Configure structured logging.
+# `scrub_log_processor` runs before the renderer so a stray `data=` keyword
+# cannot put a 주민등록번호 into the log stream, whatever a call site does.
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
@@ -22,6 +39,7 @@ structlog.configure(
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
+        scrub_log_processor,
         structlog.processors.JSONRenderer()
         if settings.log_format == "json"
         else structlog.dev.ConsoleRenderer(),
@@ -40,27 +58,78 @@ class InsuranceEDIServer:
 
     def __init__(self):
         self.server = None
+        self._servicer = None
         self._shutdown_event = asyncio.Event()
 
     async def start(self):
-        """Start the gRPC server."""
+        """
+        Start the gRPC server.
+
+        Raises:
+            RuntimeError: If the InsuranceService cannot be registered, or the
+                transport configuration is unsafe for this environment
+        """
+        security = ServerSecurity.from_env(environment=settings.environment)
+
         self.server = grpc.aio.server(
             futures.ThreadPoolExecutor(max_workers=settings.grpc_max_workers),
+            interceptors=build_interceptors(security),
             options=[
-                ("grpc.max_send_message_length", 50 * 1024 * 1024),
-                ("grpc.max_receive_message_length", 50 * 1024 * 1024),
+                # 4대보험 전문 are small; a 50MB ceiling is a free denial-of-service
+                # amplifier. Batch submissions stay comfortably under 4MB.
+                ("grpc.max_send_message_length", 4 * 1024 * 1024),
+                ("grpc.max_receive_message_length", 4 * 1024 * 1024),
+                ("grpc.max_concurrent_streams", 64),
+                ("grpc.keepalive_time_ms", 30000),
+                ("grpc.keepalive_timeout_ms", 5000),
             ],
         )
 
-        # Register services (will be added after proto generation)
-        # from generated import insurance_pb2_grpc
-        # from services.insurance_service import InsuranceServicer
-        # insurance_pb2_grpc.add_InsuranceServiceServicer_to_server(
-        #     InsuranceServicer(), self.server
-        # )
+        # Register the actual service. Previously this block was commented out:
+        # the process opened :50052, logged "gRPC server started", passed its
+        # Docker health check, and answered every RPC with UNIMPLEMENTED.
+        try:
+            from generated import insurance_pb2, insurance_pb2_grpc
+            from services.insurance_service import InsuranceServicer
+        except ImportError as exc:
+            # Fail closed: a server that cannot serve must not report healthy.
+            raise RuntimeError(
+                "InsuranceService could not be registered -- generated protobuf "
+                "modules are missing. Run the proto generation step before "
+                f"starting the service. ({exc})"
+            ) from exc
+
+        self._servicer = InsuranceServicer()
+        insurance_pb2_grpc.add_InsuranceServiceServicer_to_server(
+            self._servicer, self.server
+        )
+        logger.info("insurance_service_registered")
+
+        # Health service reflects real registration, so an orchestrator probing
+        # grpc.health.v1 learns whether the service is actually serving.
+        health_servicer = health.HealthServicer()
+        health_pb2_grpc.add_HealthServicer_to_server(health_servicer, self.server)
+        health_servicer.set("", health_pb2.HealthCheckResponse.SERVING)
+        health_servicer.set(
+            insurance_pb2.DESCRIPTOR.services_by_name["InsuranceService"].full_name,
+            health_pb2.HealthCheckResponse.SERVING,
+        )
+
+        if reflection_enabled(settings.environment, configured=True):
+            from grpc_reflection.v1alpha import reflection
+
+            reflection.enable_server_reflection(
+                [
+                    reflection.SERVICE_NAME,
+                    health_pb2.DESCRIPTOR.services_by_name["Health"].full_name,
+                    insurance_pb2.DESCRIPTOR.services_by_name["InsuranceService"].full_name,
+                ],
+                self.server,
+            )
+            logger.info("grpc_reflection_enabled")
 
         listen_addr = f"{settings.grpc_host}:{settings.grpc_port}"
-        self.server.add_insecure_port(listen_addr)
+        bind_port(self.server, listen_addr, security)
 
         await self.server.start()
         logger.info(
@@ -68,6 +137,8 @@ class InsuranceEDIServer:
             address=listen_addr,
             service=settings.service_name,
             version=settings.service_version,
+            tls=security.tls_enabled,
+            auth=bool(security.auth_token),
         )
 
     async def stop(self):

@@ -116,6 +116,10 @@ message LoginResponse {
 // Logout request message
 message LogoutRequest {
   string session_id = 1;
+  // Tenant that owns the session. Required: without it the server can only
+  // match a session by id, so one company holding another company's
+  // session id could operate on their 세금계산서.
+  string company_id = 2;
 }
 
 // Logout response message
@@ -135,6 +139,10 @@ message GetTaxInvoicesRequest {
   optional int64 max_amount = 7;
   int32 page = 8;
   int32 page_size = 9;
+  // Tenant that owns the session. Required: without it the server can only
+  // match a session by id, so one company holding another company's
+  // session id could operate on their 세금계산서.
+  string company_id = 10;
 }
 
 // Get tax invoices response
@@ -209,6 +217,13 @@ message IssueTaxInvoiceRequest {
   TaxInvoice invoice = 2;
   bool transmit_immediately = 3;
   ProviderType provider = 4;
+  // Tenant that owns the session. Required: without it the server can only
+  // match a session by id, so one company holding another company's
+  // session id could operate on their 세금계산서.
+  string company_id = 5;
+  // Caller-supplied idempotency key. Reuse it when retrying so a retry
+  // cannot produce a second 세금계산서.
+  string idempotency_key = 6;
 }
 
 // Issue tax invoice response
@@ -226,6 +241,10 @@ message CancelTaxInvoiceRequest {
   string session_id = 1;
   string invoice_number = 2;
   string cancel_reason = 3;
+  // Tenant that owns the session. Required: without it the server can only
+  // match a session by id, so one company holding another company's
+  // session id could operate on their 세금계산서.
+  string company_id = 4;
 }
 
 // Cancel tax invoice response
@@ -239,6 +258,10 @@ message CancelTaxInvoiceResponse {
 message GetTaxInvoiceStatusRequest {
   string session_id = 1;
   string invoice_number = 2;
+  // Tenant that owns the session. Required: without it the server can only
+  // match a session by id, so one company holding another company's
+  // session id could operate on their 세금계산서.
+  string company_id = 3;
 }
 
 // Get tax invoice status response

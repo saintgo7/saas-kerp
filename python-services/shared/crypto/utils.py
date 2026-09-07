@@ -5,6 +5,7 @@ Common utilities for key generation, derivation, and encoding.
 """
 import secrets
 import hashlib
+import hmac
 import base64
 from typing import Optional
 
@@ -20,6 +21,102 @@ def generate_key(size: int = 16) -> bytes:
         Random bytes suitable for use as encryption key
     """
     return secrets.token_bytes(size)
+
+
+class WeakKeyError(ValueError):
+    """Raised when a configured key is missing, malformed, or trivially weak."""
+
+
+# Placeholder values that have appeared in example env files / docs and must
+# never be accepted as a real key.
+_PLACEHOLDER_KEYS = frozenset(
+    {
+        "changeme",
+        "change-me",
+        "placeholder",
+        "your-key-here",
+        "test",
+        "testkey",
+        "secret",
+        "example",
+    }
+)
+
+
+def load_symmetric_key(
+    key_hex: Optional[str],
+    *,
+    name: str,
+    allowed_sizes: tuple[int, ...] = (16, 24, 32),
+) -> bytes:
+    """
+    Parse and validate a hex-encoded symmetric key, failing closed.
+
+    This is the counterpart of the Go-side JWT secret hardening: a missing or
+    obviously weak key must stop the process rather than silently degrade to a
+    known constant (e.g. an all-zero key).
+
+    Args:
+        key_hex: Hex-encoded key material from configuration
+        name: Setting name, used in the error message (e.g. "ARIA_ENCRYPTION_KEY")
+        allowed_sizes: Acceptable key lengths in bytes
+
+    Returns:
+        Decoded key bytes
+
+    Raises:
+        WeakKeyError: If the key is absent, malformed, the wrong size, or weak
+    """
+    if key_hex is None or not key_hex.strip():
+        raise WeakKeyError(
+            f"{name} is not set. Refusing to start: a missing key would "
+            f"otherwise fall back to a publicly known constant. "
+            f"Generate one with: python -c "
+            f"\"import secrets; print(secrets.token_bytes(16).hex())\""
+        )
+
+    candidate = key_hex.strip()
+
+    if candidate.lower() in _PLACEHOLDER_KEYS:
+        raise WeakKeyError(f"{name} is set to a placeholder value. Set a real key.")
+
+    try:
+        key = bytes.fromhex(candidate)
+    except ValueError as exc:
+        raise WeakKeyError(f"{name} must be hex-encoded: {exc}") from None
+
+    if len(key) not in allowed_sizes:
+        sizes = "/".join(str(s * 8) for s in allowed_sizes)
+        raise WeakKeyError(
+            f"{name} must decode to {sizes} bits, got {len(key) * 8} bits"
+        )
+
+    assert_strong_key(key, name=name)
+    return key
+
+
+def assert_strong_key(key: bytes, *, name: str) -> None:
+    """
+    Reject trivially weak key material.
+
+    Catches the specific failure modes seen in this codebase: all-zero keys used
+    as a "development placeholder", and single-byte repeats.
+
+    Args:
+        key: Key bytes to check
+        name: Setting name, used in the error message
+
+    Raises:
+        WeakKeyError: If the key is all-zero or a single repeated byte
+    """
+    if not key:
+        raise WeakKeyError(f"{name} is empty")
+
+    if len(set(key)) == 1:
+        raise WeakKeyError(
+            f"{name} is a single repeated byte (0x{key[0]:02x}) and provides no "
+            f"confidentiality. Use a random key."
+        )
 
 
 def derive_key(
@@ -150,32 +247,50 @@ class KeyDerivation:
         shared_secret: bytes,
         info: bytes = b"",
         length: int = 16,
+        salt: Optional[bytes] = None,
     ) -> bytes:
         """
-        Derive key from shared secret using HKDF-like construction.
+        Derive key from shared secret using HKDF-SHA256 (RFC 5869).
 
         Args:
-            shared_secret: Shared secret bytes
+            shared_secret: Shared secret bytes (IKM)
             info: Context/application-specific info
-            length: Desired output length
+            length: Desired output length in bytes
+            salt: Optional salt; RFC 5869 uses HashLen zero bytes when absent
 
         Returns:
-            Derived key
-        """
-        # Simple HKDF-Extract
-        prk = hashlib.sha256(shared_secret).digest()
+            Derived key of `length` bytes
 
-        # HKDF-Expand (simplified)
+        Raises:
+            ValueError: If inputs are empty or `length` is out of range
+        """
+        if not shared_secret:
+            raise ValueError("shared_secret must not be empty")
+
+        hash_len = hashlib.sha256().digest_size
+
+        if length <= 0:
+            raise ValueError("length must be positive")
+        # RFC 5869 section 2.3: L <= 255 * HashLen
+        if length > 255 * hash_len:
+            raise ValueError(f"length must not exceed {255 * hash_len} bytes")
+
+        # HKDF-Extract: PRK = HMAC-Hash(salt, IKM)
+        if salt is None:
+            salt = bytes(hash_len)
+        prk = hmac.new(salt, shared_secret, hashlib.sha256).digest()
+
+        # HKDF-Expand: T(n) = HMAC-Hash(PRK, T(n-1) | info | n)
         t = b""
-        okm = b""
+        okm = bytearray()
         counter = 1
 
         while len(okm) < length:
-            t = hashlib.sha256(t + info + bytes([counter])).digest()
-            okm += t
+            t = hmac.new(prk, t + info + bytes([counter]), hashlib.sha256).digest()
+            okm.extend(t)
             counter += 1
 
-        return okm[:length]
+        return bytes(okm[:length])
 
 
 class MessageAuthentication:
@@ -195,7 +310,6 @@ class MessageAuthentication:
         Returns:
             HMAC value
         """
-        import hmac
         return hmac.new(key, message, hashlib.sha256).digest()
 
     @staticmethod

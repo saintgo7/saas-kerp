@@ -8,8 +8,8 @@ ARIA is a Korean national standard block cipher (KS X 1213:2004).
 
 Used for 4대보험 EDI communication encryption.
 """
-from typing import Union
-import struct
+import secrets
+from typing import Optional, Union
 
 
 class ARIACipher:
@@ -376,42 +376,80 @@ class ARIACipher:
 
 
 class ARIAModeCBC:
-    """ARIA cipher in CBC mode."""
+    """
+    ARIA cipher in CBC mode.
 
-    def __init__(self, key: Union[bytes, str], iv: bytes = None):
+    The IV is a required constructor argument: there is no safe default. An
+    all-zero IV, or an IV reused across messages, leaks whether two plaintexts
+    share a prefix -- which is exactly the case for 4대보험 EDI bodies, whose
+    leading fields are a fixed format.
+
+    For transmitting messages prefer `seal()` / `unseal()`, which pick a fresh
+    random IV per message and carry it alongside the ciphertext. Use
+    `encrypt()` / `decrypt()` only when the IV is negotiated out of band.
+    """
+
+    IV_SIZE = 16
+
+    def __init__(self, key: Union[bytes, str], iv: bytes):
         """
         Initialize ARIA-CBC cipher.
 
         Args:
             key: Encryption key
-            iv: Initialization vector (16 bytes), generated if not provided
+            iv: Initialization vector (exactly 16 bytes). Required.
+
+        Raises:
+            ValueError: If the IV is missing or not 16 bytes
         """
         self._cipher = ARIACipher(key)
-        self._iv = iv or bytes(16)
 
-        if len(self._iv) != 16:
+        if iv is None:
+            raise ValueError(
+                "IV is required for ARIA-CBC. Generate one per message with "
+                "secrets.token_bytes(16), or use ARIAModeCBC.seal()."
+            )
+        if len(iv) != self.IV_SIZE:
             raise ValueError("IV must be 16 bytes")
+
+        self._iv = bytes(iv)
+
+    @classmethod
+    def with_random_iv(cls, key: Union[bytes, str]) -> "ARIAModeCBC":
+        """
+        Create a cipher with a fresh cryptographically random IV.
+
+        Args:
+            key: Encryption key
+
+        Returns:
+            ARIAModeCBC instance whose `iv` property holds the generated IV
+        """
+        return cls(key, secrets.token_bytes(cls.IV_SIZE))
 
     @property
     def iv(self) -> bytes:
         """Return the initialization vector."""
         return self._iv
 
-    def encrypt(self, plaintext: bytes) -> bytes:
+    def encrypt(self, plaintext: bytes, iv: Optional[bytes] = None) -> bytes:
         """
         Encrypt data using CBC mode.
 
         Args:
             plaintext: Data to encrypt (must be multiple of 16 bytes)
+            iv: Override IV for this call; defaults to the instance IV
 
         Returns:
-            Encrypted ciphertext
+            Encrypted ciphertext (without the IV)
         """
         if len(plaintext) % 16 != 0:
             raise ValueError("Plaintext length must be multiple of 16 bytes")
 
+        block_iv = self._resolve_iv(iv)
+
         ciphertext = bytearray()
-        prev_block = self._iv
+        prev_block = block_iv
 
         for i in range(0, len(plaintext), 16):
             block = plaintext[i:i + 16]
@@ -422,21 +460,24 @@ class ARIAModeCBC:
 
         return bytes(ciphertext)
 
-    def decrypt(self, ciphertext: bytes) -> bytes:
+    def decrypt(self, ciphertext: bytes, iv: Optional[bytes] = None) -> bytes:
         """
         Decrypt data using CBC mode.
 
         Args:
             ciphertext: Data to decrypt (must be multiple of 16 bytes)
+            iv: Override IV for this call; defaults to the instance IV
 
         Returns:
-            Decrypted plaintext
+            Decrypted plaintext (padding not removed)
         """
         if len(ciphertext) % 16 != 0:
             raise ValueError("Ciphertext length must be multiple of 16 bytes")
 
+        block_iv = self._resolve_iv(iv)
+
         plaintext = bytearray()
-        prev_block = self._iv
+        prev_block = block_iv
 
         for i in range(0, len(ciphertext), 16):
             block = ciphertext[i:i + 16]
@@ -446,3 +487,50 @@ class ARIAModeCBC:
             prev_block = block
 
         return bytes(plaintext)
+
+    def seal(self, plaintext: bytes) -> bytes:
+        """
+        Encrypt with a fresh random IV, prepending the IV to the ciphertext.
+
+        This is the form that must go on the wire: the receiver cannot decrypt
+        without the IV, and reusing one IV across messages leaks plaintext
+        structure.
+
+        Args:
+            plaintext: Data to encrypt (must be multiple of 16 bytes -- pad first)
+
+        Returns:
+            iv (16 bytes) + ciphertext
+        """
+        message_iv = secrets.token_bytes(self.IV_SIZE)
+        return message_iv + self.encrypt(plaintext, iv=message_iv)
+
+    def unseal(self, data: bytes) -> bytes:
+        """
+        Decrypt a message produced by `seal()`.
+
+        Args:
+            data: iv (16 bytes) + ciphertext
+
+        Returns:
+            Decrypted plaintext (padding not removed)
+
+        Raises:
+            ValueError: If the message is too short to carry an IV
+        """
+        if len(data) < self.IV_SIZE + 16:
+            raise ValueError(
+                f"Sealed message must be at least {self.IV_SIZE + 16} bytes "
+                f"(IV + one block), got {len(data)}"
+            )
+
+        message_iv = data[:self.IV_SIZE]
+        return self.decrypt(data[self.IV_SIZE:], iv=message_iv)
+
+    def _resolve_iv(self, iv: Optional[bytes]) -> bytes:
+        """Validate a per-call IV override, falling back to the instance IV."""
+        if iv is None:
+            return self._iv
+        if len(iv) != self.IV_SIZE:
+            raise ValueError("IV must be 16 bytes")
+        return bytes(iv)
