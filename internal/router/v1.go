@@ -97,4 +97,14 @@ func registerTenantRoutes(tenant *gin.RouterGroup, h *handler.Handlers) {
 	// create/update/delete and RequireApprover on issue, transmit, cancel and
 	// sync.
 	h.TaxInvoice.RegisterRoutes(tenant)
+
+	// HR: employees, positions, departments, leave.
+	RegisterHRRoutes(tenant, h.HR)
+
+	// Payroll and 4대보험. Reads are RequireWriter here, unlike the rest of the
+	// API, because they expose salary figures.
+	RegisterPayrollRoutes(tenant, h.Payroll)
+
+	// Inventory: products, stock and purchase/sales orders.
+	RegisterInventoryRoutes(tenant, NewInventoryHandlers(h.Product, h.Stock, h.Order))
 }

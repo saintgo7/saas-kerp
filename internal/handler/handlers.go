@@ -28,6 +28,20 @@ type Handlers struct {
 	// fail-closed: nothing is recorded as transmitted unless the scraper
 	// returns success with a 승인번호.
 	TaxInvoice *TaxInvoiceHandler
+
+	// HR groups employees, positions, departments and leave. Payroll is kept
+	// separate because its routes sit at a different permission level.
+	HR *HRHandlers
+
+	// Payroll covers 급여 and 4대보험. Reads are RequireWriter, not merely
+	// authenticated: salary figures are personnel data.
+	Payroll *PayrollHandlers
+
+	// Inventory handlers are held individually; router.NewInventoryHandlers
+	// assembles them, so this package does not depend on the router.
+	Product *ProductHandler
+	Stock   *StockHandler
+	Order   *OrderHandler
 }
 
 // envDevelopment is the only environment in which handlers may return
@@ -46,6 +60,9 @@ func NewHandlers(db *gorm.DB, redis *redis.Client, logger *zap.Logger, jwtServic
 	companyRepo := repository.NewCompanyRepository(db)
 	projectRepo := repository.NewProjectRepository(db)
 	taxInvoiceRepo := repository.NewTaxInvoiceRepositoryGorm(db)
+	productRepo := repository.NewProductRepositoryGorm(db)
+	stockRepo := repository.NewStockRepositoryGorm(db)
+	orderRepo := repository.NewOrderRepositoryGorm(db)
 
 	// Initialize services
 	partnerService := service.NewPartnerService(partnerRepo)
@@ -58,6 +75,9 @@ func NewHandlers(db *gorm.DB, redis *redis.Client, logger *zap.Logger, jwtServic
 	projectService := service.NewProjectService(projectRepo)
 	taxInvoiceClient := grpcclient.NewTaxInvoiceClient(grpcclient.NewManager(grpcclient.ConfigFromEnv(env)))
 	taxInvoiceService := service.NewTaxInvoiceService(taxInvoiceRepo, taxInvoiceClient)
+	productService := service.NewProductService(productRepo)
+	stockService := service.NewStockService(stockRepo, productRepo)
+	orderService := service.NewOrderService(orderRepo, stockRepo, productRepo)
 
 	return &Handlers{
 		Health:     NewHealthHandler(db, redis, logger, version),
@@ -71,5 +91,10 @@ func NewHandlers(db *gorm.DB, redis *redis.Client, logger *zap.Logger, jwtServic
 		Company:    NewCompanyHandler(companyService),
 		Project:    NewProjectHandler(projectService),
 		TaxInvoice: NewTaxInvoiceHandler(taxInvoiceService),
+		HR:         NewHRHandlers(db, logger),
+		Payroll:    NewPayrollHandlers(db),
+		Product:    NewProductHandler(productService),
+		Stock:      NewStockHandler(stockService),
+		Order:      NewOrderHandler(orderService),
 	}
 }
