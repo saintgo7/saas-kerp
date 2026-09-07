@@ -46,11 +46,17 @@ http:
         excludedContentTypes:
           - text/event-stream
 
-    # Strip API prefix
-    strip-api-prefix:
-      stripPrefix:
-        prefixes:
-          - "/api"
+    # NOTE: there is deliberately no stripPrefix middleware here.
+    #
+    # The Go router registers its routes under /api/v1 (router.go:
+    # engine.Group("/api") -> Group("/v1")), and the frontend is built with
+    # VITE_API_URL=/api/v1. Every hop must therefore PRESERVE the /api prefix.
+    #
+    # A `strip-api-prefix` middleware used to be defined here. It was attached
+    # to no router, but its presence invited exactly the mistake the deleted
+    # nginx.conf made - `proxy_pass http://api_backend/` with a trailing slash,
+    # which strips /api and turns every API call into a 404. Removed so the two
+    # proxies cannot drift apart again.
 
     # Add CORS headers
     cors-headers:
@@ -66,27 +72,36 @@ http:
           - Authorization
           - X-Requested-With
         accessControlAllowOriginList:
+          # Production origin only. A plaintext localhost origin has no place
+          # in the staging/production stack; use docker-compose.dev.yml locally.
           - "https://erp.abada.kr"
-          - "http://localhost:3000"
         accessControlMaxAge: 86400
         addVaryHeader: true
 
-    # Basic Auth for Dashboard
+    # Basic Auth for Dashboard / Prometheus
+    # Credentials are NOT stored in this file. Traefik reads them from a
+    # htpasswd file mounted at /etc/traefik/secrets, generated at deploy time
+    # from the TRAEFIK_DASHBOARD_AUTH secret (scripts/gen-traefik-auth.sh).
+    # If the file is absent this middleware fails and the route stays closed,
+    # which is the intended behaviour.
     dashboard-auth:
       basicAuth:
-        users:
-          # admin:admin (change in production!)
-          # Generate with: htpasswd -nb admin password
-          - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+        usersFile: "/etc/traefik/secrets/dashboard-users.htpasswd"
+        realm: "K-ERP internal"
 
-    # IP Whitelist for internal services
+    # IP allow-list for internal services.
+    # `depth: 0` means the whitelist is evaluated against the real remote
+    # address and NOT against a client-supplied X-Forwarded-For header.
+    # Raise depth only if a trusted proxy is placed in front of Traefik.
     internal-only:
-      ipWhiteList:
+      ipAllowList:
         sourceRange:
           - "127.0.0.1/32"
           - "10.0.0.0/8"
           - "172.16.0.0/12"
           - "192.168.0.0/16"
+        ipStrategy:
+          depth: 0
 
     # Retry on failure
     retry:

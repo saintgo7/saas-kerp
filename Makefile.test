@@ -1,0 +1,352 @@
+# Test Automation Makefile
+# K-ERP SaaS Platform - Test Commands
+
+.PHONY: test test-unit test-integration test-api test-e2e test-performance
+.PHONY: test-python test-frontend test-all test-quick test-full test-nightly
+.PHONY: test-coverage test-report test-clean test-setup test-docker
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+PROJECT_NAME := k-erp
+GO_TEST_FLAGS := -v -race
+GO_COVERAGE_FLAGS := -coverprofile=coverage/go.out -covermode=atomic
+PARALLEL_WORKERS := 4
+
+# Directories
+TEST_RESULTS_DIR := test-results
+COVERAGE_DIR := coverage
+SCRIPTS_DIR := scripts
+
+# Docker
+DOCKER_COMPOSE_TEST := docker-compose -f docker-compose.test.yml
+
+# ============================================================================
+# Quick Commands
+# ============================================================================
+
+## Run unit tests (default)
+test: test-unit
+
+## Run all tests with standard configuration
+test-all:
+	@$(SCRIPTS_DIR)/test-orchestrator.sh -m standard all
+
+## Run tests in quick mode (no coverage, max parallelism)
+test-quick:
+	@$(SCRIPTS_DIR)/test-orchestrator.sh -m quick all
+
+## Run comprehensive tests
+test-full:
+	@$(SCRIPTS_DIR)/test-orchestrator.sh -m full all
+
+## Run nightly comprehensive tests
+test-nightly:
+	@$(SCRIPTS_DIR)/test-orchestrator.sh -m nightly all
+
+# ============================================================================
+# Go Tests
+# ============================================================================
+
+## Run Go unit tests
+test-unit:
+	@echo "==> Running Go unit tests..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test $(GO_TEST_FLAGS) -short -p $(PARALLEL_WORKERS) \
+		$(GO_COVERAGE_FLAGS) ./...
+
+## Run Go integration tests
+test-integration: test-services-up
+	@echo "==> Running Go integration tests..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test $(GO_TEST_FLAGS) -tags=integration -p $(PARALLEL_WORKERS) \
+		-coverprofile=$(COVERAGE_DIR)/integration.out -covermode=atomic ./...
+
+## Run API tests
+test-api: test-services-up
+	@echo "==> Running API tests..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test $(GO_TEST_FLAGS) -tags=api -p $(PARALLEL_WORKERS) \
+		-coverprofile=$(COVERAGE_DIR)/api.out -covermode=atomic ./internal/handler/...
+
+## Run Go tests with race detection
+test-race:
+	@echo "==> Running Go tests with race detection..."
+	go test -race -short ./...
+
+## Run Go tests with coverage report
+test-cover:
+	@echo "==> Running Go tests with coverage..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test $(GO_TEST_FLAGS) -short \
+		-coverprofile=$(COVERAGE_DIR)/coverage.out -covermode=atomic ./...
+	go tool cover -html=$(COVERAGE_DIR)/coverage.out -o $(COVERAGE_DIR)/coverage.html
+	@echo "Coverage report: $(COVERAGE_DIR)/coverage.html"
+
+# ============================================================================
+# Python Tests
+# ============================================================================
+
+## Run Python tests
+test-python:
+	@echo "==> Running Python tests..."
+	@mkdir -p $(TEST_RESULTS_DIR)/python $(COVERAGE_DIR)/python
+	cd python-services && \
+		pytest -v -n auto \
+			--cov=. \
+			--cov-report=html:../$(COVERAGE_DIR)/python \
+			--cov-report=xml:../$(COVERAGE_DIR)/python.xml \
+			--junitxml=../$(TEST_RESULTS_DIR)/python/results.xml
+
+## Run Python tests with Playwright
+test-python-e2e:
+	@echo "==> Running Python E2E tests..."
+	cd python-services && \
+		pytest -v tests/ --browser chromium
+
+# ============================================================================
+# Frontend Tests
+# ============================================================================
+
+## Run frontend tests
+test-frontend:
+	@echo "==> Running frontend tests..."
+	@if [ -f web/package.json ]; then \
+		cd web && npm test; \
+	else \
+		echo "No frontend package.json found"; \
+	fi
+
+## Run frontend tests with coverage
+test-frontend-cover:
+	@echo "==> Running frontend tests with coverage..."
+	@if [ -f web/package.json ]; then \
+		cd web && npm test -- --coverage; \
+	else \
+		echo "No frontend package.json found"; \
+	fi
+
+# ============================================================================
+# E2E Tests
+# ============================================================================
+
+## Run E2E tests
+test-e2e: test-services-up
+	@echo "==> Running E2E tests..."
+	@mkdir -p $(TEST_RESULTS_DIR)/e2e
+	npx playwright test tests/e2e/ \
+		--reporter=html \
+		--output=$(TEST_RESULTS_DIR)/e2e
+
+## Run E2E tests in headed mode (for debugging)
+test-e2e-headed: test-services-up
+	@echo "==> Running E2E tests (headed mode)..."
+	npx playwright test tests/e2e/ --headed
+
+## Run E2E tests with trace
+test-e2e-trace: test-services-up
+	@echo "==> Running E2E tests with trace..."
+	npx playwright test tests/e2e/ --trace on
+
+# ============================================================================
+# Performance Tests
+# ============================================================================
+
+## Run performance tests
+test-performance: test-services-up
+	@echo "==> Running performance tests..."
+	@mkdir -p $(TEST_RESULTS_DIR)/performance
+	@if command -v k6 > /dev/null; then \
+		k6 run tests/performance/load-test.js \
+			--out json=$(TEST_RESULTS_DIR)/performance/results.json; \
+	else \
+		echo "k6 not installed. Install with: brew install k6"; \
+	fi
+
+## Run stress tests
+test-stress: test-services-up
+	@echo "==> Running stress tests..."
+	@if command -v k6 > /dev/null; then \
+		k6 run tests/performance/stress-test.js; \
+	else \
+		echo "k6 not installed"; \
+	fi
+
+# ============================================================================
+# Docker Test Environment
+# ============================================================================
+
+## Start test services
+test-services-up:
+	@echo "==> Starting test services..."
+	$(DOCKER_COMPOSE_TEST) up -d postgres-test redis-test nats-test
+	@echo "Waiting for services to be healthy..."
+	@sleep 5
+
+## Stop test services
+test-services-down:
+	@echo "==> Stopping test services..."
+	$(DOCKER_COMPOSE_TEST) down
+
+## Run tests in Docker
+test-docker:
+	@echo "==> Running tests in Docker..."
+	$(DOCKER_COMPOSE_TEST) up --build --abort-on-container-exit test-runner
+
+## Run sharded tests in Docker
+test-docker-sharded:
+	@echo "==> Running sharded tests in Docker..."
+	$(DOCKER_COMPOSE_TEST) --profile sharded up --build --abort-on-container-exit
+
+## Run E2E tests in Docker
+test-docker-e2e:
+	@echo "==> Running E2E tests in Docker..."
+	$(DOCKER_COMPOSE_TEST) --profile e2e up --build --abort-on-container-exit e2e-test
+
+## Clean Docker test environment
+test-docker-clean:
+	@echo "==> Cleaning Docker test environment..."
+	$(DOCKER_COMPOSE_TEST) down -v --remove-orphans
+
+# ============================================================================
+# Coverage & Reports
+# ============================================================================
+
+## Generate coverage report
+test-coverage:
+	@echo "==> Generating coverage report..."
+	@mkdir -p $(COVERAGE_DIR)
+	@if ls $(COVERAGE_DIR)/*.out 1> /dev/null 2>&1; then \
+		echo "mode: atomic" > $(COVERAGE_DIR)/merged.out; \
+		tail -q -n +2 $(COVERAGE_DIR)/*.out >> $(COVERAGE_DIR)/merged.out 2>/dev/null || true; \
+		go tool cover -html=$(COVERAGE_DIR)/merged.out -o $(COVERAGE_DIR)/coverage.html; \
+		go tool cover -func=$(COVERAGE_DIR)/merged.out | tail -1; \
+	else \
+		echo "No coverage files found. Run tests first."; \
+	fi
+
+## Check coverage threshold
+test-coverage-check:
+	@echo "==> Checking coverage threshold..."
+	@if [ -f $(COVERAGE_DIR)/merged.out ]; then \
+		coverage=$$(go tool cover -func=$(COVERAGE_DIR)/merged.out | grep total | awk '{print $$3}' | sed 's/%//'); \
+		if [ $$(echo "$$coverage < 80" | bc) -eq 1 ]; then \
+			echo "Coverage $$coverage% is below 80% threshold"; \
+			exit 1; \
+		else \
+			echo "Coverage $$coverage% meets 80% threshold"; \
+		fi; \
+	else \
+		echo "No coverage file found"; \
+		exit 1; \
+	fi
+
+## Generate test report
+test-report:
+	@echo "==> Generating test report..."
+	@mkdir -p $(TEST_RESULTS_DIR)
+	@echo "# Test Report" > $(TEST_RESULTS_DIR)/report.md
+	@echo "Generated: $$(date)" >> $(TEST_RESULTS_DIR)/report.md
+	@echo "" >> $(TEST_RESULTS_DIR)/report.md
+	@echo "## Coverage" >> $(TEST_RESULTS_DIR)/report.md
+	@if [ -f $(COVERAGE_DIR)/merged.out ]; then \
+		go tool cover -func=$(COVERAGE_DIR)/merged.out | tail -20 >> $(TEST_RESULTS_DIR)/report.md; \
+	fi
+	@echo "" >> $(TEST_RESULTS_DIR)/report.md
+	@echo "Report generated: $(TEST_RESULTS_DIR)/report.md"
+
+# ============================================================================
+# Utilities
+# ============================================================================
+
+## Setup test environment
+test-setup:
+	@echo "==> Setting up test environment..."
+	@mkdir -p $(TEST_RESULTS_DIR) $(COVERAGE_DIR)
+	@go mod download
+	@go install gotest.tools/gotestsum@latest
+	@go install github.com/axw/gocov/gocov@latest
+	@echo "Test environment ready"
+
+## Clean test artifacts
+test-clean:
+	@echo "==> Cleaning test artifacts..."
+	@rm -rf $(TEST_RESULTS_DIR) $(COVERAGE_DIR)
+	@rm -f *.out *.log
+	@echo "Test artifacts cleaned"
+
+## List all test packages
+test-list:
+	@echo "==> Test packages:"
+	@go list ./... | grep -v vendor
+
+## Run tests for changed files only
+test-changed:
+	@echo "==> Running tests for changed files..."
+	@$(SCRIPTS_DIR)/test-orchestrator.sh -c unit
+
+## Watch tests (requires entr)
+test-watch:
+	@echo "==> Watching for changes..."
+	@if command -v entr > /dev/null; then \
+		find . -name "*.go" | entr -c go test -v ./...; \
+	else \
+		echo "entr not installed. Install with: brew install entr"; \
+	fi
+
+# ============================================================================
+# CI/CD Commands
+# ============================================================================
+
+## Run CI tests (for GitHub Actions)
+ci-test: test-setup
+	@echo "==> Running CI tests..."
+	$(SCRIPTS_DIR)/test-orchestrator.sh -m standard unit integration
+
+## Run CI tests with coverage upload
+ci-test-coverage: ci-test test-coverage
+	@echo "==> Uploading coverage to Codecov..."
+	@if command -v codecov > /dev/null; then \
+		codecov -f $(COVERAGE_DIR)/merged.out; \
+	fi
+
+# ============================================================================
+# Help
+# ============================================================================
+
+## Show help
+help:
+	@echo "K-ERP Test Automation Commands"
+	@echo ""
+	@echo "Quick Commands:"
+	@echo "  make test              Run unit tests (default)"
+	@echo "  make test-all          Run all tests"
+	@echo "  make test-quick        Run tests in quick mode"
+	@echo "  make test-full         Run comprehensive tests"
+	@echo ""
+	@echo "Go Tests:"
+	@echo "  make test-unit         Run Go unit tests"
+	@echo "  make test-integration  Run Go integration tests"
+	@echo "  make test-api          Run API tests"
+	@echo "  make test-race         Run tests with race detection"
+	@echo "  make test-cover        Run tests with coverage report"
+	@echo ""
+	@echo "Other Languages:"
+	@echo "  make test-python       Run Python tests"
+	@echo "  make test-frontend     Run frontend tests"
+	@echo ""
+	@echo "E2E & Performance:"
+	@echo "  make test-e2e          Run E2E tests"
+	@echo "  make test-e2e-headed   Run E2E tests in browser"
+	@echo "  make test-performance  Run performance tests"
+	@echo ""
+	@echo "Docker:"
+	@echo "  make test-services-up  Start test services"
+	@echo "  make test-docker       Run tests in Docker"
+	@echo ""
+	@echo "Utilities:"
+	@echo "  make test-coverage     Generate coverage report"
+	@echo "  make test-report       Generate test report"
+	@echo "  make test-clean        Clean test artifacts"
+	@echo "  make test-setup        Setup test environment"

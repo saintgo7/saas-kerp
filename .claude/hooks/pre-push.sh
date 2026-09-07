@@ -2,7 +2,7 @@
 # Pre-push hook for K-ERP
 # Runs before git push to ensure code quality
 
-set -e
+set -euo pipefail
 
 echo "=== K-ERP Pre-Push Hook ==="
 
@@ -22,10 +22,11 @@ if [[ "$BRANCH" == "develop" || "$BRANCH" == "main" ]]; then
     go test -race -short ./...
 
     echo "[3/4] Checking for secrets..."
-    if grep -rn --include="*.go" --include="*.ts" --include="*.tsx" -E "(password|secret|api_key|apikey)\s*[:=]" . | grep -v "_test.go" | grep -v "\.example"; then
-        echo "ERROR: Potential secrets found in code!"
-        exit 1
-    fi
+    # The previous check excluded *.example files, which is exactly where
+    # deployment credentials get pasted - and why the production SSH password
+    # in docs/.env_ssh.example was never caught. scan-secrets.py reads those
+    # files and judges the VALUE instead.
+    python3 "$(git rev-parse --show-toplevel)/scripts/scan-secrets.py"
 
     echo "[4/4] Building..."
     go build -o /dev/null ./cmd/api

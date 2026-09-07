@@ -40,13 +40,15 @@ jobs:
       # Vulnerability scanning with govulncheck
       - name: Run govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.3
           govulncheck ./...
         continue-on-error: true
 
       # Static analysis with gosec
       - name: Run gosec
-        uses: securego/gosec@master
+        # securego/gosec v2.29.0 - pinned by SHA; @master is whatever that
+        # repository holds when the job runs, executed with our GITHUB_TOKEN.
+        uses: securego/gosec@deb54465fea23d19a77f037e11e6589021f8501d
         with:
           args: -fmt=sarif -out=gosec-results.sarif ./...
         continue-on-error: true
@@ -120,7 +122,8 @@ jobs:
       # Trivy vulnerability scanner
       - name: Run Trivy vulnerability scanner
         if: steps.docker-build.outcome == 'success'
-        uses: aquasecurity/trivy-action@master
+        # aquasecurity/trivy-action v0.36.0 - pinned by SHA
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: 'kerp-api:scan'
           format: 'sarif'
@@ -160,16 +163,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Gitleaks for secret detection
+      # Repository secret scanner. Unlike the check it replaces, it reads
+      # `*.example` files - that exclusion is what hid the production SSH
+      # password committed in docs/.env_ssh.example.
+      - name: Prove the secret scanner still detects known secret shapes
+        run: python3 scripts/scan-secrets.py --self-test
+
+      - name: Run repository secret scan
+        run: python3 scripts/scan-secrets.py
+
+      # Gitleaks via its pinned official image. The marketplace action requires
+      # an organisation licence key, so it is invoked directly instead.
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/repo:ro" -w /repo \
+            zricethezav/gitleaks@sha256:75bdb2b2f4db213cde0b8295f13a88d6b333091bbfbf3012a4e083d00d31caba \
+            detect --no-git --redact --no-banner \
+            --config /repo/.gitleaks.toml --exit-code 1
 
       # TruffleHog for additional secret scanning
       - name: Run TruffleHog
-        uses: trufflesecurity/trufflehog@main
+        # trufflesecurity/trufflehog v3.97.4 - pinned by SHA
+        uses: trufflesecurity/trufflehog@363923b901c911a9164f50b6c423f47c15372b1c
         with:
           path: ./
           extra_args: --only-verified
@@ -223,7 +240,7 @@ jobs:
       # Go license check
       - name: Check Go licenses
         run: |
-          go install github.com/google/go-licenses@latest
+          go install github.com/google/go-licenses@v1.6.0
           go-licenses check ./... --disallowed_types=restricted,reciprocal || true
 
       - name: Setup Node.js
@@ -262,8 +279,20 @@ jobs:
           echo "CodeQL: ${CODEQL_RESULT}"
           echo "License Check: ${LICENSE_RESULT}"
 
-          if [ "${SECRET_RESULT}" == "failure" ]; then
+          failed=0
+
+          if [ "${SECRET_RESULT}" = "failure" ]; then
             echo "CRITICAL: Secrets detected in repository!"
+            failed=1
+          fi
+
+          # CodeQL is a real SAST gate, not an advisory scan.
+          if [ "${CODEQL_RESULT}" = "failure" ]; then
+            echo "CRITICAL: CodeQL analysis failed."
+            failed=1
+          fi
+
+          if [ "$failed" -ne 0 ]; then
             exit 1
           fi
 

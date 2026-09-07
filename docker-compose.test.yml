@@ -1,8 +1,6 @@
 # Docker Compose for Test Environment
 # K-ERP SaaS Platform - Test Infrastructure
 
-version: "3.9"
-
 services:
   # PostgreSQL Test Database
   postgres-test:
@@ -17,7 +15,14 @@ services:
       - "5433:5432"
     volumes:
       - postgres-test-data:/var/lib/postgresql/data
-      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+      # Extensions and base schema only.
+      #
+      # This used to mount ./db/migrations here. PostgreSQL runs every .sql in
+      # /docker-entrypoint-initdb.d in C-collation order, so `N_x.down.sql`
+      # executed BEFORE `N_x.up.sql` for all 20 migrations - the rollbacks were
+      # interleaved with the forward migrations and aborted initialisation.
+      # Forward migrations are applied by scripts/apply-test-migrations.sh.
+      - ./deployments/docker/init-db.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U test -d kerp_test"]
       interval: 5s
@@ -292,7 +297,7 @@ services:
 
   # Performance Test Runner
   performance-test:
-    image: grafana/k6:latest
+    image: grafana/k6:0.49.0
     container_name: kerp-perf-test
     volumes:
       - ./tests/performance:/scripts

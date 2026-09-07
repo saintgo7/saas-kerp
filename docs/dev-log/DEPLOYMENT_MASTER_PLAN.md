@@ -63,7 +63,7 @@ WSL2 미러링 모드이므로 추가 설정 불필요하나, 다음 포트 오�
 WSL_HOST=61.245.248.246
 WSL_PORT=5022
 WSL_USER=blackpc
-WSL_PASS=tele9088
+WSL_PASS=<your-ssh-password>   # 실제 값은 저장소에 넣지 않습니다
 WSL_PATH=/home/blackpc/saas-kerp
 ```
 

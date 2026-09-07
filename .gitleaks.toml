@@ -1,0 +1,40 @@
+# gitleaks configuration for K-ERP
+#
+# Extends the upstream default rule set. Only PATHS whose content is provably
+# non-production are allow-listed, and each entry says why. Never allow-list a
+# path just because it is noisy - if a value is a placeholder, make it look
+# like one instead.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "K-ERP allowlist"
+
+paths = [
+  # Generated / cache output. Not tracked by git; present only in dirty
+  # working trees and CI scratch space.
+  '''(^|/)__pycache__/''',
+  '''(^|/)\.ruff_cache/''',
+  '''(^|/)\.pytest_cache/''',
+  '''(^|/)htmlcov/''',
+  '''(^|/)coverage/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)graphify-out/''',
+  '''(^|/)test-results/''',
+
+  # Test fixtures: throwaway keys and sample JWTs used by unit tests.
+  '''(^|/)tests?/''',
+  '''(^|/)__tests__/''',
+  '''_test\.(go|py|ts|tsx|js)$''',
+  '''(^|/)test_[^/]+\.py$''',
+  '''\.(test|spec)\.(ts|tsx|js|jsx)$''',
+
+  # API documentation shows example request/response bodies containing
+  # illustrative (non-issuable) JWTs.
+  '''^docs/claude/12_API_.*\.md$''',
+
+  # This scanner's own self-test corpus contains deliberately secret-shaped
+  # strings so that the scanner can prove it still detects them.
+  '''^scripts/scan-secrets\.py$''',
+]

@@ -1,5 +1,14 @@
 # Traefik Dynamic Configuration - Routes
 # Service routing configuration
+#
+# All routers terminate on `websecure` (:443). The `web` (:80) entry point does
+# nothing but answer the ACME HTTP-01 challenge and redirect to HTTPS
+# (see traefik.yml). Keeping a router on `web` would re-open a plaintext path
+# for credentials and JWTs.
+#
+# `security-headers` (HSTS, nosniff, frameDeny, ...) is attached to the
+# websecure entry point itself in traefik.yml, so every router below inherits
+# it without repeating the middleware.
 
 http:
   routers:
@@ -7,7 +16,9 @@ http:
     api-router:
       rule: "Host(`erp.abada.kr`) && PathPrefix(`/api`)"
       entryPoints:
-        - web
+        - websecure
+      tls:
+        certResolver: letsencrypt
       middlewares:
         - rate-limit-api
         - compress
@@ -18,7 +29,9 @@ http:
     login-router:
       rule: "Host(`erp.abada.kr`) && Path(`/api/v1/auth/login`)"
       entryPoints:
-        - web
+        - websecure
+      tls:
+        certResolver: letsencrypt
       middlewares:
         - rate-limit-login
         - cors-headers
@@ -29,14 +42,18 @@ http:
     websocket-router:
       rule: "Host(`erp.abada.kr`) && PathPrefix(`/ws`)"
       entryPoints:
-        - web
+        - websecure
+      tls:
+        certResolver: letsencrypt
       service: api-service
 
     # Frontend Router
     frontend-router:
       rule: "Host(`erp.abada.kr`)"
       entryPoints:
-        - web
+        - websecure
+      tls:
+        certResolver: letsencrypt
       middlewares:
         - rate-limit-general
         - compress
@@ -48,17 +65,44 @@ http:
     dashboard-router:
       rule: "Host(`traefik.erp.abada.kr`) || (Host(`erp.abada.kr`) && PathPrefix(`/traefik`))"
       entryPoints:
-        - web
+        - websecure
+      tls:
+        certResolver: letsencrypt
       middlewares:
-        - dashboard-auth
         - internal-only
+        - dashboard-auth
       service: api@internal
+
+    # Prometheus (internal only)
+    prometheus-router:
+      rule: "Host(`prometheus.erp.abada.kr`)"
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - internal-only
+        - dashboard-auth
+      service: prometheus-service
+
+    # Grafana (internal only)
+    grafana-router:
+      rule: "Host(`grafana.erp.abada.kr`)"
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - internal-only
+      service: grafana-service
 
     # Health Check (no auth)
     health-router:
       rule: "Host(`erp.abada.kr`) && Path(`/health`)"
       entryPoints:
-        - web
+        - websecure
+      tls:
+        certResolver: letsencrypt
       service: api-service
 
   services:
@@ -79,3 +123,13 @@ http:
           path: /health
           interval: 30s
           timeout: 5s
+
+    prometheus-service:
+      loadBalancer:
+        servers:
+          - url: "http://kerp-prometheus:9090"
+
+    grafana-service:
+      loadBalancer:
+        servers:
+          - url: "http://kerp-grafana:3000"

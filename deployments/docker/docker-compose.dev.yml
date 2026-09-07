@@ -1,7 +1,10 @@
 # K-ERP SaaS Docker Compose - Development Override
-# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-
-version: "3.9"
+# Usage: make dev-up
+#    or: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Every host port below is bound to 127.0.0.1 on purpose. Without an explicit
+# interface Docker binds 0.0.0.0, which put the Delve debugger (remote code
+# execution, no auth) and the database on any network the laptop joins.
 
 services:
   # =============================================================================
@@ -11,9 +14,10 @@ services:
     build:
       target: development
     ports:
-      - "8080:8080"
-      - "2345:2345"  # Delve debugger
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:2345:2345"  # Delve debugger - loopback only
     environment:
+      - KERP_APP_ENV=development
       - APP_ENV=development
       - GIN_MODE=debug
     volumes:
@@ -28,6 +32,7 @@ services:
     build:
       target: development
     environment:
+      - KERP_APP_ENV=development
       - APP_ENV=development
     volumes:
       - ../../:/app
@@ -38,7 +43,7 @@ services:
   # =============================================================================
   tax-scraper:
     ports:
-      - "50051:50051"
+      - "127.0.0.1:50051:50051"
     environment:
       - DEBUG=true
       - LOG_LEVEL=debug
@@ -51,7 +56,7 @@ services:
   # =============================================================================
   insurance-edi:
     ports:
-      - "50052:50052"
+      - "127.0.0.1:50052:50052"
     environment:
       - DEBUG=true
       - LOG_LEVEL=debug
@@ -64,41 +69,57 @@ services:
   # =============================================================================
   postgres:
     ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_PASSWORD=devpassword
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # Demo company + demo admin account. DEV ONLY - never mounted by the
+      # staging/production stack.
+      - ./init-db.dev.sql:/docker-entrypoint-initdb.d/20-dev-seed.sql:ro
 
   # =============================================================================
   # Redis (Development)
   # =============================================================================
   redis:
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
 
   # =============================================================================
   # NATS (Development)
   # =============================================================================
   nats:
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
 
   # =============================================================================
-  # Nginx (Disabled in dev - direct API access)
+  # Web frontend (Development)
   # =============================================================================
-  nginx:
-    profiles:
-      - production
+  #
+  # This container serves the PRODUCTION static bundle and does not proxy /api
+  # (deployments/docker/nginx/nginx-spa.conf is a static-file server only), so
+  # http://127.0.0.1:3000/api/v1/... falls through to the SPA and returns
+  # index.html rather than reaching the API.
+  #
+  # For day-to-day frontend work run `npm run dev` instead: web/vite.config.ts
+  # proxies /api to http://localhost:8080 WITHOUT rewriting the path, matching
+  # what Traefik does in staging/production. Reach this container through
+  # Traefik (https://erp.abada.kr) when you need the built bundle.
+  web:
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  # NOTE: there is no `nginx` service in docker-compose.yml. The override block
+  # that used to sit here declared neither `image` nor `build`, which makes the
+  # merged configuration invalid. Removed.
 
   # =============================================================================
   # Adminer (Database GUI)
   # =============================================================================
   adminer:
-    image: adminer:latest
+    image: adminer:4.8.1
     container_name: kerp-adminer
     restart: unless-stopped
     ports:
-      - "9090:8080"
+      - "127.0.0.1:9090:8080"
     networks:
       - kerp-network
 
@@ -106,11 +127,11 @@ services:
   # Mailhog (Email Testing)
   # =============================================================================
   mailhog:
-    image: mailhog/mailhog:latest
+    image: mailhog/mailhog:v1.0.1
     container_name: kerp-mailhog
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
     networks:
       - kerp-network
 

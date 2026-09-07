@@ -1,5 +1,10 @@
 # K-ERP Pull Request Check
 # Runs on all pull requests to main and develop
+#
+# Third-party actions are pinned to a commit SHA. A mutable ref (@master,
+# @main, @v1) means "whatever that repository contains at the moment the job
+# runs", which hands the runner - and its GITHUB_TOKEN - to whoever can push
+# there.
 
 name: PR Check
 
@@ -7,6 +12,9 @@ on:
   pull_request:
     branches: [main, develop]
     types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
 
 jobs:
   # ============================================
@@ -17,22 +25,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # PR titles are attacker-controlled. They are passed through `env:` and
+      # referenced as "$TITLE" so the shell never parses their contents.
+      # Interpolating ${{ github.event.pull_request.title }} directly into a
+      # run block is a command-injection sink.
       - name: PR Information
+        env:
+          NUMBER: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          echo "PR #${{ github.event.pull_request.number }}"
-          echo "Title: ${{ github.event.pull_request.title }}"
-          echo "From: ${{ github.event.pull_request.head.ref }}"
-          echo "To: ${{ github.event.pull_request.base.ref }}"
+          set -euo pipefail
+          printf 'PR #%s\n' "$NUMBER"
+          printf 'Title: %s\n' "$TITLE"
+          printf 'From: %s\n' "$HEAD_REF"
+          printf 'To: %s\n' "$BASE_REF"
 
       - name: Check PR title format
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
         run: |
-          TITLE="${{ github.event.pull_request.title }}"
-          # Check for conventional commit format
+          set -euo pipefail
           if [[ ! "$TITLE" =~ ^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?:\ .+ ]]; then
             echo "Warning: PR title doesn't follow conventional commit format"
             echo "Expected: type(scope): description"
             echo "Examples: feat(api): add user authentication"
-            echo "         fix(db): resolve connection pool issue"
+            echo "          fix(db): resolve connection pool issue"
           fi
 
   # ============================================
@@ -56,24 +75,30 @@ jobs:
 
       - name: Check Go formatting
         run: |
-          if [ -n "$(gofmt -l .)" ]; then
+          set -euo pipefail
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
             echo "The following files are not formatted:"
-            gofmt -l .
+            echo "$unformatted"
             echo ""
             echo "Run 'gofmt -w .' to fix"
             exit 1
           fi
 
+      # No `|| true`. `go vet` catches real bugs; a gate that cannot fail is
+      # not a gate.
       - name: Run go vet
-        run: go vet ./... || true
+        run: go vet ./...
 
       - name: Check for TODOs and FIXMEs
         run: |
+          set -uo pipefail
           echo "=== TODOs found ==="
           grep -rn "TODO" --include="*.go" --include="*.ts" --include="*.tsx" . || echo "None"
           echo ""
           echo "=== FIXMEs found ==="
           grep -rn "FIXME" --include="*.go" --include="*.ts" --include="*.tsx" . || echo "None"
+          exit 0
 
   # ============================================
   # Security Scan
@@ -86,8 +111,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # aquasecurity/trivy-action v0.36.0
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -95,17 +121,27 @@ jobs:
           exit-code: '0'
           format: 'table'
 
+      # The previous implementation excluded `*.example` files
+      # (`grep -v "\.example"`). That is exactly where deployment credentials
+      # get pasted, and it is why the production SSH password in
+      # docs/.env_ssh.example was never flagged. The scanner below reads
+      # `.example` files like any other and decides on the VALUE instead.
+      - name: Prove the secret scanner still detects known secret shapes
+        run: python3 scripts/scan-secrets.py --self-test
+
       - name: Check for secrets
+        run: python3 scripts/scan-secrets.py
+
+      # Second opinion with a purpose-built tool (entropy + provider-specific
+      # rules). Pinned by digest; allowlist lives in .gitleaks.toml.
+      - name: gitleaks
         run: |
-          # Simple check for common secret patterns
-          echo "Checking for potential secrets..."
-          if grep -rn --include="*.go" --include="*.ts" --include="*.tsx" --include="*.py" \
-            -E "(password|secret|api_key|apikey|token)\s*[:=]\s*['\"][^'\"]+['\"]" . \
-            | grep -v "_test\." | grep -v "\.example" | grep -v "\.md"; then
-            echo "Warning: Potential hardcoded secrets found"
-          else
-            echo "No obvious secrets detected"
-          fi
+          set -euo pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/repo:ro" -w /repo \
+            zricethezav/gitleaks@sha256:75bdb2b2f4db213cde0b8295f13a88d6b333091bbfbf3012a4e083d00d31caba \
+            detect --no-git --redact --no-banner \
+            --config /repo/.gitleaks.toml --exit-code 1
 
   # ============================================
   # Build Test
@@ -124,13 +160,12 @@ jobs:
           go-version: '1.22'
           cache: true
 
+      # `|| echo "build skipped"` turned a compile failure into a green check.
       - name: Build API
-        run: |
-          go build -o /dev/null ./cmd/api || echo "API build skipped (missing dependencies)"
+        run: go build -o /dev/null ./cmd/api
 
       - name: Build Worker
-        run: |
-          go build -o /dev/null ./cmd/worker || echo "Worker build skipped (missing dependencies)"
+        run: go build -o /dev/null ./cmd/worker
 
   # ============================================
   # Test Summary
@@ -143,12 +178,32 @@ jobs:
 
     steps:
       - name: Summary
+        env:
+          PR_INFO: ${{ needs.pr-info.result }}
+          CODE_QUALITY: ${{ needs.code-quality.result }}
+          SECURITY: ${{ needs.security-scan.result }}
+          BUILD: ${{ needs.build-test.result }}
         run: |
-          echo "## PR Check Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| PR Info | ${{ needs.pr-info.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Code Quality | ${{ needs.code-quality.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Security Scan | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build Test | ${{ needs.build-test.result }} |" >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          {
+            echo "## PR Check Summary"
+            echo ""
+            echo "| Check | Status |"
+            echo "|-------|--------|"
+            echo "| PR Info | ${PR_INFO} |"
+            echo "| Code Quality | ${CODE_QUALITY} |"
+            echo "| Security Scan | ${SECURITY} |"
+            echo "| Build Test | ${BUILD} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          failed=0
+          for r in "$PR_INFO" "$CODE_QUALITY" "$SECURITY" "$BUILD"; do
+            case "$r" in
+              success|skipped) ;;
+              *) failed=1 ;;
+            esac
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "One or more PR checks failed."
+            exit 1
+          fi

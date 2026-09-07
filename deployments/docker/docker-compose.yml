@@ -1,7 +1,10 @@
-version: '3.8'
-
 # K-ERP SaaS Docker Compose
 # Production/Staging with Let's Encrypt SSL
+#
+# Every secret below is guarded with `${VAR:?...}` on purpose: an unset or
+# missing value must stop the stack from starting rather than silently fall
+# back to a well-known default. Populate .env from your secret store
+# (see .env.example for the key list and generation commands).
 
 services:
   # =============================================================================
@@ -11,28 +14,39 @@ services:
     image: traefik:v3.0
     container_name: kerp-traefik
     ports:
-      - "80:80"
-      # - "443:443"  # Disabled due to WSL port binding issue
-      - "8081:8080"  # Dashboard
+      - "80:80"      # ACME HTTP-01 challenge + redirect to :443
+      - "443:443"    # If this fails to bind under WSL2, fix the host port
+                     #   proxy (netsh interface portproxy) - do NOT disable TLS.
+      # Dashboard/metrics: loopback only, never 0.0.0.0.
+      - "127.0.0.1:8081:8080"
     environment:
-      - ACME_EMAIL=${ACME_EMAIL:-admin@abada.kr}
+      # NOTE: Traefik STATIC configuration (traefik.yml) does not expand
+      # environment variables. ACME_EMAIL is therefore written directly in
+      # traefik.yml; changing it means editing that file.
       - DOCKER_API_VERSION=1.44
     volumes:
       # Docker socket removed - using file-based configuration only
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      # Basic-auth users file for the dashboard/Prometheus routers.
+      # Generated at deploy time from the TRAEFIK_DASHBOARD_AUTH secret
+      # (see scripts/gen-traefik-auth.sh). Never committed.
+      - ./traefik/secrets:/etc/traefik/secrets:ro
       - letsencrypt_data:/letsencrypt
     networks:
       - kerp-network
     restart: unless-stopped
-    labels:
-      - "traefik.enable=true"
-      # Dashboard
-      - "traefik.http.routers.dashboard.rule=Host(`traefik.erp.abada.kr`)"
-      - "traefik.http.routers.dashboard.entrypoints=websecure"
-      - "traefik.http.routers.dashboard.service=api@internal"
-      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.dashboard.middlewares=dashboard-auth@file"
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    # NOTE: the Docker provider is disabled in traefik.yml, so traefik.http.*
+    # labels have no effect. Routing lives in traefik/dynamic/routes.yml.
 
   # Go API Server
   api:
@@ -41,12 +55,28 @@ services:
       dockerfile: deployments/docker/Dockerfile.api
     container_name: kerp-api
     environment:
-      - KERP_APP_ENV=staging
+      - KERP_APP_ENV=${KERP_APP_ENV:-staging}
       - KERP_DATABASE_HOST=postgres
       - KERP_DATABASE_PORT=5432
       - KERP_DATABASE_NAME=kerp
+      # ---------------------------------------------------------------------
+      # DO NOT switch this to kerp_app yet. See
+      # docs/RUNBOOK_least_privilege_db_role.md.
+      #
+      # `kerp` owns the schema and therefore BYPASSES row level security.
+      # Moving the application to the non-superuser `kerp_app` role is the
+      # correct end state, but it only works once the API sets
+      # `app.current_tenant` on every request. Flip this first and RLS starts
+      # being enforced against an unset GUC, so every query returns 0 rows -
+      # the application comes up healthy and silently serves empty data.
+      #
+      # Order: (1) ship the Go GUC code, (2) verify it in staging, (3) switch
+      # the user here. Migration 000016 provisions the role.
+      #   - KERP_DATABASE_USER=kerp_app
+      #   - KERP_DATABASE_PASSWORD=${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set}
+      # ---------------------------------------------------------------------
       - KERP_DATABASE_USER=kerp
-      - KERP_DATABASE_PASSWORD=${DB_PASSWORD:-kerp123}
+      - KERP_DATABASE_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
       - KERP_DATABASE_SSLMODE=disable
       - KERP_REDIS_HOST=redis
       - KERP_REDIS_PORT=6379
@@ -54,22 +84,23 @@ services:
       - KERP_JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
       - KERP_LOG_LEVEL=info
     ports:
-      - "8080:8080"  # Temporary direct access (bypass Traefik)
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.api.rule=Host(`erp.abada.kr`) && PathPrefix(`/api`)"
-      - "traefik.http.routers.api.entrypoints=web"
-      - "traefik.http.services.api.loadbalancer.server.port=8080"
+      # Loopback only. External traffic must go through Traefik so that the
+      # rate-limit / CORS / security-header middlewares actually apply.
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       nats:
         condition: service_started
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   # Background Worker
   worker:
@@ -78,24 +109,33 @@ services:
       dockerfile: deployments/docker/Dockerfile.worker
     container_name: kerp-worker
     environment:
-      - KERP_APP_ENV=staging
+      - KERP_APP_ENV=${KERP_APP_ENV:-staging}
       - KERP_DATABASE_HOST=postgres
       - KERP_DATABASE_PORT=5432
       - KERP_DATABASE_NAME=kerp
+      # Same constraint as the api service - do not switch to kerp_app before
+      # the GUC code ships. See docs/RUNBOOK_least_privilege_db_role.md.
       - KERP_DATABASE_USER=kerp
-      - KERP_DATABASE_PASSWORD=${DB_PASSWORD:-kerp123}
+      - KERP_DATABASE_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
       - KERP_DATABASE_SSLMODE=disable
       - KERP_REDIS_HOST=redis
       - KERP_REDIS_PORT=6379
       - KERP_NATS_URL=nats://nats:4222
+      - KERP_JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       nats:
         condition: service_started
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # React Frontend (Vite)
   web:
@@ -106,18 +146,17 @@ services:
         VITE_API_URL: /api/v1
     container_name: kerp-web
     ports:
-      - "3000:3000"  # Temporary direct access (bypass Traefik)
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.web.rule=Host(`erp.abada.kr`)"
-      - "traefik.http.routers.web.entrypoints=web"
-      - "traefik.http.routers.web.priority=1"
-      - "traefik.http.services.web.loadbalancer.server.port=3000"
+      # Loopback only - public traffic goes through Traefik.
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # PostgreSQL Database
   postgres:
@@ -126,9 +165,11 @@ services:
     environment:
       POSTGRES_DB: kerp
       POSTGRES_USER: kerp
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-kerp123}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Schema/extensions only. The demo admin account moved to
+      # init-db.dev.sql, mounted exclusively by docker-compose.dev.yml.
       - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kerp -d kerp"]
@@ -138,6 +179,10 @@ services:
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   # Redis Cache
   redis:
@@ -146,9 +191,18 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # NATS JetStream
   nats:
@@ -157,38 +211,61 @@ services:
     command: ["--jetstream", "--store_dir=/data", "-m", "8222"]
     volumes:
       - nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8222/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # MinIO (S3 Compatible Storage)
   minio:
-    image: minio/minio
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
     container_name: kerp-minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: kerp_admin
-      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minio123}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD must be set}
     volumes:
       - minio_data:/data
     ports:
-      - "9001:9001"  # MinIO Console
+      # Console on loopback only - it is an admin surface.
+      - "127.0.0.1:9001:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # Meilisearch (Full-text Search)
   meilisearch:
     image: getmeili/meilisearch:v1.6
     container_name: kerp-meilisearch
     environment:
-      MEILI_MASTER_KEY: ${MEILI_KEY:-meili123}
-      MEILI_ENV: development
+      MEILI_MASTER_KEY: ${MEILI_KEY:?MEILI_KEY must be set}
+      MEILI_ENV: production
     volumes:
       - meili_data:/meili_data
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # Python Tax Scraper (gRPC) - Hometax Integration
   tax-scraper:
@@ -204,10 +281,15 @@ services:
     volumes:
       - tax_certs:/app/certs
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
 
   # Python Insurance EDI (gRPC) - 4대보험 Integration
   insurance-edi:
@@ -232,7 +314,9 @@ services:
       - EI_EDI_HOST=${EI_EDI_HOST:-edi.comwel.or.kr}
       - EI_EDI_PORT=${EI_EDI_PORT:-9100}
       # Encryption (ARIA-128)
-      - ARIA_ENCRYPTION_KEY=${ARIA_ENCRYPTION_KEY}
+      # 4대보험 payloads carry 주민등록번호. A missing key must stop the
+      # service, never fall back to an all-zero placeholder key.
+      - ARIA_ENCRYPTION_KEY=${ARIA_ENCRYPTION_KEY:?ARIA_ENCRYPTION_KEY must be set (openssl rand -hex 16)}
       - CERT_PATH=/app/certs
     volumes:
       - edi_certs:/app/certs
@@ -242,10 +326,15 @@ services:
       timeout: 10s
       retries: 3
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # =============================================================================
   # Monitoring Stack
@@ -264,42 +353,61 @@ services:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.prometheus.rule=Host(`prometheus.erp.abada.kr`)"
-      - "traefik.http.routers.prometheus.entrypoints=websecure"
-      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.prometheus.middlewares=dashboard-auth@file,internal-only@file"
-      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+    depends_on:
+      - alertmanager
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # Alertmanager - Alert Routing
+  # Without this, every rule in alerts.yml is evaluated and then discarded.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: kerp-alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - kerp-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # Grafana - Visualization
   grafana:
     image: grafana/grafana:10.3.1
     container_name: kerp-grafana
     environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:?GRAFANA_USER must be set}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=https://grafana.erp.abada.kr
       - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-piechart-panel
+      # Consumed by monitoring/grafana/provisioning/datasources/datasources.yml.
+      # Grafana expands $VAR but NOT ${VAR:-default}, so it must be passed here.
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.grafana.rule=Host(`grafana.erp.abada.kr`)"
-      - "traefik.http.routers.grafana.entrypoints=websecure"
-      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
-      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
     depends_on:
       - prometheus
     networks:
       - kerp-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # Node Exporter - Host Metrics
   node-exporter:
@@ -323,7 +431,10 @@ services:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     container_name: kerp-postgres-exporter
     environment:
-      DATA_SOURCE_NAME: "postgres://kerp:${DB_PASSWORD:-kerp123}@postgres:5432/kerp?sslmode=disable"
+      # TODO: move to a dedicated read-only monitoring role once one exists.
+      # This currently connects as the schema owner, and `docker inspect`
+      # exposes the DSN - password included - to anyone on the host.
+      DATA_SOURCE_NAME: "postgres://kerp:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/kerp?sslmode=disable"
     depends_on:
       postgres:
         condition: service_healthy
@@ -352,6 +463,7 @@ volumes:
   tax_certs:
   edi_certs:
   prometheus_data:
+  alertmanager_data:
   grafana_data:
   letsencrypt_data:
 

@@ -10,7 +10,8 @@ WORKDIR /app
 
 # Install development tools
 RUN apk add --no-cache git make gcc musl-dev ca-certificates tzdata
-RUN go install github.com/air-verse/air@latest
+# Pinned: an unpinned @latest silently changes the dev image on every rebuild.
+RUN go install github.com/air-verse/air@v1.52.3
 
 # Copy go mod files
 COPY go.mod go.sum ./

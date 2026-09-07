@@ -101,7 +101,7 @@ jobs:
         if: needs.detect-changes.outputs.go_changed == 'true'
         uses: golangci/golangci-lint-action@v4
         with:
-          version: latest
+          version: v1.61.0
           args: --timeout=5m
 
       - name: Set up Python
@@ -236,7 +236,7 @@ jobs:
         env:
           DATABASE_URL: postgres://test:test@localhost:5432/kerp_test?sslmode=disable
         run: |
-          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
           migrate -path db/migrations -database "$DATABASE_URL" up
 
       - name: Run integration tests
