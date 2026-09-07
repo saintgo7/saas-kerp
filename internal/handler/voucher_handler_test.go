@@ -40,11 +40,14 @@ func (s *VoucherHandlerTestSuite) SetupTest() {
 	s.companyID = uuid.New()
 	s.userID = uuid.New()
 
-	// Create router with middleware to inject company_id and user_id
+	// Create router with middleware to inject company_id, user_id and roles.
+	// The write and workflow routes carry role middleware (see RegisterRoutes),
+	// so the injected identity needs a role that is allowed to reach them.
 	s.router = gin.New()
 	s.router.Use(func(c *gin.Context) {
 		c.Set("company_id", s.companyID)
 		c.Set("user_id", s.userID)
+		c.Set("roles", []string{"admin"})
 		c.Next()
 	})
 	s.handler.RegisterRoutes(s.router.Group("/api/v1"))
@@ -486,8 +489,11 @@ func (s *VoucherHandlerTestSuite) TestApprove_Success() {
 }
 
 func (s *VoucherHandlerTestSuite) TestApprove_CannotApprove() {
-	voucherID := uuid.New()
+	voucher := s.newTestVoucher()
+	voucherID := voucher.ID
 
+	// Approve reads the voucher first to enforce separation of duties.
+	s.mockSvc.On("GetByID", mock.Anything, mock.Anything, mock.Anything).Return(voucher, nil)
 	s.mockSvc.On("Approve", mock.Anything, mock.Anything, voucherID, mock.Anything).Return(domain.ErrVoucherCannotApprove)
 
 	req := httptest.NewRequest("POST", "/api/v1/vouchers/"+voucherID.String()+"/approve", nil)
@@ -706,4 +712,102 @@ func (s *VoucherHandlerTestSuite) TestReplaceEntries_Unbalanced() {
 	s.router.ServeHTTP(w, req)
 
 	assert.Equal(s.T(), http.StatusBadRequest, w.Code)
+}
+
+// =============================================================================
+// Authorization tests
+// =============================================================================
+
+// A voucher may not be approved by the user who drafted it.
+func (s *VoucherHandlerTestSuite) TestApprove_RejectedForDrafter() {
+	voucher := s.newTestVoucher()
+	voucher.Status = domain.VoucherStatusPending
+	voucher.CreatedBy = &s.userID
+
+	s.mockSvc.On("GetByID", mock.Anything, mock.Anything, mock.Anything).Return(voucher, nil)
+
+	req := httptest.NewRequest("POST", "/api/v1/vouchers/"+voucher.ID.String()+"/approve", nil)
+	w := httptest.NewRecorder()
+	s.router.ServeHTTP(w, req)
+
+	assert.Equal(s.T(), http.StatusForbidden, w.Code)
+	s.mockSvc.AssertNotCalled(s.T(), "Approve", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A viewer may read vouchers but must not create, approve or post them.
+func (s *VoucherHandlerTestSuite) TestViewerIsReadOnly() {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("company_id", s.companyID)
+		c.Set("user_id", s.userID)
+		c.Set("roles", []string{"viewer"})
+		c.Next()
+	})
+	s.handler.RegisterRoutes(router.Group("/api/v1"))
+
+	voucherID := uuid.New()
+	forbidden := []struct {
+		method string
+		path   string
+	}{
+		{"POST", "/api/v1/vouchers"},
+		{"PUT", "/api/v1/vouchers/" + voucherID.String()},
+		{"DELETE", "/api/v1/vouchers/" + voucherID.String()},
+		{"POST", "/api/v1/vouchers/" + voucherID.String() + "/submit"},
+		{"POST", "/api/v1/vouchers/" + voucherID.String() + "/approve"},
+		{"POST", "/api/v1/vouchers/" + voucherID.String() + "/post"},
+		{"POST", "/api/v1/vouchers/" + voucherID.String() + "/reverse"},
+	}
+
+	for _, tc := range forbidden {
+		req := httptest.NewRequest(tc.method, tc.path, bytes.NewReader([]byte("{}")))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(s.T(), http.StatusForbidden, w.Code, "%s %s should be forbidden for a viewer", tc.method, tc.path)
+	}
+}
+
+// "user" may draft but not approve.
+func (s *VoucherHandlerTestSuite) TestUserRoleCannotApprove() {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("company_id", s.companyID)
+		c.Set("user_id", s.userID)
+		c.Set("roles", []string{"user"})
+		c.Next()
+	})
+	s.handler.RegisterRoutes(router.Group("/api/v1"))
+
+	req := httptest.NewRequest("POST", "/api/v1/vouchers/"+uuid.New().String()+"/approve", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(s.T(), http.StatusForbidden, w.Code)
+}
+
+// A reserved collection path this API does not implement answers 404, not the
+// 400 that ":id" parsing would produce.
+func (s *VoucherHandlerTestSuite) TestReservedCollectionPathIsNotFound() {
+	for _, path := range []string{"/api/v1/vouchers/next-number", "/api/v1/vouchers/export"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		s.router.ServeHTTP(w, req)
+
+		assert.Equal(s.T(), http.StatusNotFound, w.Code, "GET %s", path)
+	}
+}
+
+// page_size=0 must not reach the total-pages division.
+func (s *VoucherHandlerTestSuite) TestList_ZeroPageSizeIsClamped() {
+	s.mockSvc.On("List", mock.Anything, mock.Anything).Return([]domain.Voucher{}, int64(0), nil).Once()
+
+	req := httptest.NewRequest("GET", "/api/v1/vouchers?page_size=0", nil)
+	w := httptest.NewRecorder()
+	s.router.ServeHTTP(w, req)
+
+	// The binding tag rejects page_size=0 outright; what matters is that the
+	// request is answered rather than panicking with a divide by zero.
+	assert.NotEqual(s.T(), http.StatusInternalServerError, w.Code)
 }

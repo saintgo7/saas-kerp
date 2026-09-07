@@ -26,34 +26,34 @@ func NewService(config *Config) *Service {
 func (s *Service) IssueTaxInvoice(ctx context.Context, invoice *domain.TaxInvoice) (*domain.TaxInvoice, error) {
 	// Convert domain model to Popbill format
 	pbInvoice := &TaxInvoice{
-		WriteDate:           invoice.IssueDate.Format("20060102"),
-		ChargeDirection:     "정과금",
-		IssueType:           "정발행",
-		TaxType:             "과세",
-		PurposeType:         "영수",
+		WriteDate:       invoice.IssueDate.Format("20060102"),
+		ChargeDirection: "정과금",
+		IssueType:       "정발행",
+		TaxType:         "과세",
+		PurposeType:     "영수",
 
-		InvoicerCorpNum:     invoice.SupplierBusinessNumber,
-		InvoicerCorpName:    invoice.SupplierName,
-		InvoicerCEOName:     invoice.SupplierCEOName,
-		InvoicerAddr:        invoice.SupplierAddress,
-		InvoicerBizType:     invoice.SupplierBusinessType,
-		InvoicerBizClass:    invoice.SupplierBusinessItem,
-		InvoicerEmail:       invoice.SupplierEmail,
+		InvoicerCorpNum:  invoice.SupplierBusinessNumber,
+		InvoicerCorpName: invoice.SupplierName,
+		InvoicerCEOName:  invoice.SupplierCEOName,
+		InvoicerAddr:     invoice.SupplierAddress,
+		InvoicerBizType:  invoice.SupplierBusinessType,
+		InvoicerBizClass: invoice.SupplierBusinessItem,
+		InvoicerEmail:    invoice.SupplierEmail,
 
-		InvoiceeType:        "사업자",
-		InvoiceeCorpNum:     invoice.BuyerBusinessNumber,
-		InvoiceeCorpName:    invoice.BuyerName,
-		InvoiceeCEOName:     invoice.BuyerCEOName,
-		InvoiceeAddr:        invoice.BuyerAddress,
-		InvoiceeBizType:     invoice.BuyerBusinessType,
-		InvoiceeBizClass:    invoice.BuyerBusinessItem,
-		InvoiceeEmail1:      invoice.BuyerEmail,
+		InvoiceeType:     "사업자",
+		InvoiceeCorpNum:  invoice.BuyerBusinessNumber,
+		InvoiceeCorpName: invoice.BuyerName,
+		InvoiceeCEOName:  invoice.BuyerCEOName,
+		InvoiceeAddr:     invoice.BuyerAddress,
+		InvoiceeBizType:  invoice.BuyerBusinessType,
+		InvoiceeBizClass: invoice.BuyerBusinessItem,
+		InvoiceeEmail1:   invoice.BuyerEmail,
 
-		SupplyCostTotal:     strconv.FormatInt(invoice.SupplyAmount, 10),
-		TaxTotal:            strconv.FormatInt(invoice.TaxAmount, 10),
-		TotalAmount:         strconv.FormatInt(invoice.TotalAmount, 10),
+		SupplyCostTotal: strconv.FormatInt(invoice.SupplyAmount, 10),
+		TaxTotal:        strconv.FormatInt(invoice.TaxAmount, 10),
+		TotalAmount:     strconv.FormatInt(invoice.TotalAmount, 10),
 
-		Remark1:             invoice.Remarks,
+		Remark1: invoice.Remarks,
 	}
 
 	// Convert items
@@ -64,15 +64,15 @@ func (s *Service) IssueTaxInvoice(ctx context.Context, invoice *domain.TaxInvoic
 		}
 
 		pbInvoice.DetailList = append(pbInvoice.DetailList, TaxInvoiceDetail{
-			SerialNum:   i + 1,
-			PurchaseDT:  supplyDate,
-			ItemName:    item.Description,
-			Spec:        item.Specification,
-			Qty:         strconv.FormatFloat(item.Quantity, 'f', 2, 64),
-			UnitCost:    strconv.FormatFloat(item.UnitPrice, 'f', 0, 64),
-			SupplyCost:  strconv.FormatInt(item.Amount, 10),
-			Tax:         strconv.FormatInt(item.TaxAmount, 10),
-			Remark:      item.Remarks,
+			SerialNum:  i + 1,
+			PurchaseDT: supplyDate,
+			ItemName:   item.Description,
+			Spec:       item.Specification,
+			Qty:        strconv.FormatFloat(item.Quantity, 'f', 2, 64),
+			UnitCost:   strconv.FormatFloat(item.UnitPrice, 'f', 0, 64),
+			SupplyCost: strconv.FormatInt(item.Amount, 10),
+			Tax:        strconv.FormatInt(item.TaxAmount, 10),
+			Remark:     item.Remarks,
 		})
 	}
 
@@ -138,8 +138,8 @@ func (s *Service) SearchTaxInvoices(ctx context.Context, startDate, endDate time
 		DType:   "W",
 		SDate:   startDate.Format("20060102"),
 		EDate:   endDate.Format("20060102"),
-		State:   []string{"3", "4"}, // 전송완료, 국세청승인
-		Type:    []string{"N", "M"}, // 일반, 수정
+		State:   []string{"3", "4"},      // 전송완료, 국세청승인
+		Type:    []string{"N", "M"},      // 일반, 수정
 		TaxType: []string{"T", "N", "Z"}, // 과세, 면세, 영세
 		Page:    page,
 		PerPage: pageSize,

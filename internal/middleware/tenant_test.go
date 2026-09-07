@@ -287,32 +287,32 @@ func TestMultiTenancy_DataIsolation(t *testing.T) {
 	companyB := uuid.New()
 
 	tests := []struct {
-		name              string
-		userCompanyID     uuid.UUID
-		requestedPath     string
-		expectedStatus    int
-		description       string
+		name           string
+		userCompanyID  uuid.UUID
+		requestedPath  string
+		expectedStatus int
+		description    string
 	}{
 		{
-			name:          "Company A accessing Company A resource",
-			userCompanyID: companyA,
-			requestedPath: "/companies/" + companyA.String() + "/data",
+			name:           "Company A accessing Company A resource",
+			userCompanyID:  companyA,
+			requestedPath:  "/companies/" + companyA.String() + "/data",
 			expectedStatus: http.StatusOK,
-			description:   "User should access own company data",
+			description:    "User should access own company data",
 		},
 		{
-			name:          "Company A accessing Company B resource",
-			userCompanyID: companyA,
-			requestedPath: "/companies/" + companyB.String() + "/data",
+			name:           "Company A accessing Company B resource",
+			userCompanyID:  companyA,
+			requestedPath:  "/companies/" + companyB.String() + "/data",
 			expectedStatus: http.StatusForbidden,
-			description:   "User should NOT access other company data",
+			description:    "User should NOT access other company data",
 		},
 		{
-			name:          "Company B accessing Company B resource",
-			userCompanyID: companyB,
-			requestedPath: "/companies/" + companyB.String() + "/data",
+			name:           "Company B accessing Company B resource",
+			userCompanyID:  companyB,
+			requestedPath:  "/companies/" + companyB.String() + "/data",
 			expectedStatus: http.StatusOK,
-			description:   "User should access own company data",
+			description:    "User should access own company data",
 		},
 	}
 

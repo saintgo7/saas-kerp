@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -10,6 +9,8 @@ import (
 	appctx "github.com/saintgo7/saas-kerp/internal/context"
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/handler/response"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/repository"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
@@ -26,7 +27,9 @@ func NewRoleHandler(svc service.RoleService) *RoleHandler {
 
 // RegisterRoutes registers role routes
 func (h *RoleHandler) RegisterRoutes(r *gin.RouterGroup) {
-	roles := r.Group("/roles")
+	// Role management is administration, not day-to-day accounting: a user who
+	// can edit roles can grant themselves any permission.
+	roles := r.Group("/roles", middleware.RequireAdmin())
 	{
 		roles.GET("", h.List)
 		roles.POST("", h.Create)
@@ -63,7 +66,7 @@ func (h *RoleHandler) Create(c *gin.Context) {
 		case domain.ErrRoleNameEmpty:
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse("VAL_004", "Role name is required"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -82,16 +85,7 @@ func (h *RoleHandler) List(c *gin.Context) {
 		PageSize:   50,
 	}
 
-	if page := c.Query("page"); page != "" {
-		if p, err := strconv.Atoi(page); err == nil && p > 0 {
-			filter.Page = p
-		}
-	}
-	if pageSize := c.Query("page_size"); pageSize != "" {
-		if ps, err := strconv.Atoi(pageSize); err == nil && ps > 0 {
-			filter.PageSize = ps
-		}
-	}
+	filter.Page, filter.PageSize = parsePageParams(c, 50)
 	if isActive := c.Query("is_active"); isActive != "" {
 		active := isActive == "true"
 		filter.IsActive = &active
@@ -99,18 +93,13 @@ func (h *RoleHandler) List(c *gin.Context) {
 
 	roles, total, err := h.service.List(c.Request.Context(), filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
 	c.JSON(http.StatusOK, dto.SuccessWithMeta(
 		dto.FromRoles(roles),
-		&dto.MetaInfo{
-			Total:      total,
-			Page:       filter.Page,
-			PageSize:   filter.PageSize,
-			TotalPages: int((total + int64(filter.PageSize) - 1) / int64(filter.PageSize)),
-		},
+		listMeta(total, filter.Page, filter.PageSize),
 	))
 }
 
@@ -129,7 +118,7 @@ func (h *RoleHandler) GetByID(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Role not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -158,7 +147,7 @@ func (h *RoleHandler) Update(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Role not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -170,7 +159,7 @@ func (h *RoleHandler) Update(c *gin.Context) {
 		case domain.ErrRoleCodeExists:
 			c.JSON(http.StatusConflict, dto.ErrorResponse("BIZ_001", "Role code already exists"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -194,7 +183,7 @@ func (h *RoleHandler) Delete(c *gin.Context) {
 		case domain.ErrRoleInUse:
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse("BIZ_002", "Role is in use and cannot be deleted"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -224,14 +213,14 @@ func (h *RoleHandler) SetPermissions(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Role not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
 	// Get updated role
 	role, err := h.service.GetByID(c.Request.Context(), companyID, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -253,7 +242,7 @@ func (h *RoleHandler) CanDelete(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Role not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 

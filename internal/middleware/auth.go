@@ -95,6 +95,33 @@ func OptionalAuth(jwtService *auth.JWTService) gin.HandlerFunc {
 	}
 }
 
+// Role names. They mirror domain.UserRole; the middleware layer cannot import
+// internal/domain without inverting the dependency direction.
+const (
+	// RoleAdmin may do everything, including approvals, period closing and
+	// transmissions to the National Tax Service.
+	RoleAdmin = "admin"
+	// RoleUser may create and edit business records but not approve them.
+	RoleUser = "user"
+	// RoleViewer is read-only.
+	RoleViewer = "viewer"
+)
+
+// RequireWriter allows the roles that may create, edit or delete business
+// records. It exists so that "viewer" means read-only in fact and not only in
+// name: without it a viewer account can create and edit vouchers, partners,
+// accounts and tax invoices.
+func RequireWriter() gin.HandlerFunc {
+	return RequireRoles(RoleAdmin, RoleUser)
+}
+
+// RequireApprover allows the roles that may perform irreversible accounting
+// actions: approving, posting and reversing vouchers, closing and reopening
+// fiscal periods, and issuing or transmitting tax invoices.
+func RequireApprover() gin.HandlerFunc {
+	return RequireRoles(RoleAdmin)
+}
+
 // RequireRoles middleware checks if the user has any of the required roles
 func RequireRoles(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {

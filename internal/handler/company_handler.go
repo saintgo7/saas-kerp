@@ -8,6 +8,8 @@ import (
 	appctx "github.com/saintgo7/saas-kerp/internal/context"
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/handler/response"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
 
@@ -26,9 +28,10 @@ func (h *CompanyHandler) RegisterRoutes(r *gin.RouterGroup) {
 	company := r.Group("/company")
 	{
 		company.GET("", h.Get)
-		company.PUT("", h.Update)
 		company.GET("/settings", h.GetSettings)
-		company.PUT("/settings", h.UpdateSettings)
+
+		company.PUT("", middleware.RequireAdmin(), h.Update)
+		company.PUT("/settings", middleware.RequireAdmin(), h.UpdateSettings)
 	}
 }
 
@@ -42,7 +45,7 @@ func (h *CompanyHandler) Get(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Company not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -66,7 +69,7 @@ func (h *CompanyHandler) Update(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Company not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -74,7 +77,7 @@ func (h *CompanyHandler) Update(c *gin.Context) {
 	req.ApplyTo(company)
 
 	if err := h.service.Update(c.Request.Context(), company); err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -91,7 +94,7 @@ func (h *CompanyHandler) GetSettings(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Company not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -126,7 +129,7 @@ func (h *CompanyHandler) UpdateSettings(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Company not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -134,7 +137,7 @@ func (h *CompanyHandler) UpdateSettings(c *gin.Context) {
 	req.ApplyTo(company)
 
 	if err := h.service.UpdateSettings(c.Request.Context(), company); err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 

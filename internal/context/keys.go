@@ -3,10 +3,10 @@ package context
 // Context keys for storing values in request context
 const (
 	// Request metadata
-	KeyRequestID  = "request_id"
-	KeyStartTime  = "start_time"
-	KeyClientIP   = "client_ip"
-	KeyUserAgent  = "user_agent"
+	KeyRequestID = "request_id"
+	KeyStartTime = "start_time"
+	KeyClientIP  = "client_ip"
+	KeyUserAgent = "user_agent"
 
 	// Authentication
 	KeyUserID    = "user_id"

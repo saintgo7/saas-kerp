@@ -7,8 +7,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"go.uber.org/zap"
+
+	appctx "github.com/saintgo7/saas-kerp/internal/context"
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/errors"
+	"github.com/saintgo7/saas-kerp/internal/handler/response"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/repository"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
@@ -29,22 +35,33 @@ func (h *VoucherHandler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		vouchers.GET("", h.List)
 		vouchers.GET("/pending", h.GetPending)
-		vouchers.GET("/:id", h.GetByID)
 		vouchers.GET("/no/:voucher_no", h.GetByNo)
-		vouchers.POST("", h.Create)
-		vouchers.PUT("/:id", h.Update)
-		vouchers.DELETE("/:id", h.Delete)
+
+		// Reserved collection segments. They are registered explicitly, ahead of
+		// the ":id" wildcard, so that a request for an endpoint this API does not
+		// implement answers 404 instead of being parsed as a voucher ID and
+		// answering 400 "Invalid voucher ID".
+		vouchers.GET("/next-number", notImplementedRoute)
+		vouchers.GET("/export", notImplementedRoute)
+
+		vouchers.GET("/:id", h.GetByID)
+
+		// Writes: admin or user.
+		vouchers.POST("", middleware.RequireWriter(), h.Create)
+		vouchers.PUT("/:id", middleware.RequireWriter(), h.Update)
+		vouchers.DELETE("/:id", middleware.RequireWriter(), h.Delete)
 
 		// Entry operations
-		vouchers.PUT("/:id/entries", h.ReplaceEntries)
+		vouchers.PUT("/:id/entries", middleware.RequireWriter(), h.ReplaceEntries)
 
-		// Workflow operations
-		vouchers.POST("/:id/submit", h.Submit)
-		vouchers.POST("/:id/approve", h.Approve)
-		vouchers.POST("/:id/reject", h.Reject)
-		vouchers.POST("/:id/post", h.Post)
-		vouchers.POST("/:id/cancel", h.Cancel)
-		vouchers.POST("/:id/reverse", h.Reverse)
+		// Workflow. Submitting is a write; approving, posting, cancelling and
+		// reversing change the books and are restricted to approvers.
+		vouchers.POST("/:id/submit", middleware.RequireWriter(), h.Submit)
+		vouchers.POST("/:id/approve", middleware.RequireApprover(), h.Approve)
+		vouchers.POST("/:id/reject", middleware.RequireApprover(), h.Reject)
+		vouchers.POST("/:id/post", middleware.RequireApprover(), h.Post)
+		vouchers.POST("/:id/cancel", middleware.RequireApprover(), h.Cancel)
+		vouchers.POST("/:id/reverse", middleware.RequireApprover(), h.Reverse)
 	}
 }
 
@@ -78,6 +95,42 @@ func (h *VoucherHandler) getUserID(c *gin.Context) (uuid.UUID, bool) {
 	return userID, true
 }
 
+// drafterIs reports whether userID drafted or submitted the voucher.
+func drafterIs(v *domain.Voucher, userID uuid.UUID) bool {
+	if v.CreatedBy != nil && *v.CreatedBy == userID {
+		return true
+	}
+	if v.SubmittedBy != nil && *v.SubmittedBy == userID {
+		return true
+	}
+	return false
+}
+
+// respondWithVoucher reloads a voucher after a successful state change and
+// writes it to the response.
+//
+// The state change has already been committed at this point. Discarding the
+// reload error and calling dto.FromVoucher on a nil voucher panics
+// (voucher.ID.String()); reporting the reload failure as 500 is almost as bad,
+// because the client then retries an operation that in fact succeeded and the
+// retry fails with a state-transition conflict. So: log the reload failure and
+// answer with the identifier of the voucher that was changed.
+func (h *VoucherHandler) respondWithVoucher(c *gin.Context, companyID, id uuid.UUID, status int, action string) {
+	voucher, err := h.service.GetByID(c.Request.Context(), companyID, id)
+	if err != nil || voucher == nil {
+		if logger := appctx.GetLogger(c); logger != nil {
+			logger.Error("failed to reload voucher after "+action,
+				zap.Error(err),
+				zap.String("voucher_id", id.String()),
+			)
+		}
+		c.JSON(status, dto.SuccessResponse(dto.VoucherResponse{ID: id.String()}))
+		return
+	}
+
+	c.JSON(status, dto.SuccessResponse(dto.FromVoucher(voucher)))
+}
+
 // List returns a list of vouchers with filtering and pagination
 // @Summary List vouchers
 // @Description Get a paginated list of vouchers
@@ -98,13 +151,10 @@ func (h *VoucherHandler) List(c *gin.Context) {
 		return
 	}
 
-	// Set defaults
-	if req.Page == 0 {
-		req.Page = 1
-	}
-	if req.PageSize == 0 {
-		req.PageSize = 20
-	}
+	// Clamp the page window. The binding tags already reject page_size<1 and
+	// page_size>100, but the clamp is what guarantees the division below can
+	// never see a zero, whatever the tags say tomorrow.
+	req.Page, req.PageSize = response.ClampPagination(req.Page, req.PageSize)
 
 	// Build filter
 	filter := repository.VoucherFilter{
@@ -162,19 +212,9 @@ func (h *VoucherHandler) List(c *gin.Context) {
 		return
 	}
 
-	totalPages := int(total) / req.PageSize
-	if int(total)%req.PageSize > 0 {
-		totalPages++
-	}
-
 	c.JSON(http.StatusOK, dto.SuccessWithMeta(
 		dto.FromVouchers(vouchers),
-		&dto.MetaInfo{
-			Total:      total,
-			Page:       req.Page,
-			PageSize:   req.PageSize,
-			TotalPages: totalPages,
-		},
+		listMeta(total, req.Page, req.PageSize),
 	))
 }
 
@@ -423,8 +463,7 @@ func (h *VoucherHandler) Update(c *gin.Context) {
 	}
 
 	// Reload voucher
-	voucher, _ = h.service.GetByID(c.Request.Context(), companyID, id)
-	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromVoucher(voucher)))
+	h.respondWithVoucher(c, companyID, id, http.StatusOK, "update")
 }
 
 // Delete removes a voucher
@@ -515,8 +554,7 @@ func (h *VoucherHandler) ReplaceEntries(c *gin.Context) {
 		return
 	}
 
-	voucher, _ := h.service.GetByID(c.Request.Context(), companyID, id)
-	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromVoucher(voucher)))
+	h.respondWithVoucher(c, companyID, id, http.StatusOK, "state change")
 }
 
 // Submit submits a voucher for approval
@@ -560,8 +598,7 @@ func (h *VoucherHandler) Submit(c *gin.Context) {
 		return
 	}
 
-	voucher, _ := h.service.GetByID(c.Request.Context(), companyID, id)
-	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromVoucher(voucher)))
+	h.respondWithVoucher(c, companyID, id, http.StatusOK, "state change")
 }
 
 // Approve approves a voucher
@@ -589,6 +626,30 @@ func (h *VoucherHandler) Approve(c *gin.Context) {
 		return
 	}
 
+	// Separation of duties: whoever drafted or submitted a voucher may not
+	// approve it. Without this, a single account can create, approve and post an
+	// entry, and the approval workflow records nothing but that account's own
+	// signature twice.
+	//
+	// This check is best-effort at the HTTP layer: it reads the voucher and then
+	// calls Approve, so a concurrent change between the two is not covered. The
+	// authoritative place for the rule is VoucherService.Approve, inside the same
+	// transaction as the state change.
+	existing, err := h.service.GetByID(c.Request.Context(), companyID, id)
+	if err != nil {
+		if err == domain.ErrVoucherNotFound {
+			c.JSON(http.StatusNotFound, dto.ErrorResponse(dto.ErrCodeNotFound, "Voucher not found"))
+			return
+		}
+		response.InternalErrorLogged(c, "Failed to approve voucher", err)
+		return
+	}
+	if existing != nil && drafterIs(existing, userID) {
+		c.JSON(http.StatusForbidden, dto.ErrorResponse(errors.CodeForbidden,
+			"A voucher cannot be approved by the user who drafted or submitted it"))
+		return
+	}
+
 	if err := h.service.Approve(c.Request.Context(), companyID, id, userID); err != nil {
 		switch err {
 		case domain.ErrVoucherNotFound:
@@ -601,8 +662,7 @@ func (h *VoucherHandler) Approve(c *gin.Context) {
 		return
 	}
 
-	voucher, _ := h.service.GetByID(c.Request.Context(), companyID, id)
-	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromVoucher(voucher)))
+	h.respondWithVoucher(c, companyID, id, http.StatusOK, "state change")
 }
 
 // Reject rejects a voucher
@@ -649,8 +709,7 @@ func (h *VoucherHandler) Reject(c *gin.Context) {
 		return
 	}
 
-	voucher, _ := h.service.GetByID(c.Request.Context(), companyID, id)
-	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromVoucher(voucher)))
+	h.respondWithVoucher(c, companyID, id, http.StatusOK, "state change")
 }
 
 // Post posts a voucher to the ledger
@@ -690,8 +749,7 @@ func (h *VoucherHandler) Post(c *gin.Context) {
 		return
 	}
 
-	voucher, _ := h.service.GetByID(c.Request.Context(), companyID, id)
-	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromVoucher(voucher)))
+	h.respondWithVoucher(c, companyID, id, http.StatusOK, "state change")
 }
 
 // Cancel cancels a voucher
@@ -727,8 +785,7 @@ func (h *VoucherHandler) Cancel(c *gin.Context) {
 		return
 	}
 
-	voucher, _ := h.service.GetByID(c.Request.Context(), companyID, id)
-	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromVoucher(voucher)))
+	h.respondWithVoucher(c, companyID, id, http.StatusOK, "state change")
 }
 
 // Reverse creates a reversal voucher

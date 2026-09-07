@@ -6,27 +6,27 @@ import (
 
 // PartnerResponse represents a partner in API responses
 type PartnerResponse struct {
-	ID               string  `json:"id"`
-	Code             string  `json:"code"`
-	Name             string  `json:"name"`
-	NameEn           string  `json:"name_en,omitempty"`
-	BusinessNumber   string  `json:"business_number,omitempty"`
-	PartnerType      string  `json:"partner_type"`
-	Representative   string  `json:"representative,omitempty"`
-	Phone            string  `json:"phone,omitempty"`
-	Fax              string  `json:"fax,omitempty"`
-	Email            string  `json:"email,omitempty"`
-	Website          string  `json:"website,omitempty"`
-	ZipCode          string  `json:"zip_code,omitempty"`
-	Address          string  `json:"address,omitempty"`
-	AddressDetail    string  `json:"address_detail,omitempty"`
-	PaymentTermDays  int     `json:"payment_term_days"`
-	CreditLimit      float64 `json:"credit_limit"`
-	ARAccountID      string  `json:"ar_account_id,omitempty"`
-	APAccountID      string  `json:"ap_account_id,omitempty"`
-	IsActive         bool    `json:"is_active"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
+	ID              string  `json:"id"`
+	Code            string  `json:"code"`
+	Name            string  `json:"name"`
+	NameEn          string  `json:"name_en,omitempty"`
+	BusinessNumber  string  `json:"business_number,omitempty"`
+	PartnerType     string  `json:"partner_type"`
+	Representative  string  `json:"representative,omitempty"`
+	Phone           string  `json:"phone,omitempty"`
+	Fax             string  `json:"fax,omitempty"`
+	Email           string  `json:"email,omitempty"`
+	Website         string  `json:"website,omitempty"`
+	ZipCode         string  `json:"zip_code,omitempty"`
+	Address         string  `json:"address,omitempty"`
+	AddressDetail   string  `json:"address_detail,omitempty"`
+	PaymentTermDays int     `json:"payment_term_days"`
+	CreditLimit     float64 `json:"credit_limit"`
+	ARAccountID     string  `json:"ar_account_id,omitempty"`
+	APAccountID     string  `json:"ap_account_id,omitempty"`
+	IsActive        bool    `json:"is_active"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
 // FromPartner converts domain.Partner to PartnerResponse

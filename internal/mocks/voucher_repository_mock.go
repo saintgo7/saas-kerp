@@ -92,14 +92,20 @@ func (m *MockVoucherRepository) UpdateEntry(ctx context.Context, entry *domain.V
 }
 
 // DeleteEntry mocks the DeleteEntry method
-func (m *MockVoucherRepository) DeleteEntry(ctx context.Context, id uuid.UUID) error {
-	args := m.Called(ctx, id)
+func (m *MockVoucherRepository) DeleteEntry(ctx context.Context, companyID, id uuid.UUID) error {
+	args := m.Called(ctx, companyID, id)
 	return args.Error(0)
 }
 
 // DeleteEntriesByVoucher mocks the DeleteEntriesByVoucher method
-func (m *MockVoucherRepository) DeleteEntriesByVoucher(ctx context.Context, voucherID uuid.UUID) error {
-	args := m.Called(ctx, voucherID)
+func (m *MockVoucherRepository) DeleteEntriesByVoucher(ctx context.Context, companyID, voucherID uuid.UUID) error {
+	args := m.Called(ctx, companyID, voucherID)
+	return args.Error(0)
+}
+
+// MarkReversed mocks the MarkReversed method
+func (m *MockVoucherRepository) MarkReversed(ctx context.Context, companyID, voucherID, reversalID uuid.UUID) error {
+	args := m.Called(ctx, companyID, voucherID, reversalID)
 	return args.Error(0)
 }
 

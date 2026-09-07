@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Config holds all application configuration
 type Config struct {
@@ -21,6 +24,16 @@ type AppConfig struct {
 	Debug   bool   `mapstructure:"debug"`
 	Port    int    `mapstructure:"port"`
 	Version string `mapstructure:"version"`
+
+	// TrustedProxies lists the CIDRs / IPs of reverse proxies that are allowed to
+	// set X-Forwarded-For and X-Real-IP. An empty list disables proxy trust
+	// entirely, which is the correct setting when the API is reachable directly.
+	// Never set this to 0.0.0.0/0: it lets any client forge its own IP and defeat
+	// both rate limiting and audit logging.
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
+
+	// MaxRequestBodyBytes caps the size of any request body the API will read.
+	MaxRequestBodyBytes int64 `mapstructure:"max_request_body_bytes"`
 }
 
 // DatabaseConfig holds PostgreSQL configuration
@@ -34,6 +47,16 @@ type DatabaseConfig struct {
 	MaxOpenConns    int           `mapstructure:"max_open_conns"`
 	MaxIdleConns    int           `mapstructure:"max_idle_conns"`
 	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"`
+
+	// TenantGUC enables the per-request PostgreSQL session variable
+	// (app.current_tenant) that the Row Level Security policies read. See
+	// internal/database/tenant.go for the mechanism and its trade-offs.
+	TenantGUC bool `mapstructure:"tenant_guc"`
+
+	// LogParameters controls whether GORM's SQL traces keep bind parameters.
+	// Parameters are interpolated into the traced statement, so leaving this on
+	// outside development writes refresh tokens and bcrypt hashes to the log.
+	LogParameters bool `mapstructure:"log_parameters"`
 }
 
 // RedisConfig holds Redis configuration
@@ -89,12 +112,10 @@ func (c *Config) IsDevelopment() bool {
 	return c.App.Env == "development"
 }
 
-// DSN returns PostgreSQL connection string
+// DSN returns the PostgreSQL connection string.
 func (c *DatabaseConfig) DSN() string {
-	return "host=" + c.Host +
-		" port=" + string(rune(c.Port)) +
-		" user=" + c.User +
-		" password=" + c.Password +
-		" dbname=" + c.Name +
-		" sslmode=" + c.SSLMode
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		c.Host, c.Port, c.User, c.Password, c.Name, c.SSLMode,
+	)
 }

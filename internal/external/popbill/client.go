@@ -27,12 +27,12 @@ const (
 
 // Config holds Popbill API configuration.
 type Config struct {
-	LinkID       string
-	SecretKey    string
-	IsSandbox    bool
-	CorpNum      string // Business registration number
-	UserID       string // Popbill user ID
-	Timeout      time.Duration
+	LinkID    string
+	SecretKey string
+	IsSandbox bool
+	CorpNum   string // Business registration number
+	UserID    string // Popbill user ID
+	Timeout   time.Duration
 }
 
 // Client provides methods for interacting with Popbill API.
@@ -199,57 +199,57 @@ func (e *PopbillError) Error() string {
 // TaxInvoice represents a tax invoice for Popbill API.
 type TaxInvoice struct {
 	// Basic info
-	WriteDate              string `json:"writeDate"`              // 작성일자 (YYYYMMDD)
-	ChargeDirection        string `json:"chargeDirection"`        // 과금방향 (정과금/역과금)
-	IssueType              string `json:"issueType"`              // 발행형태 (정발행/역발행/위수탁)
-	TaxType                string `json:"taxType"`                // 과세형태 (과세/면세/영세)
-	PurposeType            string `json:"purposeType"`            // 영수/청구
+	WriteDate       string `json:"writeDate"`       // 작성일자 (YYYYMMDD)
+	ChargeDirection string `json:"chargeDirection"` // 과금방향 (정과금/역과금)
+	IssueType       string `json:"issueType"`       // 발행형태 (정발행/역발행/위수탁)
+	TaxType         string `json:"taxType"`         // 과세형태 (과세/면세/영세)
+	PurposeType     string `json:"purposeType"`     // 영수/청구
 
 	// Supplier info
-	InvoicerCorpNum        string `json:"invoicerCorpNum"`        // 공급자 사업자번호
-	InvoicerCorpName       string `json:"invoicerCorpName"`       // 공급자 상호
-	InvoicerCEOName        string `json:"invoicerCEOName"`        // 공급자 대표자명
-	InvoicerAddr           string `json:"invoicerAddr"`           // 공급자 주소
-	InvoicerBizType        string `json:"invoicerBizType"`        // 공급자 업태
-	InvoicerBizClass       string `json:"invoicerBizClass"`       // 공급자 종목
-	InvoicerContactName    string `json:"invoicerContactName"`    // 담당자명
-	InvoicerEmail          string `json:"invoicerEmail"`          // 담당자 이메일
+	InvoicerCorpNum     string `json:"invoicerCorpNum"`     // 공급자 사업자번호
+	InvoicerCorpName    string `json:"invoicerCorpName"`    // 공급자 상호
+	InvoicerCEOName     string `json:"invoicerCEOName"`     // 공급자 대표자명
+	InvoicerAddr        string `json:"invoicerAddr"`        // 공급자 주소
+	InvoicerBizType     string `json:"invoicerBizType"`     // 공급자 업태
+	InvoicerBizClass    string `json:"invoicerBizClass"`    // 공급자 종목
+	InvoicerContactName string `json:"invoicerContactName"` // 담당자명
+	InvoicerEmail       string `json:"invoicerEmail"`       // 담당자 이메일
 
 	// Buyer info
-	InvoiceeType           string `json:"invoiceeType"`           // 공급받는자 유형 (사업자/개인/외국인)
-	InvoiceeCorpNum        string `json:"invoiceeCorpNum"`        // 공급받는자 사업자번호
-	InvoiceeCorpName       string `json:"invoiceeCorpName"`       // 공급받는자 상호
-	InvoiceeCEOName        string `json:"invoiceeCEOName"`        // 공급받는자 대표자명
-	InvoiceeAddr           string `json:"invoiceeAddr"`           // 공급받는자 주소
-	InvoiceeBizType        string `json:"invoiceeBizType"`        // 공급받는자 업태
-	InvoiceeBizClass       string `json:"invoiceeBizClass"`       // 공급받는자 종목
-	InvoiceeContactName1   string `json:"invoiceeContactName1"`   // 담당자명
-	InvoiceeEmail1         string `json:"invoiceeEmail1"`         // 담당자 이메일
+	InvoiceeType         string `json:"invoiceeType"`         // 공급받는자 유형 (사업자/개인/외국인)
+	InvoiceeCorpNum      string `json:"invoiceeCorpNum"`      // 공급받는자 사업자번호
+	InvoiceeCorpName     string `json:"invoiceeCorpName"`     // 공급받는자 상호
+	InvoiceeCEOName      string `json:"invoiceeCEOName"`      // 공급받는자 대표자명
+	InvoiceeAddr         string `json:"invoiceeAddr"`         // 공급받는자 주소
+	InvoiceeBizType      string `json:"invoiceeBizType"`      // 공급받는자 업태
+	InvoiceeBizClass     string `json:"invoiceeBizClass"`     // 공급받는자 종목
+	InvoiceeContactName1 string `json:"invoiceeContactName1"` // 담당자명
+	InvoiceeEmail1       string `json:"invoiceeEmail1"`       // 담당자 이메일
 
 	// Amount info
-	SupplyCostTotal        string `json:"supplyCostTotal"`        // 공급가액 합계
-	TaxTotal               string `json:"taxTotal"`               // 세액 합계
-	TotalAmount            string `json:"totalAmount"`            // 합계금액
+	SupplyCostTotal string `json:"supplyCostTotal"` // 공급가액 합계
+	TaxTotal        string `json:"taxTotal"`        // 세액 합계
+	TotalAmount     string `json:"totalAmount"`     // 합계금액
 
 	// Items
-	DetailList             []TaxInvoiceDetail `json:"detailList"` // 품목 리스트
+	DetailList []TaxInvoiceDetail `json:"detailList"` // 품목 리스트
 
 	// Etc
-	Remark1                string `json:"remark1"`                // 비고1
-	NTSConfirmNum          string `json:"ntsconfirmNum"`          // 국세청 승인번호 (응답용)
+	Remark1       string `json:"remark1"`       // 비고1
+	NTSConfirmNum string `json:"ntsconfirmNum"` // 국세청 승인번호 (응답용)
 }
 
 // TaxInvoiceDetail represents a line item in a tax invoice.
 type TaxInvoiceDetail struct {
-	SerialNum     int    `json:"serialNum"`     // 품목 일련번호
-	PurchaseDT    string `json:"purchaseDT"`    // 거래일자
-	ItemName      string `json:"itemName"`      // 품목명
-	Spec          string `json:"spec"`          // 규격
-	Qty           string `json:"qty"`           // 수량
-	UnitCost      string `json:"unitCost"`      // 단가
-	SupplyCost    string `json:"supplyCost"`    // 공급가액
-	Tax           string `json:"tax"`           // 세액
-	Remark        string `json:"remark"`        // 비고
+	SerialNum  int    `json:"serialNum"`  // 품목 일련번호
+	PurchaseDT string `json:"purchaseDT"` // 거래일자
+	ItemName   string `json:"itemName"`   // 품목명
+	Spec       string `json:"spec"`       // 규격
+	Qty        string `json:"qty"`        // 수량
+	UnitCost   string `json:"unitCost"`   // 단가
+	SupplyCost string `json:"supplyCost"` // 공급가액
+	Tax        string `json:"tax"`        // 세액
+	Remark     string `json:"remark"`     // 비고
 }
 
 // IssueTaxInvoice issues a tax invoice.
@@ -296,25 +296,25 @@ func (c *Client) GetTaxInvoice(ctx context.Context, itemKey string) (*TaxInvoice
 
 // SearchRequest represents a search request for tax invoices.
 type SearchRequest struct {
-	DType      string   `json:"DType"`      // 검색일자 유형 (W/I/S)
-	SDate      string   `json:"SDate"`      // 시작일자
-	EDate      string   `json:"EDate"`      // 종료일자
-	State      []string `json:"State"`      // 상태코드
-	Type       []string `json:"Type"`       // 문서형태
-	TaxType    []string `json:"TaxType"`    // 과세형태
-	Page       int      `json:"Page"`       // 페이지번호
-	PerPage    int      `json:"PerPage"`    // 페이지당 건수
+	DType   string   `json:"DType"`   // 검색일자 유형 (W/I/S)
+	SDate   string   `json:"SDate"`   // 시작일자
+	EDate   string   `json:"EDate"`   // 종료일자
+	State   []string `json:"State"`   // 상태코드
+	Type    []string `json:"Type"`    // 문서형태
+	TaxType []string `json:"TaxType"` // 과세형태
+	Page    int      `json:"Page"`    // 페이지번호
+	PerPage int      `json:"PerPage"` // 페이지당 건수
 }
 
 // SearchResponse represents the response from searching tax invoices.
 type SearchResponse struct {
-	Code       int          `json:"code"`
-	Message    string       `json:"message"`
-	Total      int          `json:"total"`
-	PerPage    int          `json:"perPage"`
-	PageNum    int          `json:"pageNum"`
-	PageCount  int          `json:"pageCount"`
-	List       []TaxInvoice `json:"list"`
+	Code      int          `json:"code"`
+	Message   string       `json:"message"`
+	Total     int          `json:"total"`
+	PerPage   int          `json:"perPage"`
+	PageNum   int          `json:"pageNum"`
+	PageCount int          `json:"pageCount"`
+	List      []TaxInvoice `json:"list"`
 }
 
 // SearchTaxInvoices searches for tax invoices.

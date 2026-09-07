@@ -9,21 +9,21 @@ import (
 
 // ProjectResponse represents a project in API responses
 type ProjectResponse struct {
-	ID              string   `json:"id"`
-	Code            string   `json:"code"`
-	Name            string   `json:"name"`
-	Description     string   `json:"description,omitempty"`
-	ManagerID       string   `json:"manager_id,omitempty"`
-	Status          string   `json:"status"`
-	StartDate       *string  `json:"start_date,omitempty"`
-	EndDate         *string  `json:"end_date,omitempty"`
-	Budget          float64  `json:"budget"`
-	ActualCost      float64  `json:"actual_cost"`
-	BudgetRemaining float64  `json:"budget_remaining"`
-	BudgetUsedPct   float64  `json:"budget_used_percent"`
-	IsActive        bool     `json:"is_active"`
-	CreatedAt       string   `json:"created_at"`
-	UpdatedAt       string   `json:"updated_at"`
+	ID              string  `json:"id"`
+	Code            string  `json:"code"`
+	Name            string  `json:"name"`
+	Description     string  `json:"description,omitempty"`
+	ManagerID       string  `json:"manager_id,omitempty"`
+	Status          string  `json:"status"`
+	StartDate       *string `json:"start_date,omitempty"`
+	EndDate         *string `json:"end_date,omitempty"`
+	Budget          float64 `json:"budget"`
+	ActualCost      float64 `json:"actual_cost"`
+	BudgetRemaining float64 `json:"budget_remaining"`
+	BudgetUsedPct   float64 `json:"budget_used_percent"`
+	IsActive        bool    `json:"is_active"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
 // FromProject converts domain.Project to ProjectResponse
@@ -180,10 +180,10 @@ func (r *UpdateProjectRequest) ApplyTo(project *domain.Project) {
 
 // ProjectStatsResponse represents project statistics
 type ProjectStatsResponse struct {
-	TotalCount     int64   `json:"total_count"`
-	ActiveCount    int64   `json:"active_count"`
-	CompletedCount int64   `json:"completed_count"`
-	OnHoldCount    int64   `json:"on_hold_count"`
-	TotalBudget    float64 `json:"total_budget"`
+	TotalCount      int64   `json:"total_count"`
+	ActiveCount     int64   `json:"active_count"`
+	CompletedCount  int64   `json:"completed_count"`
+	OnHoldCount     int64   `json:"on_hold_count"`
+	TotalBudget     float64 `json:"total_budget"`
 	TotalActualCost float64 `json:"total_actual_cost"`
 }

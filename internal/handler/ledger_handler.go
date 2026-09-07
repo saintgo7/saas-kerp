@@ -9,6 +9,7 @@ import (
 
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
 
@@ -33,7 +34,7 @@ func (h *LedgerHandler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		ledger.GET("/balances", h.GetPeriodBalances)
 		ledger.GET("/account", h.GetAccountLedger)
-		ledger.POST("/recalculate", h.RecalculateBalances)
+		ledger.POST("/recalculate", middleware.RequireApprover(), h.RecalculateBalances)
 	}
 
 	// Report routes
@@ -50,10 +51,13 @@ func (h *LedgerHandler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		periods.GET("", h.GetFiscalPeriods)
 		periods.GET("/:year/:month", h.GetFiscalPeriod)
-		periods.POST("/create/:year", h.CreateFiscalPeriods)
-		periods.POST("/close", h.ClosePeriod)
-		periods.POST("/reopen", h.ReopenPeriod)
-		periods.POST("/year-end-close", h.YearEndClose)
+		periods.POST("/create/:year", middleware.RequireWriter(), h.CreateFiscalPeriods)
+
+		// Closing, reopening and the year-end close rewrite the books and are
+		// effectively irreversible.
+		periods.POST("/close", middleware.RequireApprover(), h.ClosePeriod)
+		periods.POST("/reopen", middleware.RequireApprover(), h.ReopenPeriod)
+		periods.POST("/year-end-close", middleware.RequireApprover(), h.YearEndClose)
 	}
 }
 
@@ -406,9 +410,9 @@ func (h *LedgerHandler) GetIncomeStatement(c *gin.Context) {
 
 	for _, item := range tb.Items {
 		fsItem := dto.FinancialStatementItem{
-			Code:   item.AccountCode,
-			Name:   item.AccountName,
-			Level:  item.AccountLevel,
+			Code:  item.AccountCode,
+			Name:  item.AccountName,
+			Level: item.AccountLevel,
 		}
 
 		switch item.AccountType {

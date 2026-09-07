@@ -22,12 +22,43 @@ type PaginationParams struct {
 	Offset  int
 }
 
-// ParsePagination extracts pagination parameters from request query
+// ParsePagination extracts pagination parameters from the request query and
+// clamps them. Both "per_page" and "page_size" are accepted for the page size;
+// the handlers in this codebase historically used the latter.
 func ParsePagination(c *gin.Context) PaginationParams {
-	page := parseIntQuery(c, "page", DefaultPage)
-	perPage := parseIntQuery(c, "per_page", DefaultPerPage)
+	return ParsePaginationWithDefault(c, DefaultPerPage)
+}
 
-	// Enforce limits
+// ParsePaginationWithDefault is ParsePagination with a caller-chosen default
+// page size (still capped at MaxPerPage).
+func ParsePaginationWithDefault(c *gin.Context, defaultPerPage int) PaginationParams {
+	if defaultPerPage < 1 || defaultPerPage > MaxPerPage {
+		defaultPerPage = DefaultPerPage
+	}
+
+	page := parseIntQuery(c, "page", DefaultPage)
+
+	perPage := defaultPerPage
+	if raw := c.Query("page_size"); raw != "" {
+		perPage = parseIntQuery(c, "page_size", defaultPerPage)
+	} else if raw := c.Query("per_page"); raw != "" {
+		perPage = parseIntQuery(c, "per_page", defaultPerPage)
+	}
+
+	page, perPage = ClampPagination(page, perPage)
+
+	return PaginationParams{
+		Page:    page,
+		PerPage: perPage,
+		Offset:  (page - 1) * perPage,
+	}
+}
+
+// ClampPagination forces page and perPage into the supported range. Callers must
+// route every client-supplied page size through this before it reaches a
+// repository LIMIT or a TotalPages division: page_size=0 otherwise panics with
+// an integer divide by zero, and an unbounded page size loads a whole table.
+func ClampPagination(page, perPage int) (int, int) {
 	if page < 1 {
 		page = DefaultPage
 	}
@@ -37,14 +68,16 @@ func ParsePagination(c *gin.Context) PaginationParams {
 	if perPage > MaxPerPage {
 		perPage = MaxPerPage
 	}
+	return page, perPage
+}
 
-	offset := (page - 1) * perPage
-
-	return PaginationParams{
-		Page:    page,
-		PerPage: perPage,
-		Offset:  offset,
+// TotalPages computes the page count for a total and a page size. A page size of
+// zero or less yields zero pages instead of panicking.
+func TotalPages(total int64, perPage int) int {
+	if perPage < 1 || total <= 0 {
+		return 0
 	}
+	return int((total + int64(perPage) - 1) / int64(perPage))
 }
 
 // parseIntQuery parses an integer from query string with default value

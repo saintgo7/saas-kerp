@@ -54,6 +54,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.debug", true)
 	v.SetDefault("app.port", 8080)
 	v.SetDefault("app.version", "0.2.0")
+	// Trust no proxy by default: gin's own default is 0.0.0.0/0, which lets any
+	// client forge X-Forwarded-For. Deployments behind nginx/Traefik must set
+	// KERP_APP_TRUSTED_PROXIES to the proxy network CIDR.
+	v.SetDefault("app.trusted_proxies", []string{})
+	v.SetDefault("app.max_request_body_bytes", 1<<20) // 1 MiB
 
 	// Database defaults
 	v.SetDefault("database.host", "localhost")
@@ -65,6 +70,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.max_open_conns", 25)
 	v.SetDefault("database.max_idle_conns", 5)
 	v.SetDefault("database.conn_max_lifetime", "5m")
+	v.SetDefault("database.tenant_guc", true)
+	v.SetDefault("database.log_parameters", false)
 
 	// Redis defaults
 	v.SetDefault("redis.host", "localhost")
@@ -89,7 +96,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("cors.max_age", 86400)
 
 	// Rate limit defaults
-	v.SetDefault("ratelimit.enabled", false)
+	// Rate limiting is on by default: an authentication endpoint without it is a
+	// free credential-stuffing target.
+	v.SetDefault("ratelimit.enabled", true)
 	v.SetDefault("ratelimit.requests_per_second", 100)
 	v.SetDefault("ratelimit.burst", 200)
 

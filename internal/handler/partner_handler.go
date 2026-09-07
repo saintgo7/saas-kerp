@@ -9,6 +9,8 @@ import (
 	appctx "github.com/saintgo7/saas-kerp/internal/context"
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/handler/response"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
 
@@ -26,17 +28,18 @@ func NewPartnerHandler(svc service.PartnerService) *PartnerHandler {
 func (h *PartnerHandler) RegisterRoutes(r *gin.RouterGroup) {
 	partners := r.Group("/partners")
 	{
-		partners.POST("", h.Create)
 		partners.GET("", h.List)
 		partners.GET("/stats", h.GetStats)
 		partners.GET("/:id", h.GetByID)
-		partners.PUT("/:id", h.Update)
-		partners.DELETE("/:id", h.Delete)
 		partners.GET("/code/:code", h.GetByCode)
 		partners.GET("/bizno/:bizno", h.GetByBusinessNumber)
 		partners.GET("/:id/can-delete", h.CanDelete)
-		partners.POST("/activate", h.Activate)
-		partners.POST("/deactivate", h.Deactivate)
+
+		partners.POST("", middleware.RequireWriter(), h.Create)
+		partners.PUT("/:id", middleware.RequireWriter(), h.Update)
+		partners.DELETE("/:id", middleware.RequireWriter(), h.Delete)
+		partners.POST("/activate", middleware.RequireWriter(), h.Activate)
+		partners.POST("/deactivate", middleware.RequireWriter(), h.Deactivate)
 	}
 }
 
@@ -94,7 +97,7 @@ func (h *PartnerHandler) Create(c *gin.Context) {
 		case service.ErrPartnerInvalidType:
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse("VAL_003", "Invalid partner type"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -114,16 +117,7 @@ func (h *PartnerHandler) List(c *gin.Context) {
 		PageSize:    20,
 	}
 
-	if page := c.Query("page"); page != "" {
-		if p, err := parseInt(page); err == nil {
-			filter.Page = p
-		}
-	}
-	if pageSize := c.Query("page_size"); pageSize != "" {
-		if ps, err := parseInt(pageSize); err == nil {
-			filter.PageSize = ps
-		}
-	}
+	filter.Page, filter.PageSize = parsePageParams(c, 20)
 	if isActive := c.Query("is_active"); isActive != "" {
 		active := isActive == "true"
 		filter.IsActive = &active
@@ -131,18 +125,13 @@ func (h *PartnerHandler) List(c *gin.Context) {
 
 	partners, total, err := h.service.List(c.Request.Context(), filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
 	c.JSON(http.StatusOK, dto.SuccessWithMeta(
 		dto.FromPartners(partners),
-		&dto.MetaInfo{
-			Total:      total,
-			Page:       filter.Page,
-			PageSize:   filter.PageSize,
-			TotalPages: int((total + int64(filter.PageSize) - 1) / int64(filter.PageSize)),
-		},
+		listMeta(total, filter.Page, filter.PageSize),
 	))
 }
 
@@ -257,7 +246,7 @@ func (h *PartnerHandler) Update(c *gin.Context) {
 		case service.ErrPartnerInvalidType:
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse("VAL_003", "Invalid partner type"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -275,7 +264,7 @@ func (h *PartnerHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.Delete(c.Request.Context(), companyID, id); err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse("BIZ_004", err.Error()))
+		response.ErrorLogged(c, http.StatusConflict, "BIZ_004", "Partner cannot be deleted", err)
 		return
 	}
 
@@ -324,7 +313,7 @@ func (h *PartnerHandler) Activate(c *gin.Context) {
 	}
 
 	if err := h.service.Activate(c.Request.Context(), companyID, ids); err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -352,7 +341,7 @@ func (h *PartnerHandler) Deactivate(c *gin.Context) {
 	}
 
 	if err := h.service.Deactivate(c.Request.Context(), companyID, ids); err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -365,7 +354,7 @@ func (h *PartnerHandler) GetStats(c *gin.Context) {
 
 	stats, err := h.service.GetStats(c.Request.Context(), companyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 

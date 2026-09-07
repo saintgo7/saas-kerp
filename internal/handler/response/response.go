@@ -1,56 +1,40 @@
 package response
 
 import (
+	stderrors "errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	appctx "github.com/saintgo7/saas-kerp/internal/context"
+	"github.com/saintgo7/saas-kerp/internal/dto"
 	"github.com/saintgo7/saas-kerp/internal/errors"
 )
 
-// Response is the standard API response structure
-type Response struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   *ErrorBody  `json:"error,omitempty"`
-	Meta    Meta        `json:"meta"`
-}
-
-// ErrorBody contains error information
-type ErrorBody struct {
-	Code    string       `json:"code"`
-	Message string       `json:"message"`
-	Details []FieldError `json:"details,omitempty"`
-}
-
-// FieldError represents a validation error on a specific field
-type FieldError struct {
-	Field   string `json:"field"`
-	Message string `json:"message"`
-}
-
-// Meta contains metadata about the response
-type Meta struct {
-	RequestID  string      `json:"request_id"`
-	Timestamp  time.Time   `json:"timestamp"`
-	Pagination *Pagination `json:"pagination,omitempty"`
-}
-
-// Pagination contains pagination information
-type Pagination struct {
-	Page       int   `json:"page"`
-	PerPage    int   `json:"per_page"`
-	Total      int64 `json:"total"`
-	TotalPages int   `json:"total_pages"`
-}
+// The response envelope is defined once, in internal/dto. These aliases keep the
+// existing response.* call sites working while guaranteeing that every handler,
+// whichever helper it reaches for, emits the identical JSON shape.
+type (
+	// Response is the standard API response structure.
+	Response = dto.Response
+	// ErrorBody contains error information.
+	ErrorBody = dto.ErrorInfo
+	// FieldError represents a validation error on a specific field.
+	FieldError = dto.FieldError
+	// Meta contains metadata about the response.
+	Meta = dto.Meta
+	// Pagination contains pagination information.
+	Pagination = dto.Pagination
+)
 
 // buildMeta builds the response metadata
-func buildMeta(c *gin.Context) Meta {
-	return Meta{
+func buildMeta(c *gin.Context) *Meta {
+	now := time.Now().UTC()
+	return &Meta{
 		RequestID: appctx.GetRequestID(c),
-		Timestamp: time.Now().UTC(),
+		Timestamp: &now,
 	}
 }
 
@@ -86,12 +70,13 @@ func Accepted(c *gin.Context, data interface{}) {
 	})
 }
 
-// Paginated sends a paginated response
+// Paginated sends a paginated response.
+//
+// perPage is clamped to [1, MaxPerPage] before it is used, so a client-supplied
+// page size of 0 can never reach the division below.
 func Paginated(c *gin.Context, data interface{}, page, perPage int, total int64) {
-	totalPages := int(total) / perPage
-	if int(total)%perPage > 0 {
-		totalPages++
-	}
+	page, perPage = ClampPagination(page, perPage)
+	totalPages := TotalPages(total, perPage)
 
 	meta := buildMeta(c)
 	meta.Pagination = &Pagination{
@@ -133,13 +118,66 @@ func ErrorWithDetails(c *gin.Context, status int, code, message string, details 
 	})
 }
 
-// FromError sends an error response from an AppError
+// ErrorWithDetail sends an error response with a free-form detail string. Use it
+// for binding/validation feedback, never for driver or database error text.
+func ErrorWithDetail(c *gin.Context, status int, code, message, detail string) {
+	c.JSON(status, Response{
+		Success: false,
+		Error: &ErrorBody{
+			Code:    code,
+			Message: message,
+			Detail:  detail,
+		},
+		Meta: buildMeta(c),
+	})
+}
+
+// ErrorWithPayload sends an error response that also carries a data payload,
+// for endpoints whose failure body is still structured (readiness probes).
+func ErrorWithPayload(c *gin.Context, status int, code, message string, data interface{}) {
+	c.JSON(status, Response{
+		Success: false,
+		Data:    data,
+		Error: &ErrorBody{
+			Code:    code,
+			Message: message,
+		},
+		Meta: buildMeta(c),
+	})
+}
+
+// ErrorLogged writes a client-safe error response and logs the underlying cause
+// with the request-scoped logger. Use it wherever the cause is a service,
+// repository or driver error: those strings carry SQL fragments, table, column
+// and constraint names, and sometimes parameter values.
+func ErrorLogged(c *gin.Context, status int, code, message string, cause error) {
+	if cause != nil {
+		if logger := appctx.GetLogger(c); logger != nil {
+			logger.Error(message,
+				zap.Error(cause),
+				zap.String("code", code),
+				zap.Int("status", status),
+				zap.String("route", c.FullPath()),
+			)
+		}
+	}
+	Error(c, status, code, message)
+}
+
+// InternalErrorLogged is ErrorLogged for the 500 case.
+func InternalErrorLogged(c *gin.Context, message string, cause error) {
+	ErrorLogged(c, http.StatusInternalServerError, errors.CodeInternal, message, cause)
+}
+
+// FromError sends an error response from an AppError.
+//
+// Errors that are not AppErrors are reported as a generic internal error: their
+// text comes from GORM/pgx and leaks table, column and constraint names. Log the
+// original with the request ID instead of shipping it to the client.
 func FromError(c *gin.Context, err error) {
 	var appErr *errors.AppError
-	if e, ok := err.(*errors.AppError); ok {
-		appErr = e
-	} else {
-		appErr = errors.Wrap(errors.CodeInternal, err.Error(), err)
+	if !stderrors.As(err, &appErr) {
+		appErr = errors.New(errors.CodeInternal, "Internal server error")
 	}
 
 	c.JSON(appErr.HTTPStatus(), Response{

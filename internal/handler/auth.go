@@ -21,21 +21,25 @@ type AuthHandler struct {
 	*BaseHandler
 	jwtService  *auth.JWTService
 	authService *service.AuthService
+	// env is the deployment environment. It gates development-only response
+	// content; see ForgotPassword.
+	env string
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(db *gorm.DB, redis *redis.Client, logger *zap.Logger, jwtService *auth.JWTService) *AuthHandler {
+func NewAuthHandler(db *gorm.DB, redis *redis.Client, logger *zap.Logger, jwtService *auth.JWTService, env string) *AuthHandler {
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
 	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
 
 	// Initialize auth service
-	authService := service.NewAuthService(userRepo, refreshTokenRepo, jwtService, logger)
+	authService := service.NewAuthService(userRepo, refreshTokenRepo, jwtService, logger, repository.NewUnitOfWork(db))
 
 	return &AuthHandler{
 		BaseHandler: NewBaseHandler(db, redis, logger),
 		jwtService:  jwtService,
 		authService: authService,
+		env:         env,
 	}
 }
 
@@ -298,15 +302,19 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		}
 	}
 
-	// TODO: Send actual email in production
-	// For development, include the token in response
+	// TODO: send the reset link by email.
+	//
+	// The token is returned in the response only in development. Returning it
+	// outside development turns an unauthenticated endpoint into a password
+	// reset oracle: anyone who knows an address gets the token that resets it.
+	// The gate is the configured environment, not a build tag or gin's mode, so
+	// staging behaves like production.
 	responseData := gin.H{
 		"message": result.Message,
 	}
-	if result.ResetToken != "" {
-		// Development only: include reset token in response
+	if result.ResetToken != "" && h.env == envDevelopment {
 		responseData["reset_token"] = result.ResetToken
-		responseData["note"] = "Development mode: Token included in response. In production, this will be sent via email."
+		responseData["note"] = "Development mode: token included in the response. In other environments it is sent by email only."
 	}
 
 	response.OK(c, responseData)

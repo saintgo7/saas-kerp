@@ -9,6 +9,8 @@ import (
 	appctx "github.com/saintgo7/saas-kerp/internal/context"
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/handler/response"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/repository"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
@@ -27,16 +29,20 @@ func NewAccountHandler(svc service.AccountService) *AccountHandler {
 func (h *AccountHandler) RegisterRoutes(r *gin.RouterGroup) {
 	accounts := r.Group("/accounts")
 	{
+		// Reads: any authenticated member of the tenant.
 		accounts.GET("", h.List)
 		accounts.GET("/tree", h.GetTree)
 		accounts.GET("/:id", h.GetByID)
 		accounts.GET("/code/:code", h.GetByCode)
-		accounts.POST("", h.Create)
-		accounts.PUT("/:id", h.Update)
-		accounts.DELETE("/:id", h.Delete)
 		accounts.GET("/:id/children", h.GetChildren)
 		accounts.GET("/:id/can-delete", h.CanDelete)
-		accounts.PUT("/:id/move", h.Move)
+
+		// Writes: admin or user. A viewer must not be able to edit the chart of
+		// accounts.
+		accounts.POST("", middleware.RequireWriter(), h.Create)
+		accounts.PUT("/:id", middleware.RequireWriter(), h.Update)
+		accounts.DELETE("/:id", middleware.RequireWriter(), h.Delete)
+		accounts.PUT("/:id/move", middleware.RequireWriter(), h.Move)
 	}
 }
 
@@ -56,16 +62,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		filter.AccountType = &at
 	}
 
-	if page := c.Query("page"); page != "" {
-		if p, err := parseInt(page); err == nil {
-			filter.Page = p
-		}
-	}
-	if pageSize := c.Query("page_size"); pageSize != "" {
-		if ps, err := parseInt(pageSize); err == nil {
-			filter.PageSize = ps
-		}
-	}
+	filter.Page, filter.PageSize = parsePageParams(c, 100)
 	if isActive := c.Query("is_active"); isActive != "" {
 		active := isActive == "true"
 		filter.IsActive = &active
@@ -73,18 +70,13 @@ func (h *AccountHandler) List(c *gin.Context) {
 
 	accounts, total, err := h.service.List(c.Request.Context(), filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
 	c.JSON(http.StatusOK, dto.SuccessWithMeta(
 		dto.FromAccounts(accounts),
-		&dto.MetaInfo{
-			Total:      total,
-			Page:       filter.Page,
-			PageSize:   filter.PageSize,
-			TotalPages: int((total + int64(filter.PageSize) - 1) / int64(filter.PageSize)),
-		},
+		listMeta(total, filter.Page, filter.PageSize),
 	))
 }
 
@@ -94,7 +86,7 @@ func (h *AccountHandler) GetTree(c *gin.Context) {
 
 	accounts, err := h.service.GetTree(c.Request.Context(), companyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -156,7 +148,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		case domain.ErrParentNotFound:
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse("BIZ_002", "Parent account not found"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -196,7 +188,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		case domain.ErrAccountCodeExists:
 			c.JSON(http.StatusConflict, dto.ErrorResponse("BIZ_001", "Account code already exists"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -214,7 +206,7 @@ func (h *AccountHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.Delete(c.Request.Context(), companyID, id); err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse("BIZ_004", err.Error()))
+		response.ErrorLogged(c, http.StatusConflict, "BIZ_004", "Account cannot be deleted", err)
 		return
 	}
 
@@ -232,7 +224,7 @@ func (h *AccountHandler) GetChildren(c *gin.Context) {
 
 	children, err := h.service.GetChildren(c.Request.Context(), companyID, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -286,7 +278,7 @@ func (h *AccountHandler) Move(c *gin.Context) {
 	}
 
 	if err := h.service.Move(c.Request.Context(), companyID, id, newParentID); err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse("BIZ_005", err.Error()))
+		response.ErrorLogged(c, http.StatusConflict, "BIZ_005", "Account cannot be moved", err)
 		return
 	}
 
