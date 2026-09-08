@@ -186,7 +186,7 @@ SELECT
 FROM generate_series(1, 12) AS m;
 
 -- Create demo partners
-INSERT INTO partners (id, company_id, partner_type, business_number, partner_name, representative, phone, email, is_active) VALUES
+INSERT INTO partners (id, company_id, partner_type, business_number, name, representative, phone, email, is_active) VALUES
 ('019478e0-0000-7000-8000-000000000040'::UUID, '019478e0-0000-7000-8000-000000000001'::UUID, 'customer', '2345678901', '(주)고객사', '김철수', '02-2345-6789', 'customer@example.com', TRUE),
 ('019478e0-0000-7000-8000-000000000041'::UUID, '019478e0-0000-7000-8000-000000000001'::UUID, 'vendor', '3456789012', '(주)공급사', '이영희', '02-3456-7890', 'vendor@example.com', TRUE),
 ('019478e0-0000-7000-8000-000000000042'::UUID, '019478e0-0000-7000-8000-000000000001'::UUID, 'both', '4567890123', '(주)거래처', '박민수', '02-4567-8901', 'partner@example.com', TRUE);

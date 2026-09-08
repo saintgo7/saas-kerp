@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -110,12 +109,4 @@ func (c *Config) IsProduction() bool {
 // IsDevelopment returns true if running in development environment
 func (c *Config) IsDevelopment() bool {
 	return c.App.Env == "development"
-}
-
-// DSN returns the PostgreSQL connection string.
-func (c *DatabaseConfig) DSN() string {
-	return fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		c.Host, c.Port, c.User, c.Password, c.Name, c.SSLMode,
-	)
 }

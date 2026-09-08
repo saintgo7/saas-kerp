@@ -141,7 +141,7 @@ func (r *orderRepositoryGorm) ListPurchaseOrders(ctx context.Context, filter *Pu
 		// once, before the count, so both agree.
 		query = query.Joins("JOIN partners ON partners.id = purchase_orders.supplier_id")
 		pattern := "%" + filter.SearchTerm + "%"
-		query = query.Where("purchase_orders.order_number ILIKE ? OR partners.partner_name ILIKE ?", pattern, pattern)
+		query = query.Where("purchase_orders.order_number ILIKE ? OR partners.name ILIKE ?", pattern, pattern)
 	}
 	if filter.Status != "" {
 		query = query.Where("purchase_orders.status = ?", filter.Status)
@@ -365,7 +365,7 @@ func (r *orderRepositoryGorm) ListSalesOrders(ctx context.Context, filter *Sales
 	if filter.SearchTerm != "" {
 		query = query.Joins("JOIN partners ON partners.id = sales_orders.customer_id")
 		pattern := "%" + filter.SearchTerm + "%"
-		query = query.Where("sales_orders.order_number ILIKE ? OR partners.partner_name ILIKE ?", pattern, pattern)
+		query = query.Where("sales_orders.order_number ILIKE ? OR partners.name ILIKE ?", pattern, pattern)
 	}
 	if filter.Status != "" {
 		query = query.Where("sales_orders.status = ?", filter.Status)

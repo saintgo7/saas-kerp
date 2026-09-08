@@ -304,18 +304,21 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 
 	// TODO: send the reset link by email.
 	//
-	// The token is returned in the response only in development. Returning it
-	// outside development turns an unauthenticated endpoint into a password
-	// reset oracle: anyone who knows an address gets the token that resets it.
-	// The gate is the configured environment, not a build tag or gin's mode, so
-	// staging behaves like production.
-	responseData := gin.H{
-		"message": result.Message,
-	}
+	// The token is never put in the response, in any environment. This endpoint
+	// is unauthenticated, so returning it would make anyone who knows an
+	// address able to reset that account - a password reset oracle. Gating that
+	// on a configured environment is not enough: a single wrong ENV on a
+	// deployment turns the oracle back on, which is the failure mode this
+	// audit spent its time removing everywhere else.
+	//
+	// For local work the token is written to the debug log instead, so two
+	// separate things (environment AND log level) have to be wrong before it
+	// escapes. It is also in Redis under password_reset:<token>.
 	if result.ResetToken != "" && h.env == envDevelopment {
-		responseData["reset_token"] = result.ResetToken
-		responseData["note"] = "Development mode: token included in the response. In other environments it is sent by email only."
+		h.Logger.Debug("password reset token issued (development only)",
+			zap.String("reset_token", result.ResetToken),
+		)
 	}
 
-	response.OK(c, responseData)
+	response.OK(c, gin.H{"message": result.Message})
 }

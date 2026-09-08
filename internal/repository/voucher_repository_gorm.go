@@ -8,9 +8,21 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/saintgo7/saas-kerp/internal/domain"
 )
+
+// voucherSortableColumns is the allowlist of columns that may be used in ORDER BY.
+// Prevents SQL injection via the sort_by query parameter.
+var voucherSortableColumns = map[string]bool{
+	"voucher_date": true,
+	"voucher_no":   true,
+	"status":       true,
+	"total_debit":  true,
+	"total_credit": true,
+	"created_at":   true,
+}
 
 // voucherRepositoryGorm implements VoucherRepository using GORM
 type voucherRepositoryGorm struct {
@@ -25,8 +37,9 @@ func NewVoucherRepository(db *gorm.DB) VoucherRepository {
 // Create inserts a new voucher with entries
 func (r *voucherRepositoryGorm) Create(ctx context.Context, voucher *domain.Voucher) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Create voucher
-		if err := tx.Create(voucher).Error; err != nil {
+		// Create voucher (without cascading entries; they are inserted below
+		// with their VoucherID/CompanyID set, to avoid double-insert / PK clash)
+		if err := tx.Omit("Entries").Create(voucher).Error; err != nil {
 			return err
 		}
 
@@ -158,15 +171,15 @@ func (r *voucherRepositoryGorm) FindAll(ctx context.Context, filter VoucherFilte
 		return nil, 0, err
 	}
 
-	// Apply sorting
-	sortBy := "voucher_date DESC, voucher_no DESC"
-	if filter.SortBy != "" {
-		sortBy = filter.SortBy
-		if filter.SortDesc {
-			sortBy = sortBy + " DESC"
-		}
+	// Apply sorting. Only allowlisted columns may be ordered to prevent SQL injection.
+	if filter.SortBy != "" && voucherSortableColumns[filter.SortBy] {
+		query = query.Order(clause.OrderByColumn{
+			Column: clause.Column{Name: filter.SortBy},
+			Desc:   filter.SortDesc,
+		})
+	} else {
+		query = query.Order("voucher_date DESC, voucher_no DESC")
 	}
-	query = query.Order(sortBy)
 
 	// Apply pagination
 	if filter.PageSize > 0 {

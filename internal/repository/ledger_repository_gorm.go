@@ -367,7 +367,7 @@ func (r *ledgerRepositoryGorm) GetTrialBalanceRange(ctx context.Context, company
 		WHERE lb.company_id = ?
 			AND (lb.fiscal_year > ? OR (lb.fiscal_year = ? AND lb.fiscal_month >= ?))
 			AND (lb.fiscal_year < ? OR (lb.fiscal_year = ? AND lb.fiscal_month <= ?))
-		GROUP BY lb.account_id, a.code, a.name, a.account_type, a.level
+		GROUP BY lb.account_id, a.code, a.name, a.account_type, a.level, a.sort_order
 		ORDER BY a.account_type, a.sort_order, a.code
 	`
 

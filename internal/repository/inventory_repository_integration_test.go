@@ -90,7 +90,7 @@ func setupInventory(t *testing.T) *inventoryFixture {
 		f.userID, f.companyID, "inv-"+uuid.New().String()+"@example.test", "x", "재고담당", "admin")
 
 	f.supplierID = uuid.New()
-	exec(`INSERT INTO partners (id, company_id, partner_type, partner_name) VALUES (?, ?, ?, ?)`,
+	exec(`INSERT INTO partners (id, company_id, partner_type, name) VALUES (?, ?, ?, ?)`,
 		f.supplierID, f.companyID, "vendor", "테스트공급사")
 
 	t.Cleanup(func() {

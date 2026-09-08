@@ -81,10 +81,10 @@ func registerTenantRoutes(tenant *gin.RouterGroup, h *handler.Handlers) {
 	h.Voucher.RegisterRoutes(tenant)
 	h.Ledger.RegisterRoutes(tenant)
 
-	// User management routes
+	// User & role management routes. RequireAdmin is applied inside each
+	// handler's own RegisterRoutes (user_handler.go / role_handler.go), so the
+	// group is registered directly rather than wrapped a second time here.
 	h.User.RegisterRoutes(tenant)
-
-	// Role management routes
 	h.Role.RegisterRoutes(tenant)
 
 	// Company settings routes
