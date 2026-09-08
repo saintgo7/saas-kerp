@@ -82,6 +82,7 @@ services:
       - KERP_REDIS_PORT=6379
       - KERP_NATS_URL=nats://nats:4222
       - KERP_JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - KERP_HR_FIELD_KEY=${KERP_HR_FIELD_KEY:?KERP_HR_FIELD_KEY must be set (openssl rand -hex 32)}
       - KERP_LOG_LEVEL=info
     ports:
       # Loopback only. External traffic must go through Traefik so that the

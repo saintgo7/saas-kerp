@@ -148,13 +148,14 @@ jobs:
           MEILI_KEY: ${{ secrets.STAGING_MEILI_KEY }}
           GRAFANA_PASSWORD: ${{ secrets.STAGING_GRAFANA_PASSWORD }}
           ARIA_ENCRYPTION_KEY: ${{ secrets.STAGING_ARIA_ENCRYPTION_KEY }}
+          KERP_HR_FIELD_KEY: ${{ secrets.STAGING_KERP_HR_FIELD_KEY }}
           TRAEFIK_DASHBOARD_AUTH: ${{ secrets.STAGING_TRAEFIK_DASHBOARD_AUTH }}
         run: |
           set -euo pipefail
           missing=0
           for name in SSH_PRIVATE_KEY SSH_HOST_KEY DB_PASSWORD JWT_SECRET \
                       MINIO_PASSWORD MEILI_KEY GRAFANA_PASSWORD \
-                      ARIA_ENCRYPTION_KEY TRAEFIK_DASHBOARD_AUTH; do
+                      ARIA_ENCRYPTION_KEY KERP_HR_FIELD_KEY TRAEFIK_DASHBOARD_AUTH; do
             value="${!name-}"
             if [ -z "$value" ]; then
               echo "ERROR: required secret $name is not configured"
@@ -227,6 +228,7 @@ jobs:
           MEILI_KEY: ${{ secrets.STAGING_MEILI_KEY }}
           GRAFANA_PASSWORD: ${{ secrets.STAGING_GRAFANA_PASSWORD }}
           ARIA_ENCRYPTION_KEY: ${{ secrets.STAGING_ARIA_ENCRYPTION_KEY }}
+          KERP_HR_FIELD_KEY: ${{ secrets.STAGING_KERP_HR_FIELD_KEY }}
           TRAEFIK_DASHBOARD_AUTH: ${{ secrets.STAGING_TRAEFIK_DASHBOARD_AUTH }}
         run: |
           set -euo pipefail
@@ -244,6 +246,7 @@ jobs:
             echo "GRAFANA_USER=admin"
             echo "GRAFANA_PASSWORD=${GRAFANA_PASSWORD}"
             echo "ARIA_ENCRYPTION_KEY=${ARIA_ENCRYPTION_KEY}"
+            echo "KERP_HR_FIELD_KEY=${KERP_HR_FIELD_KEY}"
           } | ssh deploy-target "umask 077 && cat > '${{ env.REMOTE_PATH }}/deployments/docker/.env' && chmod 600 '${{ env.REMOTE_PATH }}/deployments/docker/.env'"
 
           printf '%s\n' "$TRAEFIK_DASHBOARD_AUTH" \
@@ -390,13 +393,14 @@ jobs:
           MEILI_KEY: ${{ secrets.PRODUCTION_MEILI_KEY }}
           GRAFANA_PASSWORD: ${{ secrets.PRODUCTION_GRAFANA_PASSWORD }}
           ARIA_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_ARIA_ENCRYPTION_KEY }}
+          KERP_HR_FIELD_KEY: ${{ secrets.PRODUCTION_KERP_HR_FIELD_KEY }}
           TRAEFIK_DASHBOARD_AUTH: ${{ secrets.PRODUCTION_TRAEFIK_DASHBOARD_AUTH }}
         run: |
           set -euo pipefail
           missing=0
           for name in SSH_PRIVATE_KEY SSH_HOST_KEY DB_PASSWORD JWT_SECRET \
                       MINIO_PASSWORD MEILI_KEY GRAFANA_PASSWORD \
-                      ARIA_ENCRYPTION_KEY TRAEFIK_DASHBOARD_AUTH; do
+                      ARIA_ENCRYPTION_KEY KERP_HR_FIELD_KEY TRAEFIK_DASHBOARD_AUTH; do
             value="${!name-}"
             if [ -z "$value" ]; then
               echo "ERROR: required secret PRODUCTION_$name is not configured"
@@ -460,6 +464,7 @@ jobs:
           MEILI_KEY: ${{ secrets.PRODUCTION_MEILI_KEY }}
           GRAFANA_PASSWORD: ${{ secrets.PRODUCTION_GRAFANA_PASSWORD }}
           ARIA_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_ARIA_ENCRYPTION_KEY }}
+          KERP_HR_FIELD_KEY: ${{ secrets.PRODUCTION_KERP_HR_FIELD_KEY }}
           TRAEFIK_DASHBOARD_AUTH: ${{ secrets.PRODUCTION_TRAEFIK_DASHBOARD_AUTH }}
         run: |
           set -euo pipefail
@@ -476,6 +481,7 @@ jobs:
             echo "GRAFANA_USER=admin"
             echo "GRAFANA_PASSWORD=${GRAFANA_PASSWORD}"
             echo "ARIA_ENCRYPTION_KEY=${ARIA_ENCRYPTION_KEY}"
+            echo "KERP_HR_FIELD_KEY=${KERP_HR_FIELD_KEY}"
           } | ssh deploy-target "umask 077 && cat > '${{ env.REMOTE_PATH }}/deployments/docker/.env' && chmod 600 '${{ env.REMOTE_PATH }}/deployments/docker/.env'"
 
           printf '%s\n' "$TRAEFIK_DASHBOARD_AUTH" \
