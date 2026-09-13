@@ -39,7 +39,20 @@ func main() {
 		zap.String("name", cfg.App.Name),
 		zap.String("version", cfg.App.Version),
 		zap.String("env", cfg.App.Env),
+		// Non-reversible fingerprint of the signing secret, so an operator can
+		// tell at a glance whether the deployed value is the one they intended
+		// without the secret itself ever entering a log.
+		zap.String("jwt_secret_fingerprint", config.SecretFingerprint(cfg.JWT.Secret)),
+		zap.Bool("rate_limit_enabled", cfg.RateLimit.Enabled),
+		zap.Bool("tenant_guc_enabled", cfg.Database.TenantGUC),
+		zap.Strings("trusted_proxies", cfg.App.TrustedProxies),
 	)
+
+	// SQL traces interpolate bind parameters, so they carry refresh tokens and
+	// bcrypt hashes. Keep them only where the database holds throwaway data.
+	if cfg.IsDevelopment() {
+		cfg.Database.LogParameters = true
+	}
 
 	// Initialize database
 	db, err := database.NewPostgresDB(&cfg.Database, logger)
@@ -83,10 +96,10 @@ func main() {
 	jwtService := auth.NewJWTService(&cfg.JWT)
 
 	// Initialize handlers
-	handlers := handler.NewHandlers(db, rdb, logger, jwtService, cfg.App.Version)
+	handlers := handler.NewHandlers(db, rdb, logger, jwtService, cfg.App.Version, cfg.App.Env)
 
 	// Initialize router
-	r := router.New(cfg, logger, jwtService, handlers)
+	r := router.New(cfg, logger, jwtService, handlers, db)
 
 	// Create HTTP server
 	srv := &http.Server{

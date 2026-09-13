@@ -6,8 +6,15 @@ bin/
 *.so
 *.dylib
 
-# Test binary
+# Go test binaries (`go test -c` output).
+# NOTE: this pattern also matches `Dockerfile.test` and `Makefile.test`, which
+# are real source files referenced by docker-compose.test.yml and by the
+# documented `make -f Makefile.test test-all` entry point. Both were silently
+# absent from the repository until these negations were added, so a fresh
+# clone could not build any test image.
 *.test
+!Dockerfile.test
+!Makefile.test
 
 # Output of go coverage
 *.out
@@ -97,10 +104,31 @@ docs/design/
 *.xlsx
 *.pptx
 
-# Build reports
+# 서버 접속 정보 문서 — 개인키·비밀번호 포함, 커밋 금지
+docs/SERVER_ACCESS_GUIDE.*
+docs/.env_ssh
+*.p12
+*.pfx
+*_rsa
+*_ed25519
+
+# Build reports / 재생성 가능한 분석 산출물
+graphify-out/
 vercel-*.html
 *-report.html
 
-# Server access guide (contains plaintext private SSH keys — never commit)
-docs/SERVER_ACCESS_GUIDE.md
-graphify-out/
+# Traefik basic-auth users file - generated at deploy time from
+# TRAEFIK_DASHBOARD_AUTH by scripts/gen-traefik-auth.sh
+deployments/docker/traefik/secrets/*.htpasswd
+
+# Python / test tool caches and coverage output
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+test-results/
+
+# 테스트가 런타임에 생성하는 스크린샷 (test_hometax_crawl.py)
+python-services/tax-scraper/tests/screenshots/

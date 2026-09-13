@@ -14,7 +14,11 @@ import {
   CardTitle,
   CardContent,
 } from "@/components/ui";
-import { DateRangePicker } from "@/components/common";
+import {
+  DateRangePicker,
+  FeatureUnavailable,
+  notifyUnavailable,
+} from "@/components/common";
 import { formatCurrency } from "@/lib/utils";
 
 // Types for Cash Flow Statement
@@ -54,8 +58,9 @@ interface CashFlowStatementData {
   previousEndingCash?: number;
 }
 
-// Mock data for development following K-IFRS format
-const mockCashFlowData: CashFlowStatementData = {
+// Sample figures shown behind the FeatureUnavailable banner: the backend has
+// no cash flow statement endpoint yet, so nothing here comes from the server.
+const sampleCashFlowData: CashFlowStatementData = {
   period: {
     startDate: "2024-01-01",
     endDate: "2024-01-31",
@@ -271,10 +276,8 @@ export function CashFlowStatementPage() {
   const [endDate, setEndDate] = useState(today.toISOString().split("T")[0]);
   const [showComparison, setShowComparison] = useState(true);
 
-  // Use mock data (no API call in this version)
-  const cashFlowData = mockCashFlowData;
-  const isLoading = false;
-  const error = null;
+  // There is no cash flow statement endpoint yet; the banner above says so.
+  const cashFlowData = sampleCashFlowData;
 
   const handleDateChange = (start: string, end: string) => {
     setStartDate(start);
@@ -440,7 +443,7 @@ export function CashFlowStatementPage() {
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => notifyUnavailable("내보내기")}>
             <Download className="h-4 w-4 mr-2" />
             내보내기
           </Button>
@@ -450,6 +453,11 @@ export function CashFlowStatementPage() {
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable
+        feature="현금흐름표"
+        detail="서버에 현금흐름표 API가 아직 없습니다. 아래 숫자는 화면 구성을 보여주기 위한 예시이며 실제 회계 데이터가 아닙니다."
+      />
 
       {/* Filters */}
       <Card>
@@ -560,20 +568,7 @@ export function CashFlowStatementPage() {
       </div>
 
       {/* Cash Flow Statement Content */}
-      {isLoading ? (
-        <Card>
-          <CardContent className="py-16 flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </CardContent>
-        </Card>
-      ) : error ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <p className="text-destructive">데이터를 불러올 수 없습니다.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
+      <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center space-x-2">
               <Banknote className="h-5 w-5" />
@@ -648,7 +643,6 @@ export function CashFlowStatementPage() {
             </div>
           </CardContent>
         </Card>
-      )}
     </div>
   );
 }

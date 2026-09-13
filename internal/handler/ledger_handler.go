@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
 
@@ -33,7 +35,7 @@ func (h *LedgerHandler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		ledger.GET("/balances", h.GetPeriodBalances)
 		ledger.GET("/account", h.GetAccountLedger)
-		ledger.POST("/recalculate", h.RecalculateBalances)
+		ledger.POST("/recalculate", middleware.RequireApprover(), h.RecalculateBalances)
 	}
 
 	// Report routes
@@ -50,10 +52,13 @@ func (h *LedgerHandler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		periods.GET("", h.GetFiscalPeriods)
 		periods.GET("/:year/:month", h.GetFiscalPeriod)
-		periods.POST("/create/:year", h.CreateFiscalPeriods)
-		periods.POST("/close", h.ClosePeriod)
-		periods.POST("/reopen", h.ReopenPeriod)
-		periods.POST("/year-end-close", h.YearEndClose)
+		periods.POST("/create/:year", middleware.RequireWriter(), h.CreateFiscalPeriods)
+
+		// Closing, reopening and the year-end close rewrite the books and are
+		// effectively irreversible.
+		periods.POST("/close", middleware.RequireApprover(), h.ClosePeriod)
+		periods.POST("/reopen", middleware.RequireApprover(), h.ReopenPeriod)
+		periods.POST("/year-end-close", middleware.RequireApprover(), h.YearEndClose)
 	}
 }
 
@@ -406,9 +411,9 @@ func (h *LedgerHandler) GetIncomeStatement(c *gin.Context) {
 
 	for _, item := range tb.Items {
 		fsItem := dto.FinancialStatementItem{
-			Code:   item.AccountCode,
-			Name:   item.AccountName,
-			Level:  item.AccountLevel,
+			Code:  item.AccountCode,
+			Name:  item.AccountName,
+			Level: item.AccountLevel,
 		}
 
 		switch item.AccountType {
@@ -458,12 +463,11 @@ func (h *LedgerHandler) GetFiscalPeriods(c *gin.Context) {
 		year = time.Now().Format("2006")
 	}
 
-	var yearInt int
-	if _, err := time.Parse("2006", year); err != nil {
+	yearInt, err := strconv.Atoi(year)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse(dto.ErrCodeValidation, "Invalid year"))
 		return
 	}
-	yearInt = time.Now().Year() // Default to current year if parsing issue
 
 	periods, err := h.ledgerService.GetFiscalPeriods(c.Request.Context(), companyID, yearInt)
 	if err != nil {
@@ -491,9 +495,14 @@ func (h *LedgerHandler) GetFiscalPeriod(c *gin.Context) {
 	}
 
 	// Parse year and month from path
-	var year, month int
-	if _, err := c.Params.Get("year"); err {
+	year, err := strconv.Atoi(c.Param("year"))
+	if err != nil {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse(dto.ErrCodeValidation, "Invalid year"))
+		return
+	}
+	month, err := strconv.Atoi(c.Param("month"))
+	if err != nil || month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(dto.ErrCodeValidation, "Invalid month"))
 		return
 	}
 
@@ -525,8 +534,12 @@ func (h *LedgerHandler) CreateFiscalPeriods(c *gin.Context) {
 		return
 	}
 
-	// Parse year from path - simplified
-	year := time.Now().Year()
+	// Parse year from path
+	year, err := strconv.Atoi(c.Param("year"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse(dto.ErrCodeValidation, "Invalid year"))
+		return
+	}
 
 	periods, err := h.ledgerService.CreateFiscalPeriods(c.Request.Context(), companyID, year)
 	if err != nil {

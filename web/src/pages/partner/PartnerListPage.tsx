@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Search,
@@ -31,107 +32,93 @@ import {
   Modal,
 } from "@/components/ui";
 import { formatBusinessNumber, formatPhoneNumber } from "@/lib/utils";
-import { PARTNER_TYPES } from "@/constants";
+import { PARTNER_TYPES, DEFAULT_PAGE_SIZE } from "@/constants";
+import { partnersApi } from "@/api";
+import { getErrorMessage } from "@/services/api";
+import { toast } from "@/stores/ui";
+import { notifyUnavailable } from "@/components/common";
 import type { PartnerType } from "@/types";
-
-// Mock data
-const mockPartners = [
-  {
-    id: "1",
-    code: "P001",
-    name: "(주)테크솔루션",
-    businessNumber: "1234567890",
-    representativeName: "김대표",
-    partnerType: "both" as PartnerType,
-    address: "서울시 강남구 테헤란로 123",
-    phone: "0212345678",
-    email: "contact@techsolution.co.kr",
-    isActive: true,
-    createdAt: "2024-01-15",
-  },
-  {
-    id: "2",
-    code: "P002",
-    name: "에이플러스 전자",
-    businessNumber: "2345678901",
-    representativeName: "이사장",
-    partnerType: "supplier" as PartnerType,
-    address: "경기도 성남시 분당구 판교로 456",
-    phone: "0311234567",
-    email: "sales@aplus.co.kr",
-    isActive: true,
-    createdAt: "2024-01-10",
-  },
-  {
-    id: "3",
-    code: "P003",
-    name: "글로벌무역상사",
-    businessNumber: "3456789012",
-    representativeName: "박무역",
-    partnerType: "customer" as PartnerType,
-    address: "부산시 해운대구 마린시티로 789",
-    phone: "0519876543",
-    email: "trade@global.co.kr",
-    isActive: true,
-    createdAt: "2024-01-05",
-  },
-  {
-    id: "4",
-    code: "P004",
-    name: "스마트오피스",
-    businessNumber: "4567890123",
-    representativeName: "최스마트",
-    partnerType: "supplier" as PartnerType,
-    address: "대전시 유성구 대학로 101",
-    phone: "0421112233",
-    email: "info@smartoffice.kr",
-    isActive: false,
-    createdAt: "2023-12-20",
-  },
-  {
-    id: "5",
-    code: "P005",
-    name: "우리물류",
-    businessNumber: "5678901234",
-    representativeName: "강물류",
-    partnerType: "supplier" as PartnerType,
-    address: "인천시 남동구 논현로 202",
-    phone: "0324445566",
-    email: "delivery@woolilogis.com",
-    isActive: true,
-    createdAt: "2023-12-15",
-  },
-];
 
 const partnerTypeStyles: Record<PartnerType, { variant: "default" | "secondary" | "success"; label: string }> = {
   customer: { variant: "success", label: "고객" },
-  supplier: { variant: "secondary", label: "거래처" },
-  both: { variant: "default", label: "고객/거래처" },
+  vendor: { variant: "secondary", label: "공급업체" },
+  both: { variant: "default", label: "고객/공급업체" },
 };
 
 export function PartnerListPage() {
+  const queryClient = useQueryClient();
+
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedType, setSelectedType] = useState<string>("");
   const [showActiveOnly, setShowActiveOnly] = useState(false);
+  const [page, setPage] = useState(1);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [partnerToDelete, setPartnerToDelete] = useState<string | null>(null);
 
-  const filteredPartners = mockPartners.filter((partner) => {
-    const matchesSearch =
-      partner.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      partner.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      partner.businessNumber?.includes(searchTerm) ||
-      partner.representativeName?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = !selectedType || partner.partnerType === selectedType;
-    const matchesActive = !showActiveOnly || partner.isActive;
-    return matchesSearch && matchesType && matchesActive;
+  // Debounce the search box so typing does not fire a request per keystroke.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
+  const listParams = useMemo(
+    () => ({
+      page,
+      pageSize: DEFAULT_PAGE_SIZE,
+      search: debouncedSearch || undefined,
+      partnerType: (selectedType || undefined) as PartnerType | undefined,
+      isActive: showActiveOnly ? true : undefined,
+    }),
+    [page, debouncedSearch, selectedType, showActiveOnly]
+  );
+
+  // GET /api/v1/partners
+  const {
+    data: listResponse,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
+    queryKey: ["partners", "list", listParams],
+    queryFn: () => partnersApi.list(listParams),
   });
 
-  // Stats
-  const totalCount = mockPartners.length;
-  const customerCount = mockPartners.filter((p) => p.partnerType === "customer" || p.partnerType === "both").length;
-  const supplierCount = mockPartners.filter((p) => p.partnerType === "supplier" || p.partnerType === "both").length;
-  const activeCount = mockPartners.filter((p) => p.isActive).length;
+  // GET /api/v1/partners/stats
+  const { data: statsResponse } = useQuery({
+    queryKey: ["partners", "stats"],
+    queryFn: () => partnersApi.stats(),
+  });
+
+  const partners = listResponse?.data.items ?? [];
+  const total = listResponse?.data.total ?? 0;
+  const totalPages = listResponse?.data.totalPages ?? 1;
+
+  const stats = statsResponse?.data;
+  const totalCount = stats?.totalCount ?? total;
+  const customerCount = stats?.customerCount ?? 0;
+  const vendorCount = stats?.vendorCount ?? 0;
+  const activeCount = stats?.activeCount ?? 0;
+
+  // DELETE /api/v1/partners/:id
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => partnersApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["partners"] });
+      toast.success("삭제 완료", "거래처가 삭제되었습니다.");
+      setDeleteModalOpen(false);
+      setPartnerToDelete(null);
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        "삭제 실패",
+        getErrorMessage(err, "거래처 삭제 중 오류가 발생했습니다.")
+      );
+    },
+  });
 
   const handleDelete = (id: string) => {
     setPartnerToDelete(id);
@@ -139,10 +126,8 @@ export function PartnerListPage() {
   };
 
   const confirmDelete = () => {
-    // TODO: API call to delete partner
-    console.log("Deleting partner:", partnerToDelete);
-    setDeleteModalOpen(false);
-    setPartnerToDelete(null);
+    if (!partnerToDelete) return;
+    deleteMutation.mutate(partnerToDelete);
   };
 
   return (
@@ -177,8 +162,8 @@ export function PartnerListPage() {
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">거래처(매입)</p>
-            <p className="text-2xl font-bold text-blue-500">{supplierCount}개</p>
+            <p className="text-sm text-muted-foreground">공급업체</p>
+            <p className="text-2xl font-bold text-blue-500">{vendorCount}개</p>
           </CardContent>
         </Card>
         <Card>
@@ -207,7 +192,10 @@ export function PartnerListPage() {
             <select
               className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value)}
+              onChange={(e) => {
+                setSelectedType(e.target.value);
+                setPage(1);
+              }}
             >
               <option value="">전체 유형</option>
               {PARTNER_TYPES.map((type) => (
@@ -221,11 +209,17 @@ export function PartnerListPage() {
                 type="checkbox"
                 className="rounded border-input"
                 checked={showActiveOnly}
-                onChange={(e) => setShowActiveOnly(e.target.checked)}
+                onChange={(e) => {
+                  setShowActiveOnly(e.target.checked);
+                  setPage(1);
+                }}
               />
               <span>활성만 보기</span>
             </label>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => notifyUnavailable("거래처 목록 내보내기")}
+            >
               <Download className="h-4 w-4 mr-2" />
               내보내기
             </Button>
@@ -253,14 +247,26 @@ export function PartnerListPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredPartners.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    불러오는 중...
+                  </TableCell>
+                </TableRow>
+              ) : isError ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-destructive">
+                    {getErrorMessage(error, "거래처 목록 조회에 실패했습니다.")}
+                  </TableCell>
+                </TableRow>
+              ) : partners.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     검색 결과가 없습니다.
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredPartners.map((partner) => (
+                partners.map((partner) => (
                   <TableRow key={partner.id}>
                     <TableCell className="font-mono">{partner.code}</TableCell>
                     <TableCell>
@@ -277,8 +283,14 @@ export function PartnerListPage() {
                     </TableCell>
                     <TableCell>{partner.representativeName || "-"}</TableCell>
                     <TableCell>
-                      <Badge variant={partnerTypeStyles[partner.partnerType].variant}>
-                        {partnerTypeStyles[partner.partnerType].label}
+                      <Badge
+                        variant={
+                          partnerTypeStyles[partner.partnerType]?.variant ??
+                          "default"
+                        }
+                      >
+                        {partnerTypeStyles[partner.partnerType]?.label ??
+                          partner.partnerType}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -332,6 +344,7 @@ export function PartnerListPage() {
                               수정
                             </Link>
                             <button
+                              type="button"
                               onClick={() => handleDelete(partner.id)}
                               className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive"
                             >
@@ -350,17 +363,25 @@ export function PartnerListPage() {
 
           {/* Pagination */}
           <div className="flex items-center justify-between mt-4 pt-4 border-t">
-            <p className="text-sm text-muted-foreground">
-              총 {filteredPartners.length}건
-            </p>
+            <p className="text-sm text-muted-foreground">총 {total}건</p>
             <div className="flex items-center space-x-2">
-              <Button variant="outline" size="sm" disabled>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
                 이전
               </Button>
               <Button variant="outline" size="sm" className="bg-primary text-primary-foreground">
-                1
+                {page}
               </Button>
-              <Button variant="outline" size="sm">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
                 다음
               </Button>
             </div>
@@ -382,7 +403,11 @@ export function PartnerListPage() {
             <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>
               취소
             </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              isLoading={deleteMutation.isPending}
+            >
               삭제
             </Button>
           </div>

@@ -34,31 +34,31 @@ func (s CompanyStatus) IsValid() bool {
 
 // CompanySettings represents company-specific settings
 type CompanySettings struct {
-	FiscalYearStart    int    `json:"fiscal_year_start"`      // Month (1-12)
-	DefaultCurrency    string `json:"default_currency"`       // KRW, USD, etc.
-	DecimalPlaces      int    `json:"decimal_places"`         // Number of decimal places for amounts
-	TaxRate            float64 `json:"tax_rate"`              // Default VAT rate (e.g., 10.0)
-	VoucherAutoNumber  bool   `json:"voucher_auto_number"`    // Auto-generate voucher numbers
-	VoucherNumberFormat string `json:"voucher_number_format"` // Format: YYYYMM-NNNN
-	InvoicePrefix      string `json:"invoice_prefix"`         // Prefix for invoice numbers
-	Timezone           string `json:"timezone"`               // Timezone: Asia/Seoul
-	DateFormat         string `json:"date_format"`            // Date format: YYYY-MM-DD
-	Language           string `json:"language"`               // Default language: ko, en
+	FiscalYearStart     int     `json:"fiscal_year_start"`     // Month (1-12)
+	DefaultCurrency     string  `json:"default_currency"`      // KRW, USD, etc.
+	DecimalPlaces       int     `json:"decimal_places"`        // Number of decimal places for amounts
+	TaxRate             float64 `json:"tax_rate"`              // Default VAT rate (e.g., 10.0)
+	VoucherAutoNumber   bool    `json:"voucher_auto_number"`   // Auto-generate voucher numbers
+	VoucherNumberFormat string  `json:"voucher_number_format"` // Format: YYYYMM-NNNN
+	InvoicePrefix       string  `json:"invoice_prefix"`        // Prefix for invoice numbers
+	Timezone            string  `json:"timezone"`              // Timezone: Asia/Seoul
+	DateFormat          string  `json:"date_format"`           // Date format: YYYY-MM-DD
+	Language            string  `json:"language"`              // Default language: ko, en
 }
 
 // DefaultCompanySettings returns default settings for a new company
 func DefaultCompanySettings() CompanySettings {
 	return CompanySettings{
-		FiscalYearStart:    1,
-		DefaultCurrency:    "KRW",
-		DecimalPlaces:      0,
-		TaxRate:            10.0,
-		VoucherAutoNumber:  true,
+		FiscalYearStart:     1,
+		DefaultCurrency:     "KRW",
+		DecimalPlaces:       0,
+		TaxRate:             10.0,
+		VoucherAutoNumber:   true,
 		VoucherNumberFormat: "YYYYMM-NNNN",
-		InvoicePrefix:      "INV",
-		Timezone:           "Asia/Seoul",
-		DateFormat:         "YYYY-MM-DD",
-		Language:           "ko",
+		InvoicePrefix:       "INV",
+		Timezone:            "Asia/Seoul",
+		DateFormat:          "YYYY-MM-DD",
+		Language:            "ko",
 	}
 }
 
@@ -85,7 +85,7 @@ type Company struct {
 
 // TableName returns the table name for Company
 func (Company) TableName() string {
-	return "kerp.companies"
+	return "companies"
 }
 
 // NewCompany creates a new company

@@ -30,7 +30,7 @@ import {
 } from "@/components/ui";
 import { formatCurrency } from "@/lib/utils";
 import { PAYROLL_STATUS } from "@/constants";
-import { toast } from "@/stores/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import type { PayrollStatus } from "@/types";
 
 // Types
@@ -261,10 +261,9 @@ export function PayrollPage() {
     }
   };
 
-  // Calculate payroll
+  // No payroll endpoint exists on the server yet, so nothing is calculated.
   const handleCalculate = () => {
-    // TODO: API call to calculate payroll
-    toast.success("급여 계산 완료", "모든 직원의 급여가 계산되었습니다.");
+    notifyUnavailable("급여 계산");
   };
 
   // View payslip
@@ -275,14 +274,12 @@ export function PayrollPage() {
 
   // Approve payroll
   const handleApprove = () => {
-    // TODO: API call
-    toast.success("급여 승인 완료", "선택된 급여가 승인되었습니다.");
+    notifyUnavailable("급여 승인");
   };
 
   // Pay out
   const handlePayout = () => {
-    // TODO: API call
-    toast.success("급여 지급 완료", "급여가 지급 처리되었습니다.");
+    notifyUnavailable("급여 지급");
   };
 
   return (
@@ -300,12 +297,17 @@ export function PayrollPage() {
             <Calculator className="h-4 w-4 mr-2" />
             급여 계산
           </Button>
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() => notifyUnavailable("급여대장 내보내기")}
+          >
             <Download className="h-4 w-4 mr-2" />
             급여대장
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable feature="급여 관리" />
 
       {/* Month Selector */}
       <Card>
@@ -669,11 +671,14 @@ export function PayrollPage() {
               >
                 닫기
               </Button>
-              <Button variant="outline">
+              <Button
+                variant="outline"
+                onClick={() => notifyUnavailable("급여명세서 인쇄")}
+              >
                 <Printer className="h-4 w-4 mr-2" />
                 인쇄
               </Button>
-              <Button>
+              <Button onClick={() => notifyUnavailable("급여명세서 PDF 다운로드")}>
                 <Download className="h-4 w-4 mr-2" />
                 PDF 다운로드
               </Button>

@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 // UserStatus represents the status of a user account
@@ -46,35 +47,42 @@ func (r UserRole) IsValid() bool {
 
 // User errors
 var (
-	ErrUserNotFound          = errors.New("user not found")
-	ErrUserEmailExists       = errors.New("email already exists")
-	ErrInvalidCredentials    = errors.New("invalid email or password")
-	ErrUserInactive          = errors.New("user account is inactive")
-	ErrUserLocked            = errors.New("user account is locked")
-	ErrInvalidUserStatus     = errors.New("invalid user status")
-	ErrInvalidUserRole       = errors.New("invalid user role")
-	ErrEmailRequired         = errors.New("email is required")
-	ErrPasswordRequired      = errors.New("password is required")
-	ErrNameRequired          = errors.New("name is required")
-	ErrPasswordTooShort      = errors.New("password must be at least 8 characters")
-	ErrRefreshTokenNotFound  = errors.New("refresh token not found")
-	ErrRefreshTokenExpired   = errors.New("refresh token expired")
+	ErrUserNotFound         = errors.New("user not found")
+	ErrUserEmailExists      = errors.New("email already exists")
+	ErrInvalidCredentials   = errors.New("invalid email or password")
+	ErrUserInactive         = errors.New("user account is inactive")
+	ErrUserLocked           = errors.New("user account is locked")
+	ErrInvalidUserStatus    = errors.New("invalid user status")
+	ErrInvalidUserRole      = errors.New("invalid user role")
+	ErrEmailRequired        = errors.New("email is required")
+	ErrPasswordRequired     = errors.New("password is required")
+	ErrNameRequired         = errors.New("name is required")
+	ErrPasswordTooShort     = errors.New("password must be at least 8 characters")
+	ErrRefreshTokenNotFound = errors.New("refresh token not found")
+	ErrRefreshTokenExpired  = errors.New("refresh token expired")
 )
 
 // User represents a user in the system
 type User struct {
 	TenantModel
-	Email        string     `gorm:"type:varchar(255);not null;uniqueIndex:idx_users_company_email" json:"email"`
-	PasswordHash string     `gorm:"type:varchar(255);not null" json:"-"`
-	Name         string     `gorm:"type:varchar(100);not null" json:"name"`
-	Role         UserRole   `gorm:"type:varchar(50);default:'user'" json:"role"`
-	Status       UserStatus `gorm:"type:varchar(20);default:'active'" json:"status"`
-	LastLoginAt  *time.Time `gorm:"" json:"last_login_at,omitempty"`
+
+	// DeletedAt enables GORM soft delete. The table carries deleted_at and
+	// db/migrations/000020_index_hygiene makes the uniqueness partial on
+	// `deleted_at IS NULL`, so a hard delete here would both break audit
+	// foreign keys and waste that work. Tagged json:"-" - gorm.DeletedAt
+	// marshals as {"Time":...,"Valid":...}.
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
+	Email        string         `gorm:"type:varchar(255);not null;uniqueIndex:idx_users_company_email" json:"email"`
+	PasswordHash string         `gorm:"type:varchar(255);not null" json:"-"`
+	Name         string         `gorm:"type:varchar(100);not null" json:"name"`
+	Role         UserRole       `gorm:"type:varchar(50);default:'user'" json:"role"`
+	Status       UserStatus     `gorm:"type:varchar(20);default:'active'" json:"status"`
+	LastLoginAt  *time.Time     `gorm:"" json:"last_login_at,omitempty"`
 }
 
 // TableName returns the table name for User
 func (User) TableName() string {
-	return "kerp.users"
+	return "users"
 }
 
 // NewUser creates a new user with the given details
@@ -158,7 +166,7 @@ type RefreshToken struct {
 
 // TableName returns the table name for RefreshToken
 func (RefreshToken) TableName() string {
-	return "kerp.refresh_tokens"
+	return "refresh_tokens"
 }
 
 // IsExpired checks if the refresh token is expired

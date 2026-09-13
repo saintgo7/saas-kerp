@@ -5,9 +5,13 @@ syntax = "proto3";
 
 package kerp.tax.v1;
 
-option go_package = "github.com/kerp/api/proto/tax/v1;taxv1";
+option go_package = "github.com/saintgo7/saas-kerp/api/proto/tax/v1;taxv1";
 
-import "google/protobuf/timestamp.proto";
+// python-services/tax-scraper/proto/tax.proto also imports
+// google/protobuf/timestamp.proto. Nothing in this file uses it - every
+// date and timestamp here is a string - so it is left out to keep protoc
+// quiet. An import list is file metadata, not wire format.
+import "google/protobuf/empty.proto";
 
 // TaxInvoiceService provides operations for Korean tax invoice management
 // through integration with the National Tax Service (Hometax) system.
@@ -30,8 +34,20 @@ service TaxInvoiceService {
   // Get status of a specific tax invoice
   rpc GetTaxInvoiceStatus(GetTaxInvoiceStatusRequest) returns (GetTaxInvoiceStatusResponse);
 
-  // Stream real-time invoice notifications
+  // Sync tax invoices from Hometax into the caller's own store.
+  rpc SyncFromHometax(SyncFromHometaxRequest) returns (SyncFromHometaxResponse);
+
+  // Stream real-time invoice notifications.
+  //
+  // The Python servicer aborts this with UNIMPLEMENTED - it is declared here so
+  // the two service definitions stay method-for-method identical, not because a
+  // caller can use it.
   rpc StreamInvoiceNotifications(StreamNotificationsRequest) returns (stream InvoiceNotification);
+
+  // Service-specific health check, reporting each dependency separately.
+  // The standard grpc.health.v1.Health service is also served and is the one
+  // exempt from the token interceptor; prefer it for liveness probes.
+  rpc HealthCheck(google.protobuf.Empty) returns (HealthCheckResponse);
 }
 
 // Authentication type for Hometax login
@@ -57,6 +73,16 @@ enum InvoiceStatus {
   INVOICE_STATUS_TRANSMITTED = 3;  // Sent to NTS
   INVOICE_STATUS_CONFIRMED = 4;    // Confirmed by NTS
   INVOICE_STATUS_CANCELLED = 5;
+  INVOICE_STATUS_REJECTED = 6;    // Rejected by NTS
+}
+
+// Provider used to issue an invoice. The Python servicer reads this field and
+// routes to the Popbill ASP API when it is PROVIDER_TYPE_POPBILL; the zero
+// value means Hometax scraping.
+enum ProviderType {
+  PROVIDER_TYPE_UNSPECIFIED = 0;
+  PROVIDER_TYPE_HOMETAX = 1;   // Direct Hometax scraping
+  PROVIDER_TYPE_POPBILL = 2;   // Popbill ASP API
 }
 
 // Login request message
@@ -96,6 +122,12 @@ message LoginResponse {
 // Logout request message
 message LogoutRequest {
   string session_id = 1;
+
+  // Tenant that owns the session. REQUIRED: without it the server can only
+  // match a session by id, so one company holding another company's session
+  // id could operate on their 세금계산서. The Python service rejects a
+  // request without it with UNAUTHENTICATED (deliberate fail-closed).
+  string company_id = 2;
 }
 
 // Logout response message
@@ -115,6 +147,12 @@ message GetTaxInvoicesRequest {
   optional int64 max_amount = 7;
   int32 page = 8;
   int32 page_size = 9;
+
+  // Tenant that owns the session. REQUIRED: without it the server can only
+  // match a session by id, so one company holding another company's session
+  // id could operate on their 세금계산서. The Python service rejects a
+  // request without it with UNAUTHENTICATED (deliberate fail-closed).
+  string company_id = 10;
 }
 
 // Get tax invoices response
@@ -189,6 +227,21 @@ message IssueTaxInvoiceRequest {
   string session_id = 1;
   TaxInvoice invoice = 2;
   bool transmit_immediately = 3;  // Send to NTS immediately
+
+  // Issuance provider. Declared with the same number and type as
+  // python-services/tax-scraper/proto/tax.proto, which reads it to choose
+  // between Hometax scraping and the Popbill ASP API.
+  ProviderType provider = 4;
+
+  // Tenant that owns the session. REQUIRED: without it the server can only
+  // match a session by id, so one company holding another company's session
+  // id could operate on their 세금계산서. The Python service rejects a
+  // request without it with UNAUTHENTICATED (deliberate fail-closed).
+  string company_id = 5;
+
+  // Caller-supplied idempotency key. Reuse the same value when retrying so a
+  // retry cannot produce a second 세금계산서 at the NTS.
+  string idempotency_key = 6;
 }
 
 // Issue tax invoice response
@@ -206,6 +259,12 @@ message CancelTaxInvoiceRequest {
   string session_id = 1;
   string invoice_number = 2;
   string cancel_reason = 3;
+
+  // Tenant that owns the session. REQUIRED: without it the server can only
+  // match a session by id, so one company holding another company's session
+  // id could operate on their 세금계산서. The Python service rejects a
+  // request without it with UNAUTHENTICATED (deliberate fail-closed).
+  string company_id = 4;
 }
 
 // Cancel tax invoice response
@@ -219,6 +278,12 @@ message CancelTaxInvoiceResponse {
 message GetTaxInvoiceStatusRequest {
   string session_id = 1;
   string invoice_number = 2;
+
+  // Tenant that owns the session. REQUIRED: without it the server can only
+  // match a session by id, so one company holding another company's session
+  // id could operate on their 세금계산서. The Python service rejects a
+  // request without it with UNAUTHENTICATED (deliberate fail-closed).
+  string company_id = 3;
 }
 
 // Get tax invoice status response
@@ -228,6 +293,27 @@ message GetTaxInvoiceStatusResponse {
   InvoiceStatus status = 3;
   string nts_confirm_number = 4;
   string last_updated = 5;
+  string error_message = 6;
+}
+
+// Sync from Hometax request
+message SyncFromHometaxRequest {
+  string session_id = 1;
+  string start_date = 2;  // YYYY-MM-DD
+  string end_date = 3;    // YYYY-MM-DD
+  InvoiceType invoice_type = 4;
+
+  // Tenant that owns the session. REQUIRED - see GetTaxInvoicesRequest.
+  string company_id = 5;
+}
+
+// Sync from Hometax response
+message SyncFromHometaxResponse {
+  bool success = 1;
+  int32 synced_count = 2;
+  int32 new_count = 3;
+  int32 updated_count = 4;
+  repeated string errors = 5;
   string error_message = 6;
 }
 
@@ -245,4 +331,12 @@ message InvoiceNotification {
   InvoiceStatus status = 4;
   string message = 5;
   string timestamp = 6;
+}
+
+// Health check response
+message HealthCheckResponse {
+  bool healthy = 1;
+  string version = 2;
+  string uptime = 3;
+  map<string, bool> services = 4;
 }

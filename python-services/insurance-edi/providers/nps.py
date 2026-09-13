@@ -7,22 +7,28 @@ Handles EDI communication with the National Pension Service for:
 - 내용변경 (Change)
 - 월별납부내역 (Monthly report)
 """
-import uuid
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
 
 import structlog
 
-from .base import BaseProvider, ProviderStatus, SubmissionResult, StatusResult
-from edi.client import create_nps_client, EDIClient, ConnectionConfig
+from .base import (
+    BaseProvider,
+    ProviderStatus,
+    SubmissionResult,
+    StatusResult,
+    mask_business_number,
+    mask_name,
+)
+from edi.client import create_nps_client
 from edi.message import (
     EDIMessage,
     InsuranceType,
     DocumentType,
     MessageType,
 )
-from edi.protocol import EDIProtocolFactory
 from config import settings
+from shared.crypto import load_symmetric_key
 
 
 logger = structlog.get_logger(__name__)
@@ -73,21 +79,27 @@ class NPSProvider(BaseProvider):
         self._status = ProviderStatus.UNKNOWN
 
     async def health_check(self) -> bool:
-        """Check NPS provider availability."""
-        try:
-            # In production, this would send a test message
-            # For now, just check if we can create a client
-            return self._status == ProviderStatus.AVAILABLE
-        except Exception:
-            return False
+        """
+        Report whether this provider is actually usable.
+
+        Checks that a live connection exists, not just that a status enum was
+        set to AVAILABLE at some point in the past.
+
+        Returns:
+            True if the provider holds a connected client
+        """
+        return self._status == ProviderStatus.AVAILABLE and self._is_client_live()
 
     def _get_encryption_key(self) -> bytes:
         """Get ARIA encryption key for NPS."""
-        key_hex = settings.crypto.aria_key
-        if key_hex:
-            return bytes.fromhex(key_hex)
-        # Return placeholder for development
-        return bytes(16)
+        # Fail closed. An unset key previously fell back to bytes(16) -- an
+        # all-zero, publicly known key -- and every 취득/상실/변경 전문, each
+        # carrying a plaintext 13-digit 주민등록번호, went out encrypted under it.
+        # Nothing logged, nothing looked wrong.
+        return load_symmetric_key(
+            settings.crypto.aria_key,
+            name="ARIA_ENCRYPTION_KEY",
+        )
 
     async def submit_acquisition(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -101,7 +113,12 @@ class NPSProvider(BaseProvider):
         - acquisition.date: 취득일
         - acquisition.monthly_income: 기준소득월액
         """
-        logger.info("Submitting NPS acquisition", data=data)
+        logger.info(
+            "Submitting NPS acquisition",
+            business_no=mask_business_number(data.get("company", {}).get("business_no", "")),
+            workplace_no=data.get("company", {}).get("workplace_no", ""),
+            employee=mask_name(data.get("employee", {}).get("name", "")),
+        )
 
         # Validate data
         errors = self._validate_company_data(data) + self._validate_employee_data(data)
@@ -143,6 +160,7 @@ class NPSProvider(BaseProvider):
                 await self.connect()
 
             response, sig_valid = await self._client.send_with_retry(message)
+            self._require_valid_signature(response, sig_valid)
 
             # Parse response
             success, msg = self._parse_response_code(response.response_code)
@@ -159,7 +177,7 @@ class NPSProvider(BaseProvider):
             return SubmissionResult(
                 success=False,
                 error_code="SUBMISSION_ERROR",
-                error_message=str(e),
+                error_message=self._client_safe_error(e),
             ).to_dict()
 
     async def submit_loss(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -174,7 +192,12 @@ class NPSProvider(BaseProvider):
         - loss.date: 상실일
         - loss.reason_code: 상실사유코드
         """
-        logger.info("Submitting NPS loss", data=data)
+        logger.info(
+            "Submitting NPS loss",
+            business_no=mask_business_number(data.get("company", {}).get("business_no", "")),
+            workplace_no=data.get("company", {}).get("workplace_no", ""),
+            employee=mask_name(data.get("employee", {}).get("name", "")),
+        )
 
         errors = self._validate_company_data(data) + self._validate_employee_data(data)
         if errors:
@@ -211,6 +234,7 @@ class NPSProvider(BaseProvider):
                 await self.connect()
 
             response, sig_valid = await self._client.send_with_retry(message)
+            self._require_valid_signature(response, sig_valid)
             success, msg = self._parse_response_code(response.response_code)
 
             return SubmissionResult(
@@ -225,7 +249,7 @@ class NPSProvider(BaseProvider):
             return SubmissionResult(
                 success=False,
                 error_code="SUBMISSION_ERROR",
-                error_message=str(e),
+                error_message=self._client_safe_error(e),
             ).to_dict()
 
     async def submit_change(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -237,7 +261,12 @@ class NPSProvider(BaseProvider):
         - 02: 성명 변경
         - 03: 주민등록번호 정정
         """
-        logger.info("Submitting NPS change", data=data)
+        logger.info(
+            "Submitting NPS change",
+            business_no=mask_business_number(data.get("company", {}).get("business_no", "")),
+            workplace_no=data.get("company", {}).get("workplace_no", ""),
+            employee=mask_name(data.get("employee", {}).get("name", "")),
+        )
 
         errors = self._validate_company_data(data) + self._validate_employee_data(data)
         if errors:
@@ -276,6 +305,7 @@ class NPSProvider(BaseProvider):
                 await self.connect()
 
             response, sig_valid = await self._client.send_with_retry(message)
+            self._require_valid_signature(response, sig_valid)
             success, msg = self._parse_response_code(response.response_code)
 
             return SubmissionResult(
@@ -290,7 +320,7 @@ class NPSProvider(BaseProvider):
             return SubmissionResult(
                 success=False,
                 error_code="SUBMISSION_ERROR",
-                error_message=str(e),
+                error_message=self._client_safe_error(e),
             ).to_dict()
 
     async def query_status(self, submission_id: str) -> Dict[str, Any]:
@@ -307,7 +337,8 @@ class NPSProvider(BaseProvider):
                 reference_id=submission_id,
             )
 
-            response, _ = await self._client.send_with_retry(message)
+            response, sig_valid = await self._client.send_with_retry(message)
+            self._require_valid_signature(response, sig_valid)
 
             # Parse status from response
             status_map = {
@@ -327,7 +358,7 @@ class NPSProvider(BaseProvider):
             logger.exception("NPS status query failed", error=str(e))
             return StatusResult(
                 status="error",
-                message=str(e),
+                message=self._client_safe_error(e),
             ).to_dict()
 
     async def download_result(
@@ -356,7 +387,8 @@ class NPSProvider(BaseProvider):
             )
             message.header.message_type = MessageType.REQUEST_DOWNLOAD
 
-            response, _ = await self._client.send_with_retry(message)
+            response, sig_valid = await self._client.send_with_retry(message)
+            self._require_valid_signature(response, sig_valid)
 
             if response.response_data:
                 return {

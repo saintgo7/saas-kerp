@@ -6,7 +6,6 @@ Forms:
 - NPSLossForm: 상실신고서
 - NPSChangeForm: 내용변경신고서
 """
-from typing import Dict, Any
 
 from .base import (
     BaseForm,

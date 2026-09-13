@@ -15,6 +15,11 @@ type departmentRepositoryGorm struct {
 	db *gorm.DB
 }
 
+// maxHierarchyDepth bounds every recursive department walk. Organisation
+// charts are never this deep; the cap exists so a corrupt parent_id cannot
+// turn a lookup into an unbounded query.
+const maxHierarchyDepth = 64
+
 // NewDepartmentRepositoryGorm creates a new DepartmentRepository with GORM
 func NewDepartmentRepositoryGorm(db *gorm.DB) DepartmentRepository {
 	return &departmentRepositoryGorm{db: db}
@@ -135,16 +140,23 @@ func (r *departmentRepositoryGorm) GetChildren(ctx context.Context, companyID, p
 // GetAncestors retrieves all ancestors of a department
 func (r *departmentRepositoryGorm) GetAncestors(ctx context.Context, companyID, id uuid.UUID) ([]domain.Department, error) {
 	var depts []domain.Department
+	// The depth counter is a hard stop, not an optimisation. A department whose
+	// parent_id points at itself (or at any node in its own ancestor chain)
+	// makes this UNION ALL run forever, holding a connection and growing memory
+	// until the pool is exhausted. The recursive term also repeats the
+	// company_id predicate so a parent_id that crosses tenants cannot pull
+	// another company's rows into the result.
 	query := `
 		WITH RECURSIVE ancestors AS (
-			SELECT * FROM departments WHERE id = ? AND company_id = ?
+			SELECT d.*, 1 AS depth FROM departments d WHERE d.id = ? AND d.company_id = ?
 			UNION ALL
-			SELECT d.* FROM departments d
+			SELECT d.*, a.depth + 1 FROM departments d
 			JOIN ancestors a ON d.id = a.parent_id
+			WHERE d.company_id = ? AND a.depth < ?
 		)
 		SELECT * FROM ancestors WHERE id != ? ORDER BY level ASC
 	`
-	err := r.db.WithContext(ctx).Raw(query, id, companyID, id).Scan(&depts).Error
+	err := r.db.WithContext(ctx).Raw(query, id, companyID, companyID, maxHierarchyDepth, id).Scan(&depts).Error
 	if err != nil {
 		return nil, err
 	}
@@ -154,16 +166,20 @@ func (r *departmentRepositoryGorm) GetAncestors(ctx context.Context, companyID, 
 // GetDescendants retrieves all descendants of a department
 func (r *departmentRepositoryGorm) GetDescendants(ctx context.Context, companyID, id uuid.UUID) ([]domain.Department, error) {
 	var depts []domain.Department
+	// See GetAncestors: depth cap prevents a cyclic parent_id from hanging the
+	// connection, and the company_id predicate is repeated in the recursive
+	// term so the walk cannot leave the tenant.
 	query := `
 		WITH RECURSIVE descendants AS (
-			SELECT * FROM departments WHERE parent_id = ? AND company_id = ?
+			SELECT d.*, 1 AS depth FROM departments d WHERE d.parent_id = ? AND d.company_id = ?
 			UNION ALL
-			SELECT d.* FROM departments d
+			SELECT d.*, c.depth + 1 FROM departments d
 			JOIN descendants c ON d.parent_id = c.id
+			WHERE d.company_id = ? AND c.depth < ?
 		)
 		SELECT * FROM descendants ORDER BY level ASC, code ASC
 	`
-	err := r.db.WithContext(ctx).Raw(query, id, companyID).Scan(&depts).Error
+	err := r.db.WithContext(ctx).Raw(query, id, companyID, companyID, maxHierarchyDepth).Scan(&depts).Error
 	if err != nil {
 		return nil, err
 	}

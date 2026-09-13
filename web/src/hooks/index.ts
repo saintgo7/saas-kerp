@@ -16,38 +16,18 @@ export {
   useUpdateVoucher,
   useDeleteVoucher,
   useApproveVoucher,
+  useRejectVoucher,
+  toVoucher,
   type Voucher,
   type VoucherEntry,
+  type VoucherStatus,
+  type VoucherType,
   type VoucherListParams,
+  type VoucherListResult,
   type CreateVoucherInput,
 } from "./useVoucher";
 
-// Invoice hooks
-export {
-  invoiceKeys,
-  useInvoices,
-  useInvoice,
-  useCreateInvoice,
-  useUpdateInvoice,
-  useIssueInvoice,
-  useCancelInvoice,
-  useDeleteInvoice,
-  type Invoice,
-  type InvoiceItem,
-  type InvoiceListParams,
-  type CreateInvoiceInput,
-} from "./useInvoice";
-
-// Employee hooks
-export {
-  employeeKeys,
-  useEmployees,
-  useEmployee,
-  useCreateEmployee,
-  useUpdateEmployee,
-  useDeleteEmployee,
-  useChangeEmployeeStatus,
-  type Employee,
-  type EmployeeListParams,
-  type CreateEmployeeInput,
-} from "./useEmployee";
+// NOTE: useInvoice / useEmployee / useDashboard were removed. They called
+// /invoices, /employees and /api/v1/dashboard/*, none of which the Go backend
+// registers (internal/router/v1.go). They had no consumers and only advertised
+// endpoints that do not exist.

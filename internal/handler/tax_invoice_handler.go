@@ -2,7 +2,6 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
@@ -12,6 +11,9 @@ import (
 	appctx "github.com/saintgo7/saas-kerp/internal/context"
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/errors"
+	"github.com/saintgo7/saas-kerp/internal/handler/response"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
 
@@ -29,16 +31,20 @@ func NewTaxInvoiceHandler(svc *service.TaxInvoiceService) *TaxInvoiceHandler {
 func (h *TaxInvoiceHandler) RegisterRoutes(r *gin.RouterGroup) {
 	tax := r.Group("/tax-invoices")
 	{
-		tax.POST("", h.Create)
 		tax.GET("", h.List)
-		tax.GET("/:id", h.GetByID)
-		tax.PUT("/:id", h.Update)
-		tax.DELETE("/:id", h.Delete)
-		tax.POST("/:id/issue", h.Issue)
-		tax.POST("/:id/transmit", h.TransmitToNTS)
-		tax.POST("/:id/cancel", h.Cancel)
 		tax.GET("/summary", h.GetSummary)
-		tax.POST("/sync", h.SyncFromHometax)
+		tax.GET("/:id", h.GetByID)
+
+		tax.POST("", middleware.RequireWriter(), h.Create)
+		tax.PUT("/:id", middleware.RequireWriter(), h.Update)
+		tax.DELETE("/:id", middleware.RequireWriter(), h.Delete)
+
+		// Issuing, transmitting to the National Tax Service and cancelling are
+		// filings: they leave this system and cannot be taken back.
+		tax.POST("/:id/issue", middleware.RequireApprover(), h.Issue)
+		tax.POST("/:id/transmit", middleware.RequireApprover(), h.TransmitToNTS)
+		tax.POST("/:id/cancel", middleware.RequireApprover(), h.Cancel)
+		tax.POST("/sync", middleware.RequireApprover(), h.SyncFromHometax)
 	}
 }
 
@@ -127,11 +133,11 @@ func (h *TaxInvoiceHandler) Create(c *gin.Context) {
 
 	invoice, err := h.service.Create(c.Request.Context(), companyID, input, &userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, dto.SuccessResponse(invoice))
+	c.JSON(http.StatusCreated, dto.SuccessResponse(dto.FromTaxInvoice(invoice)))
 }
 
 // List handles GET /tax-invoices
@@ -145,16 +151,7 @@ func (h *TaxInvoiceHandler) List(c *gin.Context) {
 	}
 
 	// Parse query parameters
-	if page := c.Query("page"); page != "" {
-		if p, err := parseInt(page); err == nil {
-			filter.Page = p
-		}
-	}
-	if pageSize := c.Query("page_size"); pageSize != "" {
-		if ps, err := parseInt(pageSize); err == nil {
-			filter.PageSize = ps
-		}
-	}
+	filter.Page, filter.PageSize = parsePageParams(c, 20)
 	if startDate := c.Query("start_date"); startDate != "" {
 		if sd, err := time.Parse("2006-01-02", startDate); err == nil {
 			filter.StartDate = &sd
@@ -176,17 +173,11 @@ func (h *TaxInvoiceHandler) List(c *gin.Context) {
 
 	invoices, total, err := h.service.List(c.Request.Context(), filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
-	totalPages := int((total + int64(filter.PageSize) - 1) / int64(filter.PageSize))
-	c.JSON(http.StatusOK, dto.SuccessWithMeta(invoices, &dto.MetaInfo{
-		Total:      total,
-		Page:       filter.Page,
-		PageSize:   filter.PageSize,
-		TotalPages: totalPages,
-	}))
+	c.JSON(http.StatusOK, dto.SuccessWithMeta(dto.FromTaxInvoices(invoices), listMeta(total, filter.Page, filter.PageSize)))
 }
 
 // GetByID handles GET /tax-invoices/:id
@@ -204,12 +195,17 @@ func (h *TaxInvoiceHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.SuccessResponse(invoice))
+	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromTaxInvoice(invoice)))
 }
 
-// Update handles PUT /tax-invoices/:id
+// Update handles PUT /tax-invoices/:id.
+//
+// Editing an issued tax invoice is not a supported operation: a filed invoice is
+// corrected by cancelling it and issuing a new one. The route is kept so clients
+// get an explicit 501 rather than a silent 404 from the router.
 func (h *TaxInvoiceHandler) Update(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, dto.ErrorResponse("SRV_001", "Not implemented"))
+	c.JSON(http.StatusNotImplemented, dto.ErrorResponse(errors.CodeUnavailable,
+		"Editing a tax invoice is not supported; cancel it and issue a new one"))
 }
 
 // Delete handles DELETE /tax-invoices/:id
@@ -222,7 +218,7 @@ func (h *TaxInvoiceHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.Delete(c.Request.Context(), companyID, id); err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse("BIZ_004", err.Error()))
+		response.ErrorLogged(c, http.StatusConflict, "BIZ_004", "Tax invoice operation is not allowed in the current state", err)
 		return
 	}
 
@@ -241,11 +237,11 @@ func (h *TaxInvoiceHandler) Issue(c *gin.Context) {
 
 	invoice, err := h.service.Issue(c.Request.Context(), companyID, id, &userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse("BIZ_004", err.Error()))
+		response.ErrorLogged(c, http.StatusConflict, "BIZ_004", "Tax invoice operation is not allowed in the current state", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.SuccessResponse(invoice))
+	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromTaxInvoice(invoice)))
 }
 
 // TransmitRequest represents the request for transmitting to NTS.
@@ -271,11 +267,11 @@ func (h *TaxInvoiceHandler) TransmitToNTS(c *gin.Context) {
 
 	invoice, err := h.service.TransmitToNTS(c.Request.Context(), companyID, id, req.SessionID, &userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse("SRV_003", err.Error()))
+		response.ErrorLogged(c, http.StatusBadGateway, "SRV_003", "External service request failed", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.SuccessResponse(invoice))
+	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromTaxInvoice(invoice)))
 }
 
 // CancelRequest represents the request for cancelling an invoice.
@@ -301,11 +297,11 @@ func (h *TaxInvoiceHandler) Cancel(c *gin.Context) {
 
 	invoice, err := h.service.Cancel(c.Request.Context(), companyID, id, req.Reason, &userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse("BIZ_004", err.Error()))
+		response.ErrorLogged(c, http.StatusConflict, "BIZ_004", "Tax invoice operation is not allowed in the current state", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.SuccessResponse(invoice))
+	c.JSON(http.StatusOK, dto.SuccessResponse(dto.FromTaxInvoice(invoice)))
 }
 
 // GetSummary handles GET /tax-invoices/summary
@@ -326,7 +322,7 @@ func (h *TaxInvoiceHandler) GetSummary(c *gin.Context) {
 
 	summary, err := h.service.GetSummary(c.Request.Context(), companyID, startDate, endDate)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -353,16 +349,9 @@ func (h *TaxInvoiceHandler) SyncFromHometax(c *gin.Context) {
 
 	count, err := h.service.SyncFromHometax(c.Request.Context(), companyID, req.SessionID, req.StartDate, req.EndDate, &userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse("SRV_003", err.Error()))
+		response.ErrorLogged(c, http.StatusBadGateway, "SRV_003", "External service request failed", err)
 		return
 	}
 
 	c.JSON(http.StatusOK, dto.SuccessResponse(map[string]int{"synced_count": count}))
-}
-
-// parseInt parses a string to int
-func parseInt(s string) (int, error) {
-	var i int
-	_, err := fmt.Sscanf(s, "%d", &i)
-	return i, err
 }

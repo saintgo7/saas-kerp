@@ -3,7 +3,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -87,56 +89,71 @@ func (s *TaxInvoiceService) Create(ctx context.Context, companyID uuid.UUID, inp
 		UpdatedAt:              time.Now(),
 	}
 
+	// Build the items before anything is written so the header/item
+	// reconciliation happens on the complete document.
+	now := time.Now()
+	items := make([]domain.TaxInvoiceItem, 0, len(input.Items))
+	for i, itemInput := range input.Items {
+		items = append(items, domain.TaxInvoiceItem{
+			ID:             uuid.New(),
+			TaxInvoiceID:   invoice.ID,
+			CompanyID:      companyID,
+			SequenceNumber: i + 1,
+			SupplyDate:     itemInput.SupplyDate,
+			Description:    itemInput.Description,
+			Specification:  itemInput.Specification,
+			Quantity:       itemInput.Quantity,
+			UnitPrice:      itemInput.UnitPrice,
+			Amount:         itemInput.Amount,
+			TaxAmount:      itemInput.TaxAmount,
+			Remarks:        itemInput.Remarks,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		})
+	}
+	invoice.Items = items
+
+	// Header validation (amounts, business numbers, VAT rate) plus the
+	// header-to-items reconciliation. Amounts used to be stored exactly as the
+	// client sent them, with only total = supply + tax checked, so an invoice
+	// declaring 10,000,000 of supply and 0 tax was accepted and filed.
 	if err := invoice.Validate(); err != nil {
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
+	if len(items) > 0 {
+		if err := invoice.ValidateItems(); err != nil {
+			return nil, fmt.Errorf("validation failed: %w", err)
+		}
+	}
 
-	// Persist invoice, items and history atomically so a partial failure
-	// does not leave an orphaned invoice without its items/history.
+	history := &domain.TaxInvoiceHistory{
+		ID:           uuid.New(),
+		TaxInvoiceID: invoice.ID,
+		CompanyID:    companyID,
+		NewStatus:    domain.TaxInvoiceStatusDraft,
+		ChangedBy:    userID,
+		ChangeReason: "Invoice created",
+		CreatedAt:    now,
+	}
+
+	// One transaction for the header, the items and the history row. They used
+	// to be three independent commits, so a failure partway through left a
+	// header with no items - an invoice whose amounts can no longer be
+	// reconciled against anything.
 	err := s.repo.WithTransaction(ctx, func(repo repository.TaxInvoiceRepository) error {
 		if err := repo.Create(ctx, invoice); err != nil {
 			return fmt.Errorf("failed to create invoice: %w", err)
 		}
-
-		// Create items
-		for i, itemInput := range input.Items {
-			item := &domain.TaxInvoiceItem{
-				ID:             uuid.New(),
-				TaxInvoiceID:   invoice.ID,
-				CompanyID:      companyID,
-				SequenceNumber: i + 1,
-				SupplyDate:     itemInput.SupplyDate,
-				Description:    itemInput.Description,
-				Specification:  itemInput.Specification,
-				Quantity:       itemInput.Quantity,
-				UnitPrice:      itemInput.UnitPrice,
-				Amount:         itemInput.Amount,
-				TaxAmount:      itemInput.TaxAmount,
-				Remarks:        itemInput.Remarks,
-				CreatedAt:      time.Now(),
-				UpdatedAt:      time.Now(),
-			}
-
-			if err := repo.CreateItem(ctx, item); err != nil {
+		for i := range items {
+			if err := repo.CreateItem(ctx, &items[i]); err != nil {
 				return fmt.Errorf("failed to create item: %w", err)
 			}
-			invoice.Items = append(invoice.Items, *item)
 		}
-
-		// Create history
-		history := &domain.TaxInvoiceHistory{
-			ID:           uuid.New(),
-			TaxInvoiceID: invoice.ID,
-			CompanyID:    companyID,
-			NewStatus:    domain.TaxInvoiceStatusDraft,
-			ChangedBy:    userID,
-			ChangeReason: "Invoice created",
-			CreatedAt:    time.Now(),
-		}
+		// The history row is the audit trail for a document that can be
+		// disputed with the tax authority; its failure must not be swallowed.
 		if err := repo.CreateHistory(ctx, history); err != nil {
-			return fmt.Errorf("failed to create history: %w", err)
+			return fmt.Errorf("failed to record history: %w", err)
 		}
-
 		return nil
 	})
 	if err != nil {
@@ -189,16 +206,27 @@ func (s *TaxInvoiceService) Issue(ctx context.Context, companyID, id uuid.UUID, 
 		return nil, fmt.Errorf("invoice cannot be modified in status: %s", invoice.Status)
 	}
 
+	// Re-validate against what is actually stored. Issuing is the point of no
+	// return - after this the document is transmitted to the NTS - so the
+	// amounts are reconciled against the stored items here rather than trusted
+	// from creation time.
+	storedItems, err := s.repo.ListItems(ctx, companyID, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get items: %w", err)
+	}
+	invoice.Items = invoice.Items[:0]
+	for _, item := range storedItems {
+		invoice.Items = append(invoice.Items, *item)
+	}
+	if err := invoice.ValidateForIssue(); err != nil {
+		return nil, fmt.Errorf("invoice cannot be issued: %w", err)
+	}
+
 	oldStatus := invoice.Status
 	invoice.Status = domain.TaxInvoiceStatusIssued
 	invoice.UpdatedBy = userID
 	invoice.UpdatedAt = time.Now()
 
-	if err := s.repo.Update(ctx, invoice); err != nil {
-		return nil, fmt.Errorf("failed to update invoice: %w", err)
-	}
-
-	// Create history
 	history := &domain.TaxInvoiceHistory{
 		ID:             uuid.New(),
 		TaxInvoiceID:   invoice.ID,
@@ -209,7 +237,18 @@ func (s *TaxInvoiceService) Issue(ctx context.Context, companyID, id uuid.UUID, 
 		ChangeReason:   "Invoice issued",
 		CreatedAt:      time.Now(),
 	}
-	_ = s.repo.CreateHistory(ctx, history)
+
+	if err := s.repo.WithTransaction(ctx, func(repo repository.TaxInvoiceRepository) error {
+		if err := repo.Update(ctx, invoice); err != nil {
+			return fmt.Errorf("failed to update invoice: %w", err)
+		}
+		if err := repo.CreateHistory(ctx, history); err != nil {
+			return fmt.Errorf("failed to record history: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
 
 	return invoice, nil
 }
@@ -225,55 +264,75 @@ func (s *TaxInvoiceService) TransmitToNTS(ctx context.Context, companyID, id uui
 		return nil, fmt.Errorf("invoice must be issued before transmission")
 	}
 
-	// Fail closed when the gRPC client is unavailable: transmitting to the
-	// National Tax Service requires a real NTS round-trip. Without it we must
-	// not mark the invoice as transmitted (that would falsely record an NTS
-	// submission with no confirmation number).
+	// Idempotency guard. If a confirmation number is already recorded the NTS
+	// has accepted this invoice, and sending it again produces a duplicate
+	// filing that can only be undone with a 수정세금계산서.
+	if invoice.NTSConfirmNumber != "" {
+		return nil, fmt.Errorf("invoice has already been transmitted to NTS (승인번호 %s)", invoice.NTSConfirmNumber)
+	}
+
+	// Fail closed. Without a gRPC client the invoice used to be marked
+	// transmitted without anything having been sent, so the operator believed
+	// the filing was done.
 	if s.grpcClient == nil {
-		return nil, fmt.Errorf("gRPC client not configured")
+		return nil, fmt.Errorf("NTS gRPC client not configured; refusing to mark invoice as transmitted")
 	}
 
-	// Call gRPC service to transmit
-	{
-		resp, err := s.grpcClient.IssueTaxInvoice(ctx, &grpcclient.IssueTaxInvoiceRequest{
-			SessionID: sessionID,
-			Invoice: grpcclient.TaxInvoice{
-				InvoiceNumber:          invoice.InvoiceNumber,
-				IssueDate:              invoice.IssueDate,
-				InvoiceType:            string(invoice.InvoiceType),
-				SupplierBusinessNumber: invoice.SupplierBusinessNumber,
-				SupplierName:           invoice.SupplierName,
-				BuyerBusinessNumber:    invoice.BuyerBusinessNumber,
-				BuyerName:              invoice.BuyerName,
-				SupplyAmount:           invoice.SupplyAmount,
-				TaxAmount:              invoice.TaxAmount,
-				TotalAmount:            invoice.TotalAmount,
-			},
-			TransmitImmediately: true,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to transmit to NTS: %w", err)
-		}
-
-		if !resp.Success {
-			return nil, fmt.Errorf("NTS transmission failed: %s", resp.ErrorMessage)
-		}
-
-		invoice.NTSConfirmNumber = resp.NTSConfirmNumber
-		now := time.Now()
-		invoice.NTSTransmittedAt = &now
+	// Last validation before the document leaves the system.
+	if err := invoice.ValidateForIssue(); err != nil {
+		return nil, fmt.Errorf("invoice cannot be transmitted: %w", err)
 	}
+
+	resp, err := s.grpcClient.IssueTaxInvoice(ctx, &grpcclient.IssueTaxInvoiceRequest{
+		SessionID: sessionID,
+		// The tax scraper cannot verify that the caller owns the session it
+		// named without this, and rejects the call with UNAUTHENTICATED.
+		// Omitting it is how one company could act on another company's
+		// 세금계산서 through a leaked session id.
+		CompanyID: companyID.String(),
+		// The invoice id is stable across retries of the same issuance, which
+		// is exactly what the scraper needs to keep a retry from producing a
+		// second 세금계산서 at the NTS.
+		IdempotencyKey: invoice.ID.String(),
+		Invoice: grpcclient.TaxInvoice{
+			InvoiceNumber:          invoice.InvoiceNumber,
+			IssueDate:              invoice.IssueDate,
+			InvoiceType:            string(invoice.InvoiceType),
+			SupplierBusinessNumber: invoice.SupplierBusinessNumber,
+			SupplierName:           invoice.SupplierName,
+			BuyerBusinessNumber:    invoice.BuyerBusinessNumber,
+			BuyerName:              invoice.BuyerName,
+			SupplyAmount:           invoice.SupplyAmount,
+			TaxAmount:              invoice.TaxAmount,
+			TotalAmount:            invoice.TotalAmount,
+		},
+		TransmitImmediately: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to transmit to NTS: %w", err)
+	}
+
+	if !resp.Success {
+		return nil, fmt.Errorf("NTS transmission failed: %s", resp.ErrorMessage)
+	}
+
+	// A success with no confirmation number is not a success. Accepting it
+	// would mark the invoice transmitted with nts_confirm_number empty, and
+	// the idempotency guard above keys on exactly that field - so the next
+	// retry would sail past it and file the invoice a second time.
+	if resp.NTSConfirmNumber == "" {
+		return nil, fmt.Errorf("NTS reported success without a confirmation number; refusing to mark invoice as transmitted")
+	}
+
+	transmittedAt := time.Now()
+	invoice.NTSConfirmNumber = resp.NTSConfirmNumber
+	invoice.NTSTransmittedAt = &transmittedAt
 
 	oldStatus := invoice.Status
 	invoice.Status = domain.TaxInvoiceStatusTransmitted
 	invoice.UpdatedBy = userID
-	invoice.UpdatedAt = time.Now()
+	invoice.UpdatedAt = transmittedAt
 
-	if err := s.repo.Update(ctx, invoice); err != nil {
-		return nil, fmt.Errorf("failed to update invoice: %w", err)
-	}
-
-	// Create history
 	history := &domain.TaxInvoiceHistory{
 		ID:             uuid.New(),
 		TaxInvoiceID:   invoice.ID,
@@ -282,9 +341,25 @@ func (s *TaxInvoiceService) TransmitToNTS(ctx context.Context, companyID, id uui
 		NewStatus:      domain.TaxInvoiceStatusTransmitted,
 		ChangedBy:      userID,
 		ChangeReason:   "Invoice transmitted to NTS",
-		CreatedAt:      time.Now(),
+		CreatedAt:      transmittedAt,
 	}
-	_ = s.repo.CreateHistory(ctx, history)
+
+	// The confirmation number, the transmission timestamp and the status are
+	// written together. If this fails the NTS has the invoice but we have no
+	// record of it, so the error names the confirmation number: it is the only
+	// place it still exists, and re-transmitting without it duplicates the
+	// filing.
+	if err := s.repo.WithTransaction(ctx, func(repo repository.TaxInvoiceRepository) error {
+		if err := repo.Update(ctx, invoice); err != nil {
+			return err
+		}
+		return repo.CreateHistory(ctx, history)
+	}); err != nil {
+		return nil, fmt.Errorf(
+			"NTS accepted the invoice (승인번호 %s, 전송시각 %s) but persisting it failed - "+
+				"record the confirmation number manually and do NOT re-transmit: %w",
+			resp.NTSConfirmNumber, transmittedAt.Format(time.RFC3339), err)
+	}
 
 	return invoice, nil
 }
@@ -305,11 +380,6 @@ func (s *TaxInvoiceService) Cancel(ctx context.Context, companyID, id uuid.UUID,
 	invoice.UpdatedBy = userID
 	invoice.UpdatedAt = time.Now()
 
-	if err := s.repo.Update(ctx, invoice); err != nil {
-		return nil, fmt.Errorf("failed to update invoice: %w", err)
-	}
-
-	// Create history
 	history := &domain.TaxInvoiceHistory{
 		ID:             uuid.New(),
 		TaxInvoiceID:   invoice.ID,
@@ -320,7 +390,21 @@ func (s *TaxInvoiceService) Cancel(ctx context.Context, companyID, id uuid.UUID,
 		ChangeReason:   reason,
 		CreatedAt:      time.Now(),
 	}
-	_ = s.repo.CreateHistory(ctx, history)
+
+	// The cancellation reason is the audit trail for a tax document; losing it
+	// while the status change succeeds leaves a cancelled invoice nobody can
+	// account for.
+	if err := s.repo.WithTransaction(ctx, func(repo repository.TaxInvoiceRepository) error {
+		if err := repo.Update(ctx, invoice); err != nil {
+			return fmt.Errorf("failed to update invoice: %w", err)
+		}
+		if err := repo.CreateHistory(ctx, history); err != nil {
+			return fmt.Errorf("failed to record history: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
 
 	return invoice, nil
 }
@@ -336,16 +420,17 @@ func (s *TaxInvoiceService) Delete(ctx context.Context, companyID, id uuid.UUID)
 		return fmt.Errorf("only draft invoices can be deleted")
 	}
 
-	// Delete items first
-	if err := s.repo.DeleteItems(ctx, companyID, id); err != nil {
-		return fmt.Errorf("failed to delete items: %w", err)
-	}
-
-	if err := s.repo.Delete(ctx, companyID, id); err != nil {
-		return fmt.Errorf("failed to delete invoice: %w", err)
-	}
-
-	return nil
+	// One transaction: deleting the items and then failing to delete the
+	// header left an invoice whose amounts can no longer be reconciled.
+	return s.repo.WithTransaction(ctx, func(repo repository.TaxInvoiceRepository) error {
+		if err := repo.DeleteItems(ctx, companyID, id); err != nil {
+			return fmt.Errorf("failed to delete items: %w", err)
+		}
+		if err := repo.Delete(ctx, companyID, id); err != nil {
+			return fmt.Errorf("failed to delete invoice: %w", err)
+		}
+		return nil
+	})
 }
 
 // GetSummary retrieves aggregated tax invoice data.
@@ -359,51 +444,80 @@ func (s *TaxInvoiceService) SyncFromHometax(ctx context.Context, companyID uuid.
 		return 0, fmt.Errorf("gRPC client not configured")
 	}
 
-	resp, err := s.grpcClient.GetTaxInvoices(ctx, &grpcclient.GetTaxInvoicesRequest{
-		SessionID: sessionID,
-		StartDate: startDate,
-		EndDate:   endDate,
-		Page:      1,
-		PageSize:  1000,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to get invoices from Hometax: %w", err)
-	}
-
-	if !resp.Success {
-		return 0, fmt.Errorf("Hometax sync failed: %s", resp.ErrorMessage)
-	}
+	const pageSize = 500
 
 	synced := 0
-	for _, inv := range resp.Invoices {
-		// Check if invoice already exists
-		_, err := s.repo.GetByNumber(ctx, companyID, inv.InvoiceNumber, domain.TaxInvoiceType(inv.InvoiceType))
-		if err == nil {
-			// Invoice exists, skip
-			continue
-		}
+	var failures []string
 
-		// Create new invoice
-		input := &CreateInput{
-			InvoiceNumber:          inv.InvoiceNumber,
-			InvoiceType:            domain.TaxInvoiceType(inv.InvoiceType),
-			IssueDate:              inv.IssueDate,
-			SupplierBusinessNumber: inv.SupplierBusinessNumber,
-			SupplierName:           inv.SupplierName,
-			SupplierCEOName:        inv.SupplierCEOName,
-			BuyerBusinessNumber:    inv.BuyerBusinessNumber,
-			BuyerName:              inv.BuyerName,
-			BuyerCEOName:           inv.BuyerCEOName,
-			SupplyAmount:           inv.SupplyAmount,
-			TaxAmount:              inv.TaxAmount,
-			Remarks:                inv.Remarks,
-		}
-
-		_, err = s.Create(ctx, companyID, input, userID)
+	// Walk every page. The previous version requested page 1 with a page size
+	// of 1000 and stopped, so a period with more than 1000 invoices was
+	// silently truncated and the operator was told the sync had completed.
+	for page := int32(1); ; page++ {
+		resp, err := s.grpcClient.GetTaxInvoices(ctx, &grpcclient.GetTaxInvoicesRequest{
+			SessionID: sessionID,
+			CompanyID: companyID.String(),
+			StartDate: startDate,
+			EndDate:   endDate,
+			Page:      page,
+			PageSize:  pageSize,
+		})
 		if err != nil {
-			continue // Log and continue
+			return synced, fmt.Errorf("failed to get invoices from Hometax (page %d): %w", page, err)
 		}
-		synced++
+		if !resp.Success {
+			return synced, fmt.Errorf("Hometax sync failed (page %d): %s", page, resp.ErrorMessage)
+		}
+		if len(resp.Invoices) == 0 {
+			break
+		}
+
+		for _, inv := range resp.Invoices {
+			// Distinguish "not present yet" from a database failure. Treating
+			// every error as not-found meant a dropped connection turned into
+			// a duplicate insert attempt for every invoice in the page.
+			_, err := s.repo.GetByNumber(ctx, companyID, inv.InvoiceNumber, domain.TaxInvoiceType(inv.InvoiceType))
+			switch {
+			case err == nil:
+				continue // already stored
+			case errors.Is(err, domain.ErrTaxInvoiceNotFound):
+				// fall through and create it
+			default:
+				return synced, fmt.Errorf("failed to look up invoice %s: %w", inv.InvoiceNumber, err)
+			}
+
+			input := &CreateInput{
+				InvoiceNumber:          inv.InvoiceNumber,
+				InvoiceType:            domain.TaxInvoiceType(inv.InvoiceType),
+				IssueDate:              inv.IssueDate,
+				SupplierBusinessNumber: inv.SupplierBusinessNumber,
+				SupplierName:           inv.SupplierName,
+				SupplierCEOName:        inv.SupplierCEOName,
+				BuyerBusinessNumber:    inv.BuyerBusinessNumber,
+				BuyerName:              inv.BuyerName,
+				BuyerCEOName:           inv.BuyerCEOName,
+				SupplyAmount:           inv.SupplyAmount,
+				TaxAmount:              inv.TaxAmount,
+				Remarks:                inv.Remarks,
+			}
+
+			if _, err := s.Create(ctx, companyID, input, userID); err != nil {
+				// Per-invoice failures are collected rather than swallowed:
+				// the caller was previously told how many synced but never
+				// which ones had not.
+				failures = append(failures, fmt.Sprintf("%s: %v", inv.InvoiceNumber, err))
+				continue
+			}
+			synced++
+		}
+
+		if len(resp.Invoices) < pageSize {
+			break
+		}
+	}
+
+	if len(failures) > 0 {
+		return synced, fmt.Errorf("%d개 세금계산서를 저장하지 못했습니다: %s",
+			len(failures), strings.Join(failures, "; "))
 	}
 
 	return synced, nil

@@ -20,7 +20,9 @@ datasources:
     database: kerp
     user: kerp
     secureJsonData:
-      password: ${DB_PASSWORD:-kerp123}
+      # Grafana provisioning expands $VAR / ${VAR} but NOT ${VAR:-default}.
+      # DB_PASSWORD is passed to the grafana service in docker-compose.yml.
+      password: $DB_PASSWORD
     jsonData:
       sslmode: disable
       maxOpenConns: 5

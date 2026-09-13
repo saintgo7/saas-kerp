@@ -38,6 +38,3 @@ VALUES
 (2026, 300000000, 500000000, 94060000, 0.40),
 (2026, 500000000, 1000000000, 174060000, 0.42),
 (2026, 1000000000, NULL, 384060000, 0.45);
-
-COMMENT ON TABLE social_insurance_rates IS 'Rates for NPS, NHIS, EI, WCI';
-COMMENT ON TABLE income_tax_tables IS 'Korean income tax brackets';

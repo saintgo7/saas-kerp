@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,7 +33,7 @@ func (r *taxInvoiceRepositoryGorm) GetByID(ctx context.Context, companyID, id uu
 		First(&invoice).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("tax invoice not found")
+			return nil, domain.ErrTaxInvoiceNotFound
 		}
 		return nil, err
 	}
@@ -49,7 +48,7 @@ func (r *taxInvoiceRepositoryGorm) GetByNumber(ctx context.Context, companyID uu
 		First(&invoice).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("tax invoice not found")
+			return nil, domain.ErrTaxInvoiceNotFound
 		}
 		return nil, err
 	}
@@ -216,10 +215,9 @@ func (r *taxInvoiceRepositoryGorm) GetSummary(ctx context.Context, companyID uui
 	return &summary, nil
 }
 
-// WithTransaction executes a function within a transaction
+// WithTransaction executes fn inside a single database transaction.
 func (r *taxInvoiceRepositoryGorm) WithTransaction(ctx context.Context, fn func(repo TaxInvoiceRepository) error) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		txRepo := &taxInvoiceRepositoryGorm{db: tx}
-		return fn(txRepo)
+		return fn(&taxInvoiceRepositoryGorm{db: tx})
 	})
 }

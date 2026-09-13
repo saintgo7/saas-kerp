@@ -129,66 +129,71 @@ type UpdateVoucherRequest struct {
 
 // VoucherResponse represents the response for a voucher
 type VoucherResponse struct {
-	ID              string                 `json:"id"`
-	VoucherNo       string                 `json:"voucher_no"`
-	VoucherDate     string                 `json:"voucher_date"`
-	VoucherType     string                 `json:"voucher_type"`
-	VoucherTypeLabel string                `json:"voucher_type_label"`
-	Status          string                 `json:"status"`
-	StatusLabel     string                 `json:"status_label"`
-	TotalDebit      float64                `json:"total_debit"`
-	TotalCredit     float64                `json:"total_credit"`
-	Description     string                 `json:"description,omitempty"`
-	ReferenceType   string                 `json:"reference_type,omitempty"`
-	ReferenceID     string                 `json:"reference_id,omitempty"`
-	AttachmentCount int                    `json:"attachment_count"`
-	IsReversal      bool                   `json:"is_reversal"`
-	ReversalOfID    string                 `json:"reversal_of_id,omitempty"`
-	ReversedByID    string                 `json:"reversed_by_id,omitempty"`
-	SubmittedAt     string                 `json:"submitted_at,omitempty"`
-	ApprovedAt      string                 `json:"approved_at,omitempty"`
-	PostedAt        string                 `json:"posted_at,omitempty"`
-	Entries         []VoucherEntryResponse `json:"entries,omitempty"`
-	CreatedAt       string                 `json:"created_at"`
-	UpdatedAt       string                 `json:"updated_at"`
+	ID               string                 `json:"id"`
+	VoucherNo        string                 `json:"voucher_no"`
+	VoucherDate      string                 `json:"voucher_date"`
+	VoucherType      string                 `json:"voucher_type"`
+	VoucherTypeLabel string                 `json:"voucher_type_label"`
+	Status           string                 `json:"status"`
+	StatusLabel      string                 `json:"status_label"`
+	TotalDebit       float64                `json:"total_debit"`
+	TotalCredit      float64                `json:"total_credit"`
+	Description      string                 `json:"description,omitempty"`
+	ReferenceType    string                 `json:"reference_type,omitempty"`
+	ReferenceID      string                 `json:"reference_id,omitempty"`
+	AttachmentCount  int                    `json:"attachment_count"`
+	IsReversal       bool                   `json:"is_reversal"`
+	ReversalOfID     string                 `json:"reversal_of_id,omitempty"`
+	ReversedByID     string                 `json:"reversed_by_id,omitempty"`
+	SubmittedAt      string                 `json:"submitted_at,omitempty"`
+	ApprovedAt       string                 `json:"approved_at,omitempty"`
+	PostedAt         string                 `json:"posted_at,omitempty"`
+	Entries          []VoucherEntryResponse `json:"entries,omitempty"`
+	CreatedAt        string                 `json:"created_at"`
+	UpdatedAt        string                 `json:"updated_at"`
 }
 
 // VoucherEntryResponse represents the response for a voucher entry
 type VoucherEntryResponse struct {
-	ID           string           `json:"id"`
-	LineNo       int              `json:"line_no"`
-	AccountID    string           `json:"account_id"`
-	AccountCode  string           `json:"account_code,omitempty"`
-	AccountName  string           `json:"account_name,omitempty"`
-	DebitAmount  float64          `json:"debit_amount"`
-	CreditAmount float64          `json:"credit_amount"`
-	Description  string           `json:"description,omitempty"`
-	PartnerID    string           `json:"partner_id,omitempty"`
-	PartnerName  string           `json:"partner_name,omitempty"`
-	DepartmentID string           `json:"department_id,omitempty"`
-	DepartmentName string         `json:"department_name,omitempty"`
-	ProjectID    string           `json:"project_id,omitempty"`
-	CostCenterID string           `json:"cost_center_id,omitempty"`
+	ID             string  `json:"id"`
+	LineNo         int     `json:"line_no"`
+	AccountID      string  `json:"account_id"`
+	AccountCode    string  `json:"account_code,omitempty"`
+	AccountName    string  `json:"account_name,omitempty"`
+	DebitAmount    float64 `json:"debit_amount"`
+	CreditAmount   float64 `json:"credit_amount"`
+	Description    string  `json:"description,omitempty"`
+	PartnerID      string  `json:"partner_id,omitempty"`
+	PartnerName    string  `json:"partner_name,omitempty"`
+	DepartmentID   string  `json:"department_id,omitempty"`
+	DepartmentName string  `json:"department_name,omitempty"`
+	ProjectID      string  `json:"project_id,omitempty"`
+	CostCenterID   string  `json:"cost_center_id,omitempty"`
 }
 
-// FromVoucher converts domain.Voucher to VoucherResponse
+// FromVoucher converts domain.Voucher to VoucherResponse.
+// A nil voucher yields the zero response rather than a nil-pointer panic.
 func FromVoucher(voucher *domain.Voucher) VoucherResponse {
+	if voucher == nil {
+		return VoucherResponse{}
+	}
+
 	resp := VoucherResponse{
-		ID:              voucher.ID.String(),
-		VoucherNo:       voucher.VoucherNo,
-		VoucherDate:     voucher.VoucherDate.Format("2006-01-02"),
-		VoucherType:     string(voucher.VoucherType),
+		ID:               voucher.ID.String(),
+		VoucherNo:        voucher.VoucherNo,
+		VoucherDate:      voucher.VoucherDate.Format("2006-01-02"),
+		VoucherType:      string(voucher.VoucherType),
 		VoucherTypeLabel: voucher.GetTypeLabel(),
-		Status:          string(voucher.Status),
-		StatusLabel:     voucher.GetStatusLabel(),
-		TotalDebit:      voucher.TotalDebit,
-		TotalCredit:     voucher.TotalCredit,
-		Description:     voucher.Description,
-		ReferenceType:   voucher.ReferenceType,
-		AttachmentCount: voucher.AttachmentCount,
-		IsReversal:      voucher.IsReversal,
-		CreatedAt:       voucher.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:       voucher.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		Status:           string(voucher.Status),
+		StatusLabel:      voucher.GetStatusLabel(),
+		TotalDebit:       voucher.TotalDebit,
+		TotalCredit:      voucher.TotalCredit,
+		Description:      voucher.Description,
+		ReferenceType:    voucher.ReferenceType,
+		AttachmentCount:  voucher.AttachmentCount,
+		IsReversal:       voucher.IsReversal,
+		CreatedAt:        voucher.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:        voucher.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	if voucher.ReferenceID != nil {
@@ -266,19 +271,19 @@ func FromVouchers(vouchers []domain.Voucher) []VoucherResponse {
 
 // VoucherListRequest represents query parameters for listing vouchers
 type VoucherListRequest struct {
-	VoucherType  string `form:"voucher_type" binding:"omitempty,oneof=general sales purchase payment receipt adjustment closing"`
-	Status       string `form:"status" binding:"omitempty,oneof=draft pending approved posted rejected cancelled"`
-	DateFrom     string `form:"date_from" binding:"omitempty"`
-	DateTo       string `form:"date_to" binding:"omitempty"`
-	AccountID    string `form:"account_id" binding:"omitempty,uuid"`
-	PartnerID    string `form:"partner_id" binding:"omitempty,uuid"`
-	DepartmentID string `form:"department_id" binding:"omitempty,uuid"`
-	Search       string `form:"search" binding:"max=100"`
-	IncludeEntries bool `form:"include_entries"`
-	Page         int    `form:"page" binding:"omitempty,min=1"`
-	PageSize     int    `form:"page_size" binding:"omitempty,min=1,max=100"`
-	SortBy       string `form:"sort_by" binding:"omitempty,oneof=voucher_date voucher_no status total_debit total_credit created_at"`
-	SortDesc     bool   `form:"sort_desc"`
+	VoucherType    string `form:"voucher_type" binding:"omitempty,oneof=general sales purchase payment receipt adjustment closing"`
+	Status         string `form:"status" binding:"omitempty,oneof=draft pending approved posted rejected cancelled"`
+	DateFrom       string `form:"date_from" binding:"omitempty"`
+	DateTo         string `form:"date_to" binding:"omitempty"`
+	AccountID      string `form:"account_id" binding:"omitempty,uuid"`
+	PartnerID      string `form:"partner_id" binding:"omitempty,uuid"`
+	DepartmentID   string `form:"department_id" binding:"omitempty,uuid"`
+	Search         string `form:"search" binding:"max=100"`
+	IncludeEntries bool   `form:"include_entries"`
+	Page           int    `form:"page" binding:"omitempty,min=1"`
+	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=100"`
+	SortBy         string `form:"sort_by" binding:"omitempty,oneof=voucher_date voucher_no status total_debit total_credit created_at"`
+	SortDesc       bool   `form:"sort_desc"`
 }
 
 // WorkflowActionRequest represents a workflow action request

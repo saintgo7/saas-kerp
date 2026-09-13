@@ -114,9 +114,22 @@ func (r *roleRepositoryGorm) ExistsByCode(ctx context.Context, companyID uuid.UU
 	return count > 0, nil
 }
 
+// IsInUse reports whether any user of the company still holds this role.
+//
+// The user_roles junction table (db/migrations/000003_core_tables.up.sql)
+// cascades on delete, so removing a role that is still assigned does not raise
+// a foreign key error - it silently strips the permission from every user who
+// had it. The stub that used to return false made that the default outcome.
 func (r *roleRepositoryGorm) IsInUse(ctx context.Context, companyID, roleID uuid.UUID) (bool, error) {
-	// Check if any users have this role assigned
-	// For now, return false as we don't have user-role association table
-	// This would need to be implemented when role-based access is fully set up
-	return false, nil
+	var count int64
+	err := r.db.WithContext(ctx).
+		Table("user_roles ur").
+		Joins("JOIN users u ON u.id = ur.user_id").
+		Where("ur.role_id = ? AND u.company_id = ?", roleID, companyID).
+		Limit(1).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

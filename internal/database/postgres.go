@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -14,7 +15,14 @@ import (
 	"github.com/saintgo7/saas-kerp/internal/config"
 )
 
-// NewPostgresDB creates a new PostgreSQL connection using GORM
+// NewPostgresDB creates a new PostgreSQL connection using GORM.
+//
+// When cfg.TenantGUC is enabled the returned *gorm.DB routes each statement to
+// the connection pinned to that statement's context (see tenant.go), which is
+// what makes the Row Level Security policies effective. Prepared-statement
+// caching is disabled in that mode because a statement prepared on a pinned
+// connection is not valid on any other connection, and GORM's cache is shared
+// across requests.
 func NewPostgresDB(cfg *config.DatabaseConfig, zapLogger *zap.Logger) (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
@@ -24,19 +32,21 @@ func NewPostgresDB(cfg *config.DatabaseConfig, zapLogger *zap.Logger) (*gorm.DB,
 	// Configure GORM logger
 	var gormLogger logger.Interface
 	if zapLogger != nil {
-		gormLogger = newGormLogger(zapLogger)
+		gormLogger = newGormLogger(zapLogger, cfg.LogParameters)
 	} else {
 		gormLogger = logger.Default.LogMode(logger.Silent)
+	}
+
+	gormCfg := &gorm.Config{
+		Logger:                                   gormLogger,
+		DisableForeignKeyConstraintWhenMigrating: true,
+		PrepareStmt:                              !cfg.TenantGUC,
 	}
 
 	db, err := gorm.Open(postgres.New(postgres.Config{
 		DSN:                  dsn,
 		PreferSimpleProtocol: true,
-	}), &gorm.Config{
-		Logger:                                   gormLogger,
-		DisableForeignKeyConstraintWhenMigrating: true,
-		PrepareStmt:                              true,
-	})
+	}), gormCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -59,7 +69,22 @@ func NewPostgresDB(cfg *config.DatabaseConfig, zapLogger *zap.Logger) (*gorm.DB,
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	return db, nil
+	if !cfg.TenantGUC {
+		return db, nil
+	}
+
+	// Re-open GORM on top of the tenant-aware connection pool. postgres.Config.Conn
+	// makes the driver adopt the pool as-is, so this reuses the *sql.DB opened and
+	// pinged above rather than establishing a second pool.
+	tenantDB, err := gorm.Open(postgres.New(postgres.Config{
+		Conn:                 newTenantConnPool(sqlDB),
+		PreferSimpleProtocol: true,
+	}), gormCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to install tenant connection pool: %w", err)
+	}
+
+	return tenantDB, nil
 }
 
 // CloseDB closes the database connection
@@ -86,16 +111,26 @@ func Transaction(db *gorm.DB, fn func(tx *gorm.DB) error) error {
 	return db.Transaction(fn)
 }
 
-// gormLogger adapts zap logger to GORM logger interface
+// gormZapLogger adapts zap logger to the GORM logger interface.
 type gormZapLogger struct {
 	logger *zap.Logger
 	level  logger.LogLevel
+	// logParameters keeps bind parameters in traced SQL. GORM interpolates
+	// parameters into the traced statement, so with this on the log receives
+	// refresh tokens, bcrypt hashes and every other value the app ever binds.
+	logParameters bool
 }
 
-func newGormLogger(zapLogger *zap.Logger) logger.Interface {
+var (
+	_ logger.Interface  = (*gormZapLogger)(nil)
+	_ gorm.ParamsFilter = (*gormZapLogger)(nil)
+)
+
+func newGormLogger(zapLogger *zap.Logger, logParameters bool) logger.Interface {
 	return &gormZapLogger{
-		logger: zapLogger,
-		level:  logger.Info,
+		logger:        zapLogger,
+		level:         logger.Info,
+		logParameters: logParameters,
 	}
 }
 
@@ -103,6 +138,16 @@ func (l *gormZapLogger) LogMode(level logger.LogLevel) logger.Interface {
 	newLogger := *l
 	newLogger.level = level
 	return &newLogger
+}
+
+// ParamsFilter is called by GORM before it renders a statement for tracing.
+// Returning no parameters leaves the placeholders ($1, $2, ...) in place, so
+// secrets never reach the log.
+func (l *gormZapLogger) ParamsFilter(ctx context.Context, sql string, params ...interface{}) (string, []interface{}) {
+	if l.logParameters {
+		return sql, params
+	}
+	return sql, nil
 }
 
 func (l *gormZapLogger) Info(ctx context.Context, msg string, data ...interface{}) {
@@ -129,7 +174,7 @@ func (l *gormZapLogger) Trace(ctx context.Context, begin time.Time, fc func() (s
 	}
 
 	elapsed := time.Since(begin)
-	sql, rows := fc()
+	sqlText, rows := fc()
 
 	switch {
 	case err != nil && l.level >= logger.Error:
@@ -137,19 +182,37 @@ func (l *gormZapLogger) Trace(ctx context.Context, begin time.Time, fc func() (s
 			zap.Error(err),
 			zap.Duration("elapsed", elapsed),
 			zap.Int64("rows", rows),
-			zap.String("sql", sql),
+			zap.String("sql", sqlText),
 		)
 	case elapsed > 200*time.Millisecond && l.level >= logger.Warn:
 		l.logger.Warn("slow query",
 			zap.Duration("elapsed", elapsed),
 			zap.Int64("rows", rows),
-			zap.String("sql", sql),
+			zap.String("sql", sqlText),
 		)
 	case l.level >= logger.Info:
 		l.logger.Debug("gorm trace",
 			zap.Duration("elapsed", elapsed),
 			zap.Int64("rows", rows),
-			zap.String("sql", sql),
+			zap.String("sql", sqlText),
 		)
 	}
+}
+
+// PingDB verifies the database connection is usable.
+func PingDB(ctx context.Context, db *gorm.DB) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.PingContext(ctx)
+}
+
+// Stats returns connection pool statistics for observability.
+func Stats(db *gorm.DB) (sql.DBStats, error) {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return sql.DBStats{}, err
+	}
+	return sqlDB.Stats(), nil
 }

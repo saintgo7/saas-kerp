@@ -21,21 +21,25 @@ type AuthHandler struct {
 	*BaseHandler
 	jwtService  *auth.JWTService
 	authService *service.AuthService
+	// env is the deployment environment. It gates development-only response
+	// content; see ForgotPassword.
+	env string
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(db *gorm.DB, redis *redis.Client, logger *zap.Logger, jwtService *auth.JWTService) *AuthHandler {
+func NewAuthHandler(db *gorm.DB, redis *redis.Client, logger *zap.Logger, jwtService *auth.JWTService, env string) *AuthHandler {
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
 	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
 
 	// Initialize auth service
-	authService := service.NewAuthService(userRepo, refreshTokenRepo, jwtService, logger)
+	authService := service.NewAuthService(userRepo, refreshTokenRepo, jwtService, logger, repository.NewUnitOfWork(db))
 
 	return &AuthHandler{
 		BaseHandler: NewBaseHandler(db, redis, logger),
 		jwtService:  jwtService,
 		authService: authService,
+		env:         env,
 	}
 }
 
@@ -298,16 +302,23 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		}
 	}
 
-	// TODO: Send actual email in production
-	// For development, include the token in response
-	responseData := gin.H{
-		"message": result.Message,
-	}
-	if result.ResetToken != "" {
-		// Development only: include reset token in response
-		responseData["reset_token"] = result.ResetToken
-		responseData["note"] = "Development mode: Token included in response. In production, this will be sent via email."
+	// TODO: send the reset link by email.
+	//
+	// The token is never put in the response, in any environment. This endpoint
+	// is unauthenticated, so returning it would make anyone who knows an
+	// address able to reset that account - a password reset oracle. Gating that
+	// on a configured environment is not enough: a single wrong ENV on a
+	// deployment turns the oracle back on, which is the failure mode this
+	// audit spent its time removing everywhere else.
+	//
+	// For local work the token is written to the debug log instead, so two
+	// separate things (environment AND log level) have to be wrong before it
+	// escapes. It is also in Redis under password_reset:<token>.
+	if result.ResetToken != "" && h.env == envDevelopment {
+		h.Logger.Debug("password reset token issued (development only)",
+			zap.String("reset_token", result.ResetToken),
+		)
 	}
 
-	response.OK(c, responseData)
+	response.OK(c, gin.H{"message": result.Message})
 }

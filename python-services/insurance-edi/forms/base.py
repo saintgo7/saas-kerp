@@ -4,11 +4,20 @@ Base Form Definitions
 Provides base classes for 4대보험 form definitions and field specifications.
 Forms are used to define document structure for EDI submissions.
 """
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
 from enum import Enum
 from datetime import date
+
+# Make `python-services/` importable for the shared validators.
+_PYTHON_SERVICES_ROOT = str(Path(__file__).resolve().parents[2])
+if _PYTHON_SERVICES_ROOT not in sys.path:
+    sys.path.append(_PYTHON_SERVICES_ROOT)
+
+from shared.utils.validators import validate_resident_number  # noqa: E402
 
 
 class FieldType(Enum):
@@ -363,19 +372,23 @@ def validate_resident_no(value: str) -> Optional[str]:
     if len(clean) != 13 or not clean.isdigit():
         return "주민등록번호는 13자리 숫자여야 합니다"
 
-    # Basic validation (birth date check)
-    birth_century = {"1": "19", "2": "19", "3": "20", "4": "20", "5": "19", "6": "19", "7": "20", "8": "20"}
+    birth_century = {"1": "19", "2": "19", "3": "20", "4": "20",
+                     "5": "19", "6": "19", "7": "20", "8": "20"}
     gender_digit = clean[6]
 
     if gender_digit not in birth_century:
         return "주민등록번호가 유효하지 않습니다"
 
-    year = int(birth_century[gender_digit] + clean[0:2])
     month = int(clean[2:4])
     day = int(clean[4:6])
 
     if month < 1 or month > 12 or day < 1 or day > 31:
         return "주민등록번호의 생년월일이 유효하지 않습니다"
+
+    # Check digit. A range check alone passes transposed digits, which the 공단
+    # then rejects -- after the filing deadline has moved.
+    if not validate_resident_number(clean):
+        return "주민등록번호가 유효하지 않습니다 (검증번호 불일치)"
 
     return None
 

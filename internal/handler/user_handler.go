@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -10,6 +9,8 @@ import (
 	appctx "github.com/saintgo7/saas-kerp/internal/context"
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/handler/response"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/repository"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
@@ -26,7 +27,9 @@ func NewUserHandler(svc service.UserService) *UserHandler {
 
 // RegisterRoutes registers user routes
 func (h *UserHandler) RegisterRoutes(r *gin.RouterGroup) {
-	users := r.Group("/users")
+	// User management is administration. Self-service lives on /auth/me and
+	// /auth/password, which every authenticated user can reach.
+	users := r.Group("/users", middleware.RequireAdmin())
 	{
 		users.GET("", h.List)
 		users.POST("", h.Create)
@@ -63,7 +66,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		case domain.ErrPasswordTooShort:
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse("VAL_003", "Password must be at least 8 characters"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -82,16 +85,7 @@ func (h *UserHandler) List(c *gin.Context) {
 		PageSize:   20,
 	}
 
-	if page := c.Query("page"); page != "" {
-		if p, err := strconv.Atoi(page); err == nil && p > 0 {
-			filter.Page = p
-		}
-	}
-	if pageSize := c.Query("page_size"); pageSize != "" {
-		if ps, err := strconv.Atoi(pageSize); err == nil && ps > 0 {
-			filter.PageSize = ps
-		}
-	}
+	filter.Page, filter.PageSize = parsePageParams(c, 20)
 	if status := c.Query("status"); status != "" {
 		s := domain.UserStatus(status)
 		if s.IsValid() {
@@ -107,18 +101,13 @@ func (h *UserHandler) List(c *gin.Context) {
 
 	users, total, err := h.service.List(c.Request.Context(), filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
 	c.JSON(http.StatusOK, dto.SuccessWithMeta(
 		dto.FromUsers(users),
-		&dto.MetaInfo{
-			Total:      total,
-			Page:       filter.Page,
-			PageSize:   filter.PageSize,
-			TotalPages: int((total + int64(filter.PageSize) - 1) / int64(filter.PageSize)),
-		},
+		listMeta(total, filter.Page, filter.PageSize),
 	))
 }
 
@@ -137,7 +126,7 @@ func (h *UserHandler) GetByID(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "User not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -166,7 +155,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "User not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -178,7 +167,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		case service.ErrUserEmailExists:
 			c.JSON(http.StatusConflict, dto.ErrorResponse("BIZ_001", "Email already exists"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -207,7 +196,7 @@ func (h *UserHandler) Delete(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "User not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -248,7 +237,7 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, dto.ErrorResponse("VAL_003", "Password must be at least 8 characters"))
 				return
 			}
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 			return
 		}
 	} else {
@@ -265,7 +254,7 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, dto.ErrorResponse("VAL_003", "Password must be at least 8 characters"))
 				return
 			}
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 			return
 		}
 	}
@@ -287,7 +276,7 @@ func (h *UserHandler) Activate(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "User not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -315,7 +304,7 @@ func (h *UserHandler) Deactivate(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "User not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -328,7 +317,7 @@ func (h *UserHandler) GetStats(c *gin.Context) {
 
 	stats, err := h.service.GetStats(c.Request.Context(), companyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 

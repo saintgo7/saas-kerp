@@ -31,8 +31,8 @@ import {
   TableCell,
   Modal,
 } from "@/components/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
-import { toast } from "@/stores/ui";
 
 // Auth status types
 type AuthStatus = "connected" | "disconnected" | "expired" | "pending";
@@ -43,8 +43,9 @@ type SyncStatus = "success" | "failed" | "in_progress" | "pending";
 // Comparison status types
 type ComparisonStatus = "matched" | "unmatched" | "erp_only" | "hometax_only";
 
-// Mock auth state
-const mockAuthState = {
+// Sample state shown behind the FeatureUnavailable banner: there is no Hometax
+// endpoint on the server, so none of this reflects a real connection.
+const sampleAuthState = {
   status: "connected" as AuthStatus,
   lastAuthDate: "2024-01-15T10:30:00",
   authMethod: "certificate", // 'certificate' | 'simple' | 'bio'
@@ -53,8 +54,7 @@ const mockAuthState = {
   expiresAt: "2024-02-15T10:30:00",
 };
 
-// Mock sync history
-const mockSyncHistory = [
+const sampleSyncHistory = [
   {
     id: "1",
     syncDate: "2024-01-15T14:30:00",
@@ -107,8 +107,7 @@ const mockSyncHistory = [
   },
 ];
 
-// Mock comparison data (ERP vs Hometax)
-const mockComparisonData = {
+const sampleComparisonData = {
   issued: {
     erpTotal: 150,
     hometaxTotal: 148,
@@ -131,8 +130,7 @@ const mockComparisonData = {
   },
 };
 
-// Mock unmatched invoices
-const mockUnmatchedInvoices = [
+const sampleUnmatchedInvoices = [
   {
     id: "1",
     invoiceNumber: "20240115-001",
@@ -236,12 +234,11 @@ const syncTypeLabels: Record<string, string> = {
 
 export function HometaxSyncPage() {
   // State
-  const [authState] = useState(mockAuthState);
-  const [syncHistory] = useState(mockSyncHistory);
-  const [comparisonData] = useState(mockComparisonData);
-  const [unmatchedInvoices] = useState(mockUnmatchedInvoices);
+  const [authState] = useState(sampleAuthState);
+  const [syncHistory] = useState(sampleSyncHistory);
+  const [comparisonData] = useState(sampleComparisonData);
+  const [unmatchedInvoices] = useState(sampleUnmatchedInvoices);
 
-  const [isSyncing, setIsSyncing] = useState(false);
   const [syncType, setSyncType] = useState<"all" | "issued" | "received">("all");
   const [dateFrom, setDateFrom] = useState(
     new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split("T")[0]
@@ -264,30 +261,14 @@ export function HometaxSyncPage() {
     });
   }, [unmatchedInvoices, comparisonFilter, directionFilter]);
 
-  // Handle sync action
-  const handleSync = async () => {
-    if (authState.status !== "connected") {
-      toast.warning("인증 필요", "홈택스 연동을 위해 먼저 인증해주세요.");
-      setShowAuthModal(true);
-      return;
-    }
-
-    setIsSyncing(true);
-    try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      toast.success("동기화 완료", `${syncTypeLabels[syncType]} 세금계산서 동기화가 완료되었습니다.`);
-    } catch {
-      toast.error("동기화 실패", "홈택스 연결 중 오류가 발생했습니다.");
-    } finally {
-      setIsSyncing(false);
-    }
+  // There is no Hometax sync endpoint on the server, so nothing is fetched or
+  // transmitted here. Say so instead of simulating a successful run.
+  const handleSync = () => {
+    notifyUnavailable(`${syncTypeLabels[syncType]} 세금계산서 홈택스 동기화`);
   };
 
-  // Handle auth
   const handleAuth = () => {
-    toast.info("인증 진행", "공인인증서 로그인 페이지로 이동합니다.");
-    setShowAuthModal(false);
+    notifyUnavailable("홈택스 인증");
   };
 
   // Check if auth is about to expire (within 7 days)
@@ -301,6 +282,11 @@ export function HometaxSyncPage() {
 
   return (
     <div className="space-y-6">
+      <FeatureUnavailable
+        feature="홈택스 연동"
+        detail="서버에 홈택스 연동 API가 아직 없습니다. 아래 인증 상태와 동기화 이력은 예시이며, 실제로 국세청과 통신하지 않습니다."
+      />
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -314,8 +300,8 @@ export function HometaxSyncPage() {
             <Link2 className="h-4 w-4 mr-2" />
             인증 관리
           </Button>
-          <Button onClick={handleSync} isLoading={isSyncing} disabled={isSyncing}>
-            <RefreshCw className={cn("h-4 w-4 mr-2", isSyncing && "animate-spin")} />
+          <Button onClick={handleSync}>
+            <RefreshCw className="h-4 w-4 mr-2" />
             동기화
           </Button>
         </div>
@@ -443,13 +429,8 @@ export function HometaxSyncPage() {
                   />
                 </div>
                 <div className="flex items-end">
-                  <Button
-                    className="w-full"
-                    onClick={handleSync}
-                    isLoading={isSyncing}
-                    disabled={isSyncing}
-                  >
-                    <RefreshCw className={cn("h-4 w-4 mr-2", isSyncing && "animate-spin")} />
+                  <Button className="w-full" onClick={handleSync}>
+                    <RefreshCw className="h-4 w-4 mr-2" />
                     동기화 실행
                   </Button>
                 </div>
@@ -963,7 +944,10 @@ export function HometaxSyncPage() {
           {/* Actions */}
           <div className="flex justify-end space-x-2">
             {authState.status === "connected" && (
-              <Button variant="outline" onClick={() => toast.info("로그아웃", "인증이 해제되었습니다.")}>
+              <Button
+                variant="outline"
+                onClick={() => notifyUnavailable("홈택스 인증 해제")}
+              >
                 인증 해제
               </Button>
             )}

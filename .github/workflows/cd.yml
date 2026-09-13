@@ -1,5 +1,14 @@
 # K-ERP CD Pipeline
-# Deploy to staging (wsl-48-246) via Docker Compose
+# Deploy to staging / production via Docker Compose over SSH.
+#
+# Rules enforced here:
+#  1. A deploy step that cannot fail is worse than no deploy step. Every remote
+#     script runs under `set -euo pipefail`; no `|| true`, no `|| echo`.
+#  2. The runtime .env is built from GitHub Secrets. It is NEVER derived from
+#     the committed .env.example, whose values are deliberate placeholders.
+#  3. Missing secrets abort the deployment before anything is touched.
+#  4. Staging and production use distinct compose project names and data
+#     volumes so that a production deploy cannot overwrite staging state.
 
 name: CD Pipeline
 
@@ -18,16 +27,22 @@ on:
           - staging
           - production
 
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   REMOTE_HOST: 61.245.248.246
   REMOTE_PORT: 5022
   REMOTE_USER: blackpc
-  REMOTE_PATH: /home/blackpc/saas-kerp
   DOMAIN: erp.abada.kr
 
 jobs:
   # ============================================
-  # Build and Test (Quick check before deploy)
+  # Build and Test (gate before deploy)
   # ============================================
   build-check:
     name: Build Check
@@ -43,218 +58,519 @@ jobs:
           go-version: '1.22'
           cache: true
 
+      # No `|| true`. A commit that does not compile must never be deployed.
       - name: Build binaries
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/api ./cmd/api || true
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/worker ./cmd/worker || true
+          set -euo pipefail
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/api ./cmd/api
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/worker ./cmd/worker
+
+      - name: Run unit tests
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
 
   # ============================================
-  # Deploy to Staging (wsl-48-246)
+  # Wait for the CI pipeline on this commit
+  # ============================================
+  ci-gate:
+    name: Require CI success
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      # Implemented with the GitHub CLI rather than a third-party action so
+      # that there is no unpinned external code in the deployment path.
+      - name: Wait for the CI Pipeline "CI Status" check on this SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + 40 * 60 ))
+          while :; do
+            conclusion="$(gh api "repos/${GH_REPO}/commits/${SHA}/check-runs" \
+              --jq '[.check_runs[] | select(.name == "CI Status")] | sort_by(.started_at) | last | .conclusion // "pending"')"
+            status="$(gh api "repos/${GH_REPO}/commits/${SHA}/check-runs" \
+              --jq '[.check_runs[] | select(.name == "CI Status")] | sort_by(.started_at) | last | .status // "missing"')"
+
+            echo "CI Status: status=${status} conclusion=${conclusion}"
+
+            case "$conclusion" in
+              success) echo "CI passed."; exit 0 ;;
+              failure|cancelled|timed_out|action_required|startup_failure)
+                echo "ERROR: CI concluded '${conclusion}'. Refusing to deploy."
+                exit 1 ;;
+            esac
+
+            if [ "$status" = "missing" ] && [ "$(date +%s)" -gt $(( deadline - 38 * 60 )) ]; then
+              echo "ERROR: no 'CI Status' check run found for ${SHA} after 2 minutes."
+              exit 1
+            fi
+
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "ERROR: timed out waiting for CI."
+              exit 1
+            fi
+            sleep 20
+          done
+
+  # ============================================
+  # Deploy to Staging
   # ============================================
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: build-check
+    needs: [build-check, ci-gate]
     if: github.ref == 'refs/heads/develop' || github.event.inputs.environment == 'staging'
     environment:
       name: staging
       url: https://erp.abada.kr
 
+    env:
+      REMOTE_PATH: /home/blackpc/saas-kerp-staging
+      COMPOSE_PROJECT: kerp-staging
+      KERP_APP_ENV: staging
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup SSH key
+      - name: Verify required secrets are present
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST_KEY: ${{ secrets.SSH_HOST_KEY }}
+          DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
+          MINIO_PASSWORD: ${{ secrets.STAGING_MINIO_PASSWORD }}
+          MEILI_KEY: ${{ secrets.STAGING_MEILI_KEY }}
+          GRAFANA_PASSWORD: ${{ secrets.STAGING_GRAFANA_PASSWORD }}
+          ARIA_ENCRYPTION_KEY: ${{ secrets.STAGING_ARIA_ENCRYPTION_KEY }}
+          KERP_HR_FIELD_KEY: ${{ secrets.STAGING_KERP_HR_FIELD_KEY }}
+          TRAEFIK_DASHBOARD_AUTH: ${{ secrets.STAGING_TRAEFIK_DASHBOARD_AUTH }}
         run: |
-          # Validate SSH key is configured
-          if [ -z "$SSH_PRIVATE_KEY" ]; then
-            echo "ERROR: SSH_PRIVATE_KEY secret is not configured"
-            echo "Please add your SSH private key to GitHub Secrets:"
-            echo "  1. Go to Repository Settings > Secrets and variables > Actions"
-            echo "  2. Add new secret named 'SSH_PRIVATE_KEY'"
-            echo "  3. Paste the contents of your private key (including BEGIN/END lines)"
+          set -euo pipefail
+          missing=0
+          for name in SSH_PRIVATE_KEY SSH_HOST_KEY DB_PASSWORD JWT_SECRET \
+                      MINIO_PASSWORD MEILI_KEY GRAFANA_PASSWORD \
+                      ARIA_ENCRYPTION_KEY KERP_HR_FIELD_KEY TRAEFIK_DASHBOARD_AUTH; do
+            value="${!name-}"
+            if [ -z "$value" ]; then
+              echo "ERROR: required secret $name is not configured"
+              missing=1
+            elif [ "$value" = "change-me-in-production" ]; then
+              echo "ERROR: secret $name still holds the .env.example placeholder"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo ""
+            echo "Add the missing values under:"
+            echo "  Settings > Secrets and variables > Actions"
             exit 1
           fi
+          echo "All required secrets are present."
 
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST_KEY: ${{ secrets.SSH_HOST_KEY }}
+        run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null
 
-          # Write SSH key with proper line endings
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          # Pinned host key. ssh-keyscan on every run is trust-on-every-use and
+          # accepts a swapped host key silently.
+          printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
-          # Validate key format
-          if ! ssh-keygen -y -f ~/.ssh/id_rsa > /dev/null 2>&1; then
-            echo "ERROR: Invalid SSH private key format"
-            echo "Make sure the key includes -----BEGIN and -----END lines"
-            exit 1
-          fi
-
-          # Add host to known_hosts
-          ssh-keyscan -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
-          chmod 644 ~/.ssh/known_hosts
-
-          echo "SSH key configured successfully"
+          cat > ~/.ssh/config <<'CFG'
+          Host deploy-target
+            User ${{ env.REMOTE_USER }}
+            HostName ${{ env.REMOTE_HOST }}
+            Port ${{ env.REMOTE_PORT }}
+            IdentityFile ~/.ssh/id_deploy
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            BatchMode yes
+            ConnectTimeout 15
+          CFG
+          chmod 600 ~/.ssh/config
 
       - name: Test SSH connection
-        run: |
-          ssh -o BatchMode=yes -o ConnectTimeout=10 \
-            -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} \
-            "echo 'SSH connection successful'" || {
-              echo "ERROR: SSH connection failed"
-              echo "Please verify:"
-              echo "  1. The public key is added to ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }}:~/.ssh/authorized_keys"
-              echo "  2. The server allows SSH key authentication"
-              exit 1
-            }
-
-      - name: Create deployment directory
-        run: |
-          ssh -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} \
-            "mkdir -p ${{ env.REMOTE_PATH }}"
+        run: ssh deploy-target "echo 'SSH connection successful'"
 
       - name: Sync code to remote
         run: |
-          rsync -avz --delete \
-            -e "ssh -p ${{ env.REMOTE_PORT }}" \
+          set -euo pipefail
+          ssh deploy-target "mkdir -p '${{ env.REMOTE_PATH }}'"
+          rsync -az --delete \
+            -e ssh \
             --exclude '.git' \
             --exclude 'node_modules' \
             --exclude '.env' \
             --exclude '*.log' \
-            ./ ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }}:${{ env.REMOTE_PATH }}/
+            --exclude 'deployments/docker/traefik/secrets/*.htpasswd' \
+            ./ deploy-target:"${{ env.REMOTE_PATH }}/"
+
+      - name: Write runtime .env from secrets
+        env:
+          DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
+          MINIO_PASSWORD: ${{ secrets.STAGING_MINIO_PASSWORD }}
+          MEILI_KEY: ${{ secrets.STAGING_MEILI_KEY }}
+          GRAFANA_PASSWORD: ${{ secrets.STAGING_GRAFANA_PASSWORD }}
+          ARIA_ENCRYPTION_KEY: ${{ secrets.STAGING_ARIA_ENCRYPTION_KEY }}
+          KERP_HR_FIELD_KEY: ${{ secrets.STAGING_KERP_HR_FIELD_KEY }}
+          TRAEFIK_DASHBOARD_AUTH: ${{ secrets.STAGING_TRAEFIK_DASHBOARD_AUTH }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # Written on the runner, streamed over ssh, never echoed.
+          {
+            echo "# Generated by CD on $(date -u +%FT%TZ) - do not edit by hand"
+            echo "KERP_APP_ENV=${{ env.KERP_APP_ENV }}"
+            echo "APP_ENV=${{ env.KERP_APP_ENV }}"
+            echo "DB_PASSWORD=${DB_PASSWORD}"
+            echo "JWT_SECRET=${JWT_SECRET}"
+            echo "MINIO_ROOT_USER=kerp_admin"
+            echo "MINIO_PASSWORD=${MINIO_PASSWORD}"
+            echo "MEILI_KEY=${MEILI_KEY}"
+            echo "GRAFANA_USER=admin"
+            echo "GRAFANA_PASSWORD=${GRAFANA_PASSWORD}"
+            echo "ARIA_ENCRYPTION_KEY=${ARIA_ENCRYPTION_KEY}"
+            echo "KERP_HR_FIELD_KEY=${KERP_HR_FIELD_KEY}"
+          } | ssh deploy-target "umask 077 && cat > '${{ env.REMOTE_PATH }}/deployments/docker/.env' && chmod 600 '${{ env.REMOTE_PATH }}/deployments/docker/.env'"
+
+          printf '%s\n' "$TRAEFIK_DASHBOARD_AUTH" \
+            | ssh deploy-target "umask 077 && mkdir -p '${{ env.REMOTE_PATH }}/deployments/docker/traefik/secrets' && cat > '${{ env.REMOTE_PATH }}/deployments/docker/traefik/secrets/dashboard-users.htpasswd' && chmod 600 '${{ env.REMOTE_PATH }}/deployments/docker/traefik/secrets/dashboard-users.htpasswd'"
+
+      - name: Backup database before deploy
+        run: |
+          set -euo pipefail
+          ssh deploy-target bash -s -- "${{ env.REMOTE_PATH }}" "${{ env.COMPOSE_PROJECT }}" <<'REMOTE'
+          set -euo pipefail
+          REMOTE_PATH="$1"
+          PROJECT="$2"
+          BACKUP_DIR="/home/blackpc/kerp-backups/${PROJECT}"
+          mkdir -p "$BACKUP_DIR"
+          cd "${REMOTE_PATH}/deployments/docker"
+
+          if ! docker compose -p "$PROJECT" ps --status running --services 2>/dev/null | grep -qx postgres; then
+            echo "postgres is not running yet - first deploy, nothing to back up."
+            exit 0
+          fi
+
+          FILE="${BACKUP_DIR}/backup_$(date +%Y%m%d_%H%M%S).sql.gz"
+          docker compose -p "$PROJECT" exec -T postgres pg_dump -U kerp -d kerp | gzip > "$FILE"
+          if [ ! -s "$FILE" ]; then
+            echo "ERROR: backup file is empty: $FILE"
+            rm -f "$FILE"
+            exit 1
+          fi
+          gzip -t "$FILE"
+          echo "Backup written: $FILE ($(stat -c%s "$FILE") bytes)"
+
+          # Retain 14 days of backups.
+          find "$BACKUP_DIR" -name 'backup_*.sql.gz' -mtime +14 -delete
+          REMOTE
 
       - name: Deploy with Docker Compose
         run: |
-          ssh -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} << 'EOF'
-            cd ${{ env.REMOTE_PATH }}/deployments/docker
+          set -euo pipefail
+          ssh deploy-target bash -s -- "${{ env.REMOTE_PATH }}" "${{ env.COMPOSE_PROJECT }}" <<'REMOTE'
+          set -euo pipefail
+          REMOTE_PATH="$1"
+          PROJECT="$2"
+          cd "${REMOTE_PATH}/deployments/docker"
 
-            # Create .env if not exists
-            if [ ! -f .env ]; then
-              cp .env.example .env
-              echo "Created .env from example"
-            fi
+          if [ ! -f .env ]; then
+            echo "ERROR: .env is missing. It must be injected from GitHub Secrets."
+            echo "Copying .env.example is NOT a valid fallback - its values are"
+            echo "public placeholders that the config validator rejects."
+            exit 1
+          fi
 
-            # Pull latest images
-            docker compose pull || true
+          # Fails closed if any ${VAR:?} guard is unsatisfied.
+          docker compose -p "$PROJECT" config -q
 
-            # Force rebuild and recreate web container (frontend)
-            echo "Rebuilding web frontend..."
-            docker compose build --no-cache web
-            docker compose up -d --force-recreate --no-deps web
-
-            # Build and update other services (may fail for incomplete services)
-            docker compose build --no-cache api worker || true
-            docker compose up -d --remove-orphans || true
-
-            # Wait for services to be healthy
-            sleep 10
-
-            # Check service status
-            docker compose ps
-
-            # Health check
-            curl -sf http://localhost:8080/health || echo "API health check pending..."
-          EOF
-
-      - name: Verify deployment
-        run: |
-          ssh -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} \
-            "cd ${{ env.REMOTE_PATH }}/deployments/docker && docker compose ps"
+          docker compose -p "$PROJECT" pull --ignore-buildable
+          docker compose -p "$PROJECT" build
+          docker compose -p "$PROJECT" up -d --remove-orphans
+          REMOTE
 
       - name: Run database migrations
         run: |
-          ssh -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} << 'EOF'
-            cd ${{ env.REMOTE_PATH }}/deployments/docker
-            # Run migrations inside the API container
-            docker compose exec -T api /app/api migrate up || echo "Migration skipped or no migrations"
-          EOF
-        continue-on-error: true
+          set -euo pipefail
+          ssh deploy-target bash -s -- "${{ env.REMOTE_PATH }}" "${{ env.COMPOSE_PROJECT }}" <<'REMOTE'
+          set -euo pipefail
+          REMOTE_PATH="$1"
+          PROJECT="$2"
+          cd "${REMOTE_PATH}/deployments/docker"
+
+          # The API image installs its entrypoint at /app/server and ships the
+          # migration files at /app/db/migrations (Dockerfile.api).
+          # NOTE: the dedicated migration binary is /app/migrate and is owned by
+          # the Go side (cmd/migrate). Until it exists this step fails loudly on
+          # purpose - a deploy that silently skips migrations is how the schema
+          # froze at the init-db.sql state in the first place.
+          if ! docker compose -p "$PROJECT" exec -T api test -x /app/migrate; then
+            echo "ERROR: /app/migrate is not present in the API image."
+            echo "Build cmd/migrate into deployments/docker/Dockerfile.api."
+            exit 1
+          fi
+          docker compose -p "$PROJECT" exec -T api /app/migrate up
+          REMOTE
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          ssh deploy-target bash -s -- "${{ env.REMOTE_PATH }}" "${{ env.COMPOSE_PROJECT }}" <<'REMOTE'
+          set -euo pipefail
+          REMOTE_PATH="$1"
+          PROJECT="$2"
+          cd "${REMOTE_PATH}/deployments/docker"
+
+          for attempt in $(seq 1 30); do
+            if curl -sf --max-time 5 http://127.0.0.1:8080/health > /dev/null; then
+              echo "API healthy after ${attempt} attempt(s)."
+              docker compose -p "$PROJECT" ps
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "ERROR: API did not become healthy within 150s."
+          docker compose -p "$PROJECT" ps
+          docker compose -p "$PROJECT" logs --tail=200 api
+          exit 1
+          REMOTE
 
   # ============================================
-  # Deploy to Production (Manual trigger only)
+  # Deploy to Production
   # ============================================
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [build-check, deploy-staging]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production'
+    needs: [build-check, ci-gate, deploy-staging]
+    # `always()` is required so that a tag push - where deploy-staging is
+    # skipped by its own `if` - does not skip production too. The result check
+    # still refuses to run when staging actually failed.
+    if: |
+      always()
+      && needs.build-check.result == 'success'
+      && needs.ci-gate.result == 'success'
+      && needs.deploy-staging.result != 'failure'
+      && needs.deploy-staging.result != 'cancelled'
+      && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production')
     environment:
       name: production
       url: https://erp.abada.kr
+
+    env:
+      REMOTE_PATH: /home/blackpc/saas-kerp-production
+      COMPOSE_PROJECT: kerp-production
+      KERP_APP_ENV: production
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup SSH key
+      - name: Verify required secrets are present
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST_KEY: ${{ secrets.SSH_HOST_KEY }}
+          DB_PASSWORD: ${{ secrets.PRODUCTION_DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.PRODUCTION_JWT_SECRET }}
+          MINIO_PASSWORD: ${{ secrets.PRODUCTION_MINIO_PASSWORD }}
+          MEILI_KEY: ${{ secrets.PRODUCTION_MEILI_KEY }}
+          GRAFANA_PASSWORD: ${{ secrets.PRODUCTION_GRAFANA_PASSWORD }}
+          ARIA_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_ARIA_ENCRYPTION_KEY }}
+          KERP_HR_FIELD_KEY: ${{ secrets.PRODUCTION_KERP_HR_FIELD_KEY }}
+          TRAEFIK_DASHBOARD_AUTH: ${{ secrets.PRODUCTION_TRAEFIK_DASHBOARD_AUTH }}
         run: |
-          # Validate SSH key is configured
-          if [ -z "$SSH_PRIVATE_KEY" ]; then
-            echo "ERROR: SSH_PRIVATE_KEY secret is not configured"
-            exit 1
-          fi
+          set -euo pipefail
+          missing=0
+          for name in SSH_PRIVATE_KEY SSH_HOST_KEY DB_PASSWORD JWT_SECRET \
+                      MINIO_PASSWORD MEILI_KEY GRAFANA_PASSWORD \
+                      ARIA_ENCRYPTION_KEY KERP_HR_FIELD_KEY TRAEFIK_DASHBOARD_AUTH; do
+            value="${!name-}"
+            if [ -z "$value" ]; then
+              echo "ERROR: required secret PRODUCTION_$name is not configured"
+              missing=1
+            elif [ "$value" = "change-me-in-production" ]; then
+              echo "ERROR: secret $name still holds the .env.example placeholder"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "All required secrets are present."
 
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST_KEY: ${{ secrets.SSH_HOST_KEY }}
+        run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-
-          # Write SSH key with proper line endings
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-
-          # Validate key format
-          if ! ssh-keygen -y -f ~/.ssh/id_rsa > /dev/null 2>&1; then
-            echo "ERROR: Invalid SSH private key format"
-            echo "Make sure the key includes -----BEGIN and -----END lines"
-            exit 1
-          fi
-
-          # Add host to known_hosts
-          ssh-keyscan -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
-          chmod 644 ~/.ssh/known_hosts
-
-          echo "SSH key configured successfully"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null
+          printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<'CFG'
+          Host deploy-target
+            User ${{ env.REMOTE_USER }}
+            HostName ${{ env.REMOTE_HOST }}
+            Port ${{ env.REMOTE_PORT }}
+            IdentityFile ~/.ssh/id_deploy
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            BatchMode yes
+            ConnectTimeout 15
+          CFG
+          chmod 600 ~/.ssh/config
 
       - name: Test SSH connection
+        run: ssh deploy-target "echo 'SSH connection successful'"
+
+      - name: Sync code to remote
         run: |
-          ssh -o BatchMode=yes -o ConnectTimeout=10 \
-            -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} \
-            "echo 'SSH connection successful'" || {
-              echo "ERROR: SSH connection failed"
-              echo "Please verify the public key is added to the server"
-              exit 1
-            }
+          set -euo pipefail
+          ssh deploy-target "mkdir -p '${{ env.REMOTE_PATH }}'"
+          rsync -az --delete \
+            -e ssh \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '.env' \
+            --exclude '*.log' \
+            --exclude 'deployments/docker/traefik/secrets/*.htpasswd' \
+            ./ deploy-target:"${{ env.REMOTE_PATH }}/"
+
+      - name: Write runtime .env from secrets
+        env:
+          DB_PASSWORD: ${{ secrets.PRODUCTION_DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.PRODUCTION_JWT_SECRET }}
+          MINIO_PASSWORD: ${{ secrets.PRODUCTION_MINIO_PASSWORD }}
+          MEILI_KEY: ${{ secrets.PRODUCTION_MEILI_KEY }}
+          GRAFANA_PASSWORD: ${{ secrets.PRODUCTION_GRAFANA_PASSWORD }}
+          ARIA_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_ARIA_ENCRYPTION_KEY }}
+          KERP_HR_FIELD_KEY: ${{ secrets.PRODUCTION_KERP_HR_FIELD_KEY }}
+          TRAEFIK_DASHBOARD_AUTH: ${{ secrets.PRODUCTION_TRAEFIK_DASHBOARD_AUTH }}
+        run: |
+          set -euo pipefail
+          umask 077
+          {
+            echo "# Generated by CD on $(date -u +%FT%TZ) - do not edit by hand"
+            echo "KERP_APP_ENV=${{ env.KERP_APP_ENV }}"
+            echo "APP_ENV=${{ env.KERP_APP_ENV }}"
+            echo "DB_PASSWORD=${DB_PASSWORD}"
+            echo "JWT_SECRET=${JWT_SECRET}"
+            echo "MINIO_ROOT_USER=kerp_admin"
+            echo "MINIO_PASSWORD=${MINIO_PASSWORD}"
+            echo "MEILI_KEY=${MEILI_KEY}"
+            echo "GRAFANA_USER=admin"
+            echo "GRAFANA_PASSWORD=${GRAFANA_PASSWORD}"
+            echo "ARIA_ENCRYPTION_KEY=${ARIA_ENCRYPTION_KEY}"
+            echo "KERP_HR_FIELD_KEY=${KERP_HR_FIELD_KEY}"
+          } | ssh deploy-target "umask 077 && cat > '${{ env.REMOTE_PATH }}/deployments/docker/.env' && chmod 600 '${{ env.REMOTE_PATH }}/deployments/docker/.env'"
+
+          printf '%s\n' "$TRAEFIK_DASHBOARD_AUTH" \
+            | ssh deploy-target "umask 077 && mkdir -p '${{ env.REMOTE_PATH }}/deployments/docker/traefik/secrets' && cat > '${{ env.REMOTE_PATH }}/deployments/docker/traefik/secrets/dashboard-users.htpasswd' && chmod 600 '${{ env.REMOTE_PATH }}/deployments/docker/traefik/secrets/dashboard-users.htpasswd'"
+
+      - name: Backup database before deploy
+        run: |
+          set -euo pipefail
+          ssh deploy-target bash -s -- "${{ env.REMOTE_PATH }}" "${{ env.COMPOSE_PROJECT }}" <<'REMOTE'
+          set -euo pipefail
+          REMOTE_PATH="$1"
+          PROJECT="$2"
+          BACKUP_DIR="/home/blackpc/kerp-backups/${PROJECT}"
+          mkdir -p "$BACKUP_DIR"
+          cd "${REMOTE_PATH}/deployments/docker"
+
+          if ! docker compose -p "$PROJECT" ps --status running --services 2>/dev/null | grep -qx postgres; then
+            echo "postgres is not running yet - first deploy, nothing to back up."
+            exit 0
+          fi
+
+          FILE="${BACKUP_DIR}/backup_$(date +%Y%m%d_%H%M%S).sql.gz"
+          docker compose -p "$PROJECT" exec -T postgres pg_dump -U kerp -d kerp | gzip > "$FILE"
+          if [ ! -s "$FILE" ]; then
+            echo "ERROR: backup file is empty: $FILE"
+            rm -f "$FILE"
+            exit 1
+          fi
+          gzip -t "$FILE"
+          echo "Backup written: $FILE ($(stat -c%s "$FILE") bytes)"
+          find "$BACKUP_DIR" -name 'backup_*.sql.gz' -mtime +30 -delete
+          REMOTE
 
       - name: Deploy to production
         run: |
-          ssh -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} << 'EOF'
-            cd ${{ env.REMOTE_PATH }}/deployments/docker
+          set -euo pipefail
+          ssh deploy-target bash -s -- "${{ env.REMOTE_PATH }}" "${{ env.COMPOSE_PROJECT }}" <<'REMOTE'
+          set -euo pipefail
+          REMOTE_PATH="$1"
+          PROJECT="$2"
+          cd "${REMOTE_PATH}/deployments/docker"
 
-            # Backup current state
-            docker compose exec -T postgres pg_dump -U kerp kerp > /tmp/backup_$(date +%Y%m%d_%H%M%S).sql || true
+          if [ ! -f .env ]; then
+            echo "ERROR: .env is missing. It must be injected from GitHub Secrets."
+            exit 1
+          fi
 
-            # Deploy
-            docker compose pull || true
-            docker compose up -d --build --remove-orphans
+          docker compose -p "$PROJECT" config -q
+          docker compose -p "$PROJECT" pull --ignore-buildable
+          docker compose -p "$PROJECT" build
+          docker compose -p "$PROJECT" up -d --remove-orphans
+          REMOTE
 
-            # Verify
-            docker compose ps
-          EOF
+      - name: Run database migrations
+        run: |
+          set -euo pipefail
+          ssh deploy-target bash -s -- "${{ env.REMOTE_PATH }}" "${{ env.COMPOSE_PROJECT }}" <<'REMOTE'
+          set -euo pipefail
+          REMOTE_PATH="$1"
+          PROJECT="$2"
+          cd "${REMOTE_PATH}/deployments/docker"
+          if ! docker compose -p "$PROJECT" exec -T api test -x /app/migrate; then
+            echo "ERROR: /app/migrate is not present in the API image."
+            exit 1
+          fi
+          docker compose -p "$PROJECT" exec -T api /app/migrate up
+          REMOTE
 
       - name: Health check
         run: |
-          for i in {1..5}; do
-            if ssh -p ${{ env.REMOTE_PORT }} ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} \
-              "curl -sf http://localhost:8080/health"; then
-              echo "Health check passed"
+          set -euo pipefail
+          ssh deploy-target bash -s -- "${{ env.REMOTE_PATH }}" "${{ env.COMPOSE_PROJECT }}" <<'REMOTE'
+          set -euo pipefail
+          REMOTE_PATH="$1"
+          PROJECT="$2"
+          cd "${REMOTE_PATH}/deployments/docker"
+          for attempt in $(seq 1 30); do
+            if curl -sf --max-time 5 http://127.0.0.1:8080/health > /dev/null; then
+              echo "API healthy after ${attempt} attempt(s)."
+              docker compose -p "$PROJECT" ps
               exit 0
             fi
-            sleep 10
+            sleep 5
           done
-          echo "Health check warning - service may still be starting"
+          echo "ERROR: API did not become healthy within 150s."
+          docker compose -p "$PROJECT" ps
+          docker compose -p "$PROJECT" logs --tail=200 api
+          exit 1
+          REMOTE
 
   # ============================================
   # Notify Deployment Status
@@ -267,12 +583,21 @@ jobs:
 
     steps:
       - name: Deployment summary
+        env:
+          STAGING: ${{ needs.deploy-staging.result }}
+          PRODUCTION: ${{ needs.deploy-production.result }}
+          ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
         run: |
+          set -euo pipefail
           echo "Deployment Summary"
           echo "=================="
-          echo "Staging: ${{ needs.deploy-staging.result }}"
-          echo "Production: ${{ needs.deploy-production.result }}"
-          echo ""
-          echo "Environment: ${{ github.event.inputs.environment || 'staging' }}"
-          echo "Branch/Tag: ${{ github.ref_name }}"
-          echo "Commit: ${{ github.sha }}"
+          printf 'Staging:    %s\n' "$STAGING"
+          printf 'Production: %s\n' "$PRODUCTION"
+          printf 'Environment: %s\n' "$ENVIRONMENT"
+          printf 'Branch/Tag: %s\n' "${{ github.ref_name }}"
+          printf 'Commit: %s\n' "${{ github.sha }}"
+
+          if [ "$STAGING" = "failure" ] || [ "$PRODUCTION" = "failure" ]; then
+            echo "A deployment job failed."
+            exit 1
+          fi

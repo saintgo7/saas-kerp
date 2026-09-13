@@ -81,12 +81,12 @@ func StatusCode(err error) int {
 // Predefined errors for common cases
 var (
 	// Authentication
-	ErrUnauthorized       = New(CodeUnauthorized, "Authentication required")
-	ErrTokenExpired       = New(CodeTokenExpired, "Token has expired")
-	ErrInvalidCredentials = New(CodeInvalidCredentials, "Invalid email or password")
-	ErrAccountLocked      = New(CodeAccountLocked, "Account is locked")
-	ErrAccountInactive    = New(CodeAccountInactive, "Account is inactive")
-	ErrTokenInvalid       = New(CodeTokenInvalid, "Invalid token")
+	ErrUnauthorized        = New(CodeUnauthorized, "Authentication required")
+	ErrTokenExpired        = New(CodeTokenExpired, "Token has expired")
+	ErrInvalidCredentials  = New(CodeInvalidCredentials, "Invalid email or password")
+	ErrAccountLocked       = New(CodeAccountLocked, "Account is locked")
+	ErrAccountInactive     = New(CodeAccountInactive, "Account is inactive")
+	ErrTokenInvalid        = New(CodeTokenInvalid, "Invalid token")
 	ErrRefreshTokenInvalid = New(CodeRefreshTokenInvalid, "Invalid refresh token")
 
 	// Validation

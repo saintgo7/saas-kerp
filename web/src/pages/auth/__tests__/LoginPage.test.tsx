@@ -6,8 +6,15 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/__tests__/mocks/server';
 import { LoginPage } from '../LoginPage';
 import { useAuthStore } from '@/stores';
+import { useUIStore } from '@/stores/ui';
+import {
+  createMockAuthPayload,
+  envelope,
+  errorEnvelope,
+} from '@/__tests__/test-utils';
 
-const API_BASE = '/api';
+// Must match constants/index.ts API_BASE_URL and the Gin router (/api/v1).
+const API_BASE = '/api/v1';
 
 // Mock navigate
 const mockNavigate = vi.fn();
@@ -202,18 +209,7 @@ describe('LoginPage', () => {
 
       server.use(
         http.post(`${API_BASE}/auth/login`, () => {
-          return HttpResponse.json({
-            success: true,
-            data: {
-              user: {
-                id: 'user-1',
-                email: 'test@example.com',
-                name: 'Test User',
-              },
-              accessToken: 'access-token',
-              refreshToken: 'refresh-token',
-            },
-          });
+          return HttpResponse.json(envelope(createMockAuthPayload()));
         })
       );
 
@@ -233,13 +229,12 @@ describe('LoginPage', () => {
     it('should show error toast on login failure', async () => {
       const user = userEvent.setup();
 
+      useUIStore.getState().clearToasts();
+
       server.use(
         http.post(`${API_BASE}/auth/login`, () => {
           return HttpResponse.json(
-            {
-              success: false,
-              error: { code: 'AUTH_FAILED', message: 'Invalid credentials' },
-            },
+            errorEnvelope('AUTH_001', 'Invalid email or password'),
             { status: 401 }
           );
         })
@@ -251,10 +246,15 @@ describe('LoginPage', () => {
       await user.type(screen.getByLabelText(/비밀번호/i), 'wrongpassword');
       await user.click(screen.getByRole('button', { name: '로그인' }));
 
+      // A 401 from /auth/login must surface as an error, not as a token
+      // refresh or a redirect back to /login that wipes the form.
       await waitFor(() => {
-        expect(mockNavigate).not.toHaveBeenCalled();
+        expect(
+          useUIStore.getState().toasts.some((t) => t.type === 'error')
+        ).toBe(true);
       });
 
+      expect(mockNavigate).not.toHaveBeenCalled();
       expect(useAuthStore.getState().isAuthenticated).toBe(false);
     });
 

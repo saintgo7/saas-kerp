@@ -8,37 +8,37 @@ import (
 
 // LedgerBalanceResponse represents a ledger balance
 type LedgerBalanceResponse struct {
-	AccountID     string  `json:"account_id"`
-	AccountCode   string  `json:"account_code"`
-	AccountName   string  `json:"account_name"`
-	AccountType   string  `json:"account_type"`
-	FiscalYear    int     `json:"fiscal_year"`
-	FiscalMonth   int     `json:"fiscal_month"`
-	OpeningDebit  float64 `json:"opening_debit"`
-	OpeningCredit float64 `json:"opening_credit"`
+	AccountID      string  `json:"account_id"`
+	AccountCode    string  `json:"account_code"`
+	AccountName    string  `json:"account_name"`
+	AccountType    string  `json:"account_type"`
+	FiscalYear     int     `json:"fiscal_year"`
+	FiscalMonth    int     `json:"fiscal_month"`
+	OpeningDebit   float64 `json:"opening_debit"`
+	OpeningCredit  float64 `json:"opening_credit"`
 	OpeningBalance float64 `json:"opening_balance"`
-	PeriodDebit   float64 `json:"period_debit"`
-	PeriodCredit  float64 `json:"period_credit"`
+	PeriodDebit    float64 `json:"period_debit"`
+	PeriodCredit   float64 `json:"period_credit"`
 	PeriodMovement float64 `json:"period_movement"`
-	ClosingDebit  float64 `json:"closing_debit"`
-	ClosingCredit float64 `json:"closing_credit"`
+	ClosingDebit   float64 `json:"closing_debit"`
+	ClosingCredit  float64 `json:"closing_credit"`
 	ClosingBalance float64 `json:"closing_balance"`
 }
 
 // FromLedgerBalance converts domain.LedgerBalance to LedgerBalanceResponse
 func FromLedgerBalance(balance *domain.LedgerBalance) LedgerBalanceResponse {
 	resp := LedgerBalanceResponse{
-		AccountID:     balance.AccountID.String(),
-		FiscalYear:    balance.FiscalYear,
-		FiscalMonth:   balance.FiscalMonth,
-		OpeningDebit:  balance.OpeningDebit,
-		OpeningCredit: balance.OpeningCredit,
+		AccountID:      balance.AccountID.String(),
+		FiscalYear:     balance.FiscalYear,
+		FiscalMonth:    balance.FiscalMonth,
+		OpeningDebit:   balance.OpeningDebit,
+		OpeningCredit:  balance.OpeningCredit,
 		OpeningBalance: balance.GetOpeningBalance(),
-		PeriodDebit:   balance.PeriodDebit,
-		PeriodCredit:  balance.PeriodCredit,
+		PeriodDebit:    balance.PeriodDebit,
+		PeriodCredit:   balance.PeriodCredit,
 		PeriodMovement: balance.GetPeriodMovement(),
-		ClosingDebit:  balance.ClosingDebit,
-		ClosingCredit: balance.ClosingCredit,
+		ClosingDebit:   balance.ClosingDebit,
+		ClosingCredit:  balance.ClosingCredit,
 		ClosingBalance: balance.GetClosingBalance(),
 	}
 
@@ -81,17 +81,17 @@ type AccountLedgerEntryResponse struct {
 // FromAccountLedgerEntry converts domain.AccountLedgerEntry to AccountLedgerEntryResponse
 func FromAccountLedgerEntry(entry *domain.AccountLedgerEntry) AccountLedgerEntryResponse {
 	resp := AccountLedgerEntryResponse{
-		VoucherID:    entry.VoucherID.String(),
-		VoucherNo:    entry.VoucherNo,
-		VoucherDate:  entry.VoucherDate.Format("2006-01-02"),
-		VoucherType:  entry.VoucherType,
-		EntryID:      entry.EntryID.String(),
-		LineNo:       entry.LineNo,
-		Description:  entry.Description,
-		DebitAmount:  entry.DebitAmount,
-		CreditAmount: entry.CreditAmount,
-		Balance:      entry.Balance,
-		PartnerName:  entry.PartnerName,
+		VoucherID:      entry.VoucherID.String(),
+		VoucherNo:      entry.VoucherNo,
+		VoucherDate:    entry.VoucherDate.Format("2006-01-02"),
+		VoucherType:    entry.VoucherType,
+		EntryID:        entry.EntryID.String(),
+		LineNo:         entry.LineNo,
+		Description:    entry.Description,
+		DebitAmount:    entry.DebitAmount,
+		CreditAmount:   entry.CreditAmount,
+		Balance:        entry.Balance,
+		PartnerName:    entry.PartnerName,
 		DepartmentName: entry.DepartmentName,
 	}
 
@@ -121,34 +121,34 @@ type AccountLedgerResponse struct {
 
 // TrialBalanceItemResponse represents a trial balance line item
 type TrialBalanceItemResponse struct {
-	AccountID      string  `json:"account_id"`
-	AccountCode    string  `json:"account_code"`
-	AccountName    string  `json:"account_name"`
-	AccountType    string  `json:"account_type"`
-	AccountLevel   int     `json:"account_level"`
-	OpeningDebit   float64 `json:"opening_debit"`
-	OpeningCredit  float64 `json:"opening_credit"`
-	PeriodDebit    float64 `json:"period_debit"`
-	PeriodCredit   float64 `json:"period_credit"`
-	ClosingDebit   float64 `json:"closing_debit"`
-	ClosingCredit  float64 `json:"closing_credit"`
-	IsSubTotal     bool    `json:"is_sub_total"`
-	IsTotal        bool    `json:"is_total"`
+	AccountID     string  `json:"account_id"`
+	AccountCode   string  `json:"account_code"`
+	AccountName   string  `json:"account_name"`
+	AccountType   string  `json:"account_type"`
+	AccountLevel  int     `json:"account_level"`
+	OpeningDebit  float64 `json:"opening_debit"`
+	OpeningCredit float64 `json:"opening_credit"`
+	PeriodDebit   float64 `json:"period_debit"`
+	PeriodCredit  float64 `json:"period_credit"`
+	ClosingDebit  float64 `json:"closing_debit"`
+	ClosingCredit float64 `json:"closing_credit"`
+	IsSubTotal    bool    `json:"is_sub_total"`
+	IsTotal       bool    `json:"is_total"`
 }
 
 // TrialBalanceResponse represents a trial balance report
 type TrialBalanceResponse struct {
-	CompanyID     string                     `json:"company_id"`
-	FiscalYear    int                        `json:"fiscal_year"`
-	FiscalMonth   int                        `json:"fiscal_month"`
-	PeriodName    string                     `json:"period_name"`
-	StartDate     string                     `json:"start_date"`
-	EndDate       string                     `json:"end_date"`
-	GeneratedAt   string                     `json:"generated_at"`
-	Items         []TrialBalanceItemResponse `json:"items"`
-	TotalDebit    float64                    `json:"total_debit"`
-	TotalCredit   float64                    `json:"total_credit"`
-	IsBalanced    bool                       `json:"is_balanced"`
+	CompanyID   string                     `json:"company_id"`
+	FiscalYear  int                        `json:"fiscal_year"`
+	FiscalMonth int                        `json:"fiscal_month"`
+	PeriodName  string                     `json:"period_name"`
+	StartDate   string                     `json:"start_date"`
+	EndDate     string                     `json:"end_date"`
+	GeneratedAt string                     `json:"generated_at"`
+	Items       []TrialBalanceItemResponse `json:"items"`
+	TotalDebit  float64                    `json:"total_debit"`
+	TotalCredit float64                    `json:"total_credit"`
+	IsBalanced  bool                       `json:"is_balanced"`
 }
 
 // FromTrialBalance converts domain.TrialBalance to TrialBalanceResponse
@@ -189,14 +189,14 @@ func FromTrialBalance(tb *domain.TrialBalance) TrialBalanceResponse {
 
 // FiscalPeriodResponse represents a fiscal period
 type FiscalPeriodResponse struct {
-	ID          string  `json:"id"`
-	FiscalYear  int     `json:"fiscal_year"`
-	FiscalMonth int     `json:"fiscal_month"`
-	PeriodName  string  `json:"period_name"`
-	StartDate   string  `json:"start_date"`
-	EndDate     string  `json:"end_date"`
-	Status      string  `json:"status"`
-	ClosedAt    string  `json:"closed_at,omitempty"`
+	ID          string `json:"id"`
+	FiscalYear  int    `json:"fiscal_year"`
+	FiscalMonth int    `json:"fiscal_month"`
+	PeriodName  string `json:"period_name"`
+	StartDate   string `json:"start_date"`
+	EndDate     string `json:"end_date"`
+	Status      string `json:"status"`
+	ClosedAt    string `json:"closed_at,omitempty"`
 }
 
 // FromFiscalPeriod converts domain.FiscalPeriod to FiscalPeriodResponse
@@ -229,39 +229,39 @@ func FromFiscalPeriods(periods []domain.FiscalPeriod) []FiscalPeriodResponse {
 
 // FinancialStatementItem represents a line in financial statement
 type FinancialStatementItem struct {
-	Code        string  `json:"code"`
-	Name        string  `json:"name"`
-	Amount      float64 `json:"amount"`
-	Level       int     `json:"level"`
-	IsSubTotal  bool    `json:"is_sub_total"`
-	IsTotal     bool    `json:"is_total"`
+	Code       string  `json:"code"`
+	Name       string  `json:"name"`
+	Amount     float64 `json:"amount"`
+	Level      int     `json:"level"`
+	IsSubTotal bool    `json:"is_sub_total"`
+	IsTotal    bool    `json:"is_total"`
 }
 
 // BalanceSheetResponse represents a balance sheet report
 type BalanceSheetResponse struct {
-	CompanyID      string                   `json:"company_id"`
-	AsOfDate       string                   `json:"as_of_date"`
-	GeneratedAt    string                   `json:"generated_at"`
-	Assets         []FinancialStatementItem `json:"assets"`
-	Liabilities    []FinancialStatementItem `json:"liabilities"`
-	Equity         []FinancialStatementItem `json:"equity"`
-	TotalAssets    float64                  `json:"total_assets"`
-	TotalLiabilities float64                `json:"total_liabilities"`
-	TotalEquity    float64                  `json:"total_equity"`
-	IsBalanced     bool                     `json:"is_balanced"`
+	CompanyID        string                   `json:"company_id"`
+	AsOfDate         string                   `json:"as_of_date"`
+	GeneratedAt      string                   `json:"generated_at"`
+	Assets           []FinancialStatementItem `json:"assets"`
+	Liabilities      []FinancialStatementItem `json:"liabilities"`
+	Equity           []FinancialStatementItem `json:"equity"`
+	TotalAssets      float64                  `json:"total_assets"`
+	TotalLiabilities float64                  `json:"total_liabilities"`
+	TotalEquity      float64                  `json:"total_equity"`
+	IsBalanced       bool                     `json:"is_balanced"`
 }
 
 // IncomeStatementResponse represents an income statement report
 type IncomeStatementResponse struct {
-	CompanyID       string                   `json:"company_id"`
-	FromDate        string                   `json:"from_date"`
-	ToDate          string                   `json:"to_date"`
-	GeneratedAt     string                   `json:"generated_at"`
-	Revenue         []FinancialStatementItem `json:"revenue"`
-	Expenses        []FinancialStatementItem `json:"expenses"`
-	TotalRevenue    float64                  `json:"total_revenue"`
-	TotalExpenses   float64                  `json:"total_expenses"`
-	NetIncome       float64                  `json:"net_income"`
+	CompanyID     string                   `json:"company_id"`
+	FromDate      string                   `json:"from_date"`
+	ToDate        string                   `json:"to_date"`
+	GeneratedAt   string                   `json:"generated_at"`
+	Revenue       []FinancialStatementItem `json:"revenue"`
+	Expenses      []FinancialStatementItem `json:"expenses"`
+	TotalRevenue  float64                  `json:"total_revenue"`
+	TotalExpenses float64                  `json:"total_expenses"`
+	NetIncome     float64                  `json:"net_income"`
 }
 
 // AccountLedgerRequest represents query parameters for account ledger

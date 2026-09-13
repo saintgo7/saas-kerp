@@ -28,6 +28,7 @@ import {
   TableCell,
   Modal,
 } from "@/components/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { formatCurrency } from "@/lib/utils";
 import { PRODUCT_UNITS } from "@/constants";
 import type { Product, ProductCategory } from "@/types/inventory";
@@ -220,6 +221,8 @@ export function ProductListPage() {
         </div>
       </div>
 
+      <FeatureUnavailable feature="품목 관리" />
+
       {/* Filters */}
       <Card>
         <CardContent className="p-4">
@@ -259,7 +262,10 @@ export function ProductListPage() {
             <Button variant="outline" size="icon">
               <Filter className="h-4 w-4" />
             </Button>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => notifyUnavailable("품목 목록 내보내기")}
+            >
               <Download className="h-4 w-4 mr-2" />
               내보내기
             </Button>
@@ -276,10 +282,19 @@ export function ProductListPage() {
                 {selectedRows.length}개 항목 선택됨
               </span>
               <div className="flex items-center space-x-2">
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => notifyUnavailable("품목 일괄 수정")}
+                >
                   일괄 수정
                 </Button>
-                <Button variant="outline" size="sm" className="text-destructive">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={() => notifyUnavailable("품목 일괄 삭제")}
+                >
                   <Trash2 className="h-4 w-4 mr-2" />
                   일괄 삭제
                 </Button>
@@ -379,7 +394,11 @@ export function ProductListPage() {
                             <Edit className="h-4 w-4 mr-2" />
                             수정
                           </Link>
-                          <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive">
+                          <button
+                            type="button"
+                            className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive"
+                            onClick={() => notifyUnavailable("품목 삭제")}
+                          >
                             <Trash2 className="h-4 w-4 mr-2" />
                             삭제
                           </button>
@@ -442,7 +461,7 @@ export function ProductListPage() {
             <p className="text-sm text-muted-foreground">
               품목 분류를 위한 카테고리를 관리합니다.
             </p>
-            <Button size="sm">
+            <Button size="sm" onClick={() => notifyUnavailable("카테고리 추가")}>
               <Plus className="h-4 w-4 mr-2" />
               추가
             </Button>
@@ -460,10 +479,19 @@ export function ProductListPage() {
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Button variant="ghost" size="icon">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => notifyUnavailable("카테고리 수정")}
+                  >
                     <Edit className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive"
+                    onClick={() => notifyUnavailable("카테고리 삭제")}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

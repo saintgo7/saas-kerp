@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,7 +22,7 @@ import {
   CardContent,
   Badge,
 } from "@/components/ui";
-import { toast } from "@/stores/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 
 // Options for selects
 const genderOptions = [
@@ -143,7 +143,6 @@ export function EmployeeFormPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditMode = !!id;
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
     register,
@@ -191,23 +190,9 @@ export function EmployeeFormPage() {
     }
   }, [isEditMode, reset]);
 
-  const onSubmit = async (data: EmployeeFormData) => {
-    setIsSubmitting(true);
-    try {
-      // TODO: API call
-      console.log("Employee data:", data);
-      toast.success(
-        isEditMode ? "직원 수정 완료" : "직원 등록 완료",
-        isEditMode
-          ? "직원 정보가 수정되었습니다."
-          : "새 직원이 등록되었습니다."
-      );
-      navigate("/hr/employee");
-    } catch {
-      toast.error("저장 실패", "직원 정보 저장 중 오류가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
+  // No employee endpoint exists on the server yet, so nothing can be saved.
+  const onSubmit = () => {
+    notifyUnavailable(isEditMode ? "직원 정보 수정" : "직원 등록");
   };
 
   const formatSalary = (value: number) => {
@@ -254,12 +239,14 @@ export function EmployeeFormPage() {
           <Button variant="outline" onClick={() => navigate(-1)}>
             취소
           </Button>
-          <Button onClick={handleSubmit(onSubmit)} isLoading={isSubmitting}>
+          <Button onClick={handleSubmit(onSubmit)}>
             <Save className="h-4 w-4 mr-2" />
             저장
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable feature={isEditMode ? "직원 정보 수정" : "직원 등록"} />
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Basic Info */}
@@ -521,7 +508,7 @@ export function EmployeeFormPage() {
           <Button variant="outline" onClick={() => navigate(-1)}>
             취소
           </Button>
-          <Button type="submit" isLoading={isSubmitting}>
+          <Button type="submit">
             <Save className="h-4 w-4 mr-2" />
             저장
           </Button>

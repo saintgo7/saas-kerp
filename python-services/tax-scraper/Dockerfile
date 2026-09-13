@@ -41,24 +41,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Builder stage
 FROM base AS builder
 
+# NOTE: build context is the repository root (docker-compose.yml: context: ../..),
+# so every COPY below must be repo-root relative.
+
 # Install dependencies
-COPY requirements.txt .
+COPY python-services/tax-scraper/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Playwright browsers
 RUN playwright install chromium --with-deps
 
-# Generate gRPC code
-COPY proto/ ./proto/
-COPY scripts/generate_grpc.sh ./scripts/
-RUN chmod +x scripts/generate_grpc.sh && \
-    mkdir -p src/grpc_gen && \
+# Generate gRPC code. Must not be swallowed: the production stage copies
+# /app/src/grpc_gen and the service cannot start without it.
+COPY python-services/tax-scraper/proto/ ./proto/
+COPY python-services/tax-scraper/scripts/generate_grpc.sh ./scripts/
+RUN mkdir -p src/grpc_gen && \
     python -m grpc_tools.protoc \
         -I./proto \
         --python_out=./src/grpc_gen \
         --pyi_out=./src/grpc_gen \
         --grpc_python_out=./src/grpc_gen \
-        ./proto/tax.proto || true
+        ./proto/tax.proto && \
+    touch src/grpc_gen/__init__.py
 
 # Production stage
 FROM base AS production
@@ -68,8 +72,8 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /ms-playwright /ms-playwright
 
-# Copy application code
-COPY . .
+# Copy application code (service directory only - never the whole repo)
+COPY python-services/tax-scraper/ .
 COPY --from=builder /app/src/grpc_gen ./src/grpc_gen
 
 # Create non-root user

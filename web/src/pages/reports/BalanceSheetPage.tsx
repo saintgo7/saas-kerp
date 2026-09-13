@@ -10,76 +10,11 @@ import {
   CardContent,
   Badge,
 } from "@/components/ui";
+import { notifyUnavailable } from "@/components/common";
 import { formatCurrency } from "@/lib/utils";
 import { ledgerApi } from "@/api";
-import type { BalanceSheetData, BalanceSheetSection } from "@/api/ledger";
-
-// Mock data for development
-const mockBalanceSheetData: BalanceSheetData = {
-  asOfDate: "2024-01-31",
-  comparisonDate: "2023-12-31",
-  assets: [
-    {
-      title: "유동자산",
-      accounts: [
-        { accountId: "101", accountCode: "101", accountName: "현금", level: 1, currentAmount: 6500000, previousAmount: 5000000 },
-        { accountId: "102", accountCode: "102", accountName: "보통예금", level: 1, currentAmount: 23000000, previousAmount: 20000000 },
-        { accountId: "109", accountCode: "109", accountName: "외상매출금", level: 1, currentAmount: 12500000, previousAmount: 10000000 },
-        { accountId: "141", accountCode: "141", accountName: "상품", level: 1, currentAmount: 15000000, previousAmount: 15000000 },
-        { accountId: "", accountCode: "", accountName: "유동자산 합계", level: 0, currentAmount: 57000000, previousAmount: 50000000, isSubtotal: true },
-      ],
-      total: 57000000,
-      previousTotal: 50000000,
-    },
-    {
-      title: "비유동자산",
-      accounts: [
-        { accountId: "201", accountCode: "201", accountName: "비품", level: 1, currentAmount: 10000000, previousAmount: 12000000 },
-        { accountId: "202", accountCode: "202", accountName: "차량운반구", level: 1, currentAmount: 20000000, previousAmount: 22000000 },
-        { accountId: "", accountCode: "", accountName: "비유동자산 합계", level: 0, currentAmount: 30000000, previousAmount: 34000000, isSubtotal: true },
-      ],
-      total: 30000000,
-      previousTotal: 34000000,
-    },
-  ],
-  liabilities: [
-    {
-      title: "유동부채",
-      accounts: [
-        { accountId: "301", accountCode: "301", accountName: "외상매입금", level: 1, currentAmount: 16000000, previousAmount: 15000000 },
-        { accountId: "302", accountCode: "302", accountName: "미지급금", level: 1, currentAmount: 6000000, previousAmount: 5000000 },
-        { accountId: "", accountCode: "", accountName: "유동부채 합계", level: 0, currentAmount: 22000000, previousAmount: 20000000, isSubtotal: true },
-      ],
-      total: 22000000,
-      previousTotal: 20000000,
-    },
-    {
-      title: "비유동부채",
-      accounts: [
-        { accountId: "401", accountCode: "401", accountName: "장기차입금", level: 1, currentAmount: 15000000, previousAmount: 20000000 },
-        { accountId: "", accountCode: "", accountName: "비유동부채 합계", level: 0, currentAmount: 15000000, previousAmount: 20000000, isSubtotal: true },
-      ],
-      total: 15000000,
-      previousTotal: 20000000,
-    },
-  ],
-  equity: [
-    {
-      title: "자본",
-      accounts: [
-        { accountId: "501", accountCode: "501", accountName: "자본금", level: 1, currentAmount: 30000000, previousAmount: 30000000 },
-        { accountId: "502", accountCode: "502", accountName: "이익잉여금", level: 1, currentAmount: 20000000, previousAmount: 14000000 },
-        { accountId: "", accountCode: "", accountName: "자본 합계", level: 0, currentAmount: 50000000, previousAmount: 44000000, isSubtotal: true },
-      ],
-      total: 50000000,
-      previousTotal: 44000000,
-    },
-  ],
-  totalAssets: 87000000,
-  totalLiabilitiesAndEquity: 87000000,
-  previousTotalAssets: 84000000,
-  previousTotalLiabilitiesAndEquity: 84000000,
-};
+import { getErrorMessage } from "@/services/api";
+import type { BalanceSheetSection } from "@/api/ledger";
 
 export function BalanceSheetPage() {
   const today = new Date();
@@ -104,8 +39,8 @@ export function BalanceSheetPage() {
     enabled: !!asOfDate,
   });
 
-  // Use mock data if no real data
-  const balanceSheetData = balanceSheetResponse?.data || mockBalanceSheetData;
+  // Never fall back to sample figures on a financial statement.
+  const balanceSheetData = balanceSheetResponse?.data ?? null;
 
   // Calculate variance percentages
   const calculateVariance = (current: number, previous?: number) => {
@@ -189,8 +124,9 @@ export function BalanceSheetPage() {
   );
 
   // Check if balance sheet is balanced
-  const isBalanced =
-    balanceSheetData.totalAssets === balanceSheetData.totalLiabilitiesAndEquity;
+  const isBalanced = balanceSheetData
+    ? balanceSheetData.totalAssets === balanceSheetData.totalLiabilitiesAndEquity
+    : false;
 
   return (
     <div className="space-y-6">
@@ -203,7 +139,7 @@ export function BalanceSheetPage() {
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => notifyUnavailable("내보내기")}>
             <Download className="h-4 w-4 mr-2" />
             내보내기
           </Button>
@@ -256,32 +192,34 @@ export function BalanceSheetPage() {
       </Card>
 
       {/* Balance Status */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Badge variant={isBalanced ? "success" : "destructive"}>
-                {isBalanced ? "균형" : "불균형"}
-              </Badge>
-              <span className="text-sm text-muted-foreground">
-                자산 = 부채 + 자본
-              </span>
+      {balanceSheetData && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <Badge variant={isBalanced ? "success" : "destructive"}>
+                  {isBalanced ? "균형" : "불균형"}
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  자산 = 부채 + 자본
+                </span>
+              </div>
+              {!isBalanced && (
+                <span className="text-sm text-destructive font-mono">
+                  차이:{" "}
+                  {formatCurrency(
+                    Math.abs(
+                      balanceSheetData.totalAssets -
+                        balanceSheetData.totalLiabilitiesAndEquity
+                    ),
+                    { showSymbol: false }
+                  )}
+                </span>
+              )}
             </div>
-            {!isBalanced && (
-              <span className="text-sm text-destructive font-mono">
-                차이:{" "}
-                {formatCurrency(
-                  Math.abs(
-                    balanceSheetData.totalAssets -
-                      balanceSheetData.totalLiabilitiesAndEquity
-                  ),
-                  { showSymbol: false }
-                )}
-              </span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Balance Sheet Content */}
       {isLoading ? (
@@ -293,7 +231,17 @@ export function BalanceSheetPage() {
       ) : error ? (
         <Card>
           <CardContent className="py-16 text-center">
-            <p className="text-destructive">데이터를 불러올 수 없습니다.</p>
+            <p className="text-destructive">
+              {getErrorMessage(error, "재무상태표 조회에 실패했습니다.")}
+            </p>
+          </CardContent>
+        </Card>
+      ) : !balanceSheetData ? (
+        <Card>
+          <CardContent className="py-16 text-center">
+            <p className="text-muted-foreground">
+              조회된 재무상태표 데이터가 없습니다.
+            </p>
           </CardContent>
         </Card>
       ) : (

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import {
   Shield,
@@ -8,7 +9,6 @@ import {
   Edit,
   Trash2,
   Save,
-  Users,
   Eye,
   FileEdit,
   FilePlus,
@@ -29,321 +29,48 @@ import {
   Badge,
   Modal,
 } from "@/components/ui";
+import { apiClient } from "@/api";
+import { getErrorMessage } from "@/services/api";
 import { toast } from "@/stores/ui";
 import { cn } from "@/lib/utils";
 
+// Server contract: internal/dto/role_dto.go
+interface ApiPermission {
+  code: string;
+  name: string;
+  description?: string;
+  module: string;
+}
+
+interface ApiRole {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  permissions: ApiPermission[];
+  is_system: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // Validation schema for role
 const roleSchema = z.object({
-  name: z.string().min(1, "역할명을 입력하세요"),
-  description: z.string().optional(),
+  code: z
+    .string()
+    .min(1, "역할 코드를 입력하세요")
+    .max(50, "역할 코드는 50자 이하입니다")
+    .regex(/^[A-Za-z0-9_-]+$/, "영문, 숫자, '-', '_' 만 사용할 수 있습니다"),
+  name: z.string().min(1, "역할명을 입력하세요").max(100, "역할명은 100자 이하입니다"),
+  description: z.string().max(500, "설명은 500자 이하입니다").optional(),
 });
 
 type RoleFormData = z.infer<typeof roleSchema>;
 
 // Permission types
-type PermissionAction = "view" | "create" | "edit" | "delete";
+const PERMISSION_ACTIONS = ["view", "create", "edit", "delete"] as const;
+type PermissionAction = (typeof PERMISSION_ACTIONS)[number];
 
-interface Permission {
-  view: boolean;
-  create: boolean;
-  edit: boolean;
-  delete: boolean;
-}
-
-interface MenuPermission {
-  id: string;
-  name: string;
-  permissions: Permission;
-  children?: MenuPermission[];
-}
-
-interface Role {
-  id: string;
-  name: string;
-  description?: string;
-  isSystem: boolean;
-  userCount: number;
-  menuPermissions: MenuPermission[];
-}
-
-// Mock roles data
-const defaultPermission: Permission = {
-  view: false,
-  create: false,
-  edit: false,
-  delete: false,
-};
-
-const createMenuStructure = (overrides: Partial<Record<string, Partial<Permission>>> = {}): MenuPermission[] => [
-  {
-    id: "dashboard",
-    name: "대시보드",
-    permissions: { ...defaultPermission, view: true, ...overrides["dashboard"] },
-  },
-  {
-    id: "accounting",
-    name: "회계관리",
-    permissions: { ...defaultPermission, ...overrides["accounting"] },
-    children: [
-      {
-        id: "voucher",
-        name: "전표관리",
-        permissions: { ...defaultPermission, ...overrides["voucher"] },
-      },
-      {
-        id: "ledger",
-        name: "원장조회",
-        permissions: { ...defaultPermission, ...overrides["ledger"] },
-      },
-      {
-        id: "trial-balance",
-        name: "시산표",
-        permissions: { ...defaultPermission, ...overrides["trial-balance"] },
-      },
-      {
-        id: "financial-statements",
-        name: "재무제표",
-        permissions: { ...defaultPermission, ...overrides["financial-statements"] },
-      },
-      {
-        id: "accounts",
-        name: "계정과목관리",
-        permissions: { ...defaultPermission, ...overrides["accounts"] },
-      },
-    ],
-  },
-  {
-    id: "invoice",
-    name: "세금계산서",
-    permissions: { ...defaultPermission, ...overrides["invoice"] },
-    children: [
-      {
-        id: "invoice-issue",
-        name: "매출발행",
-        permissions: { ...defaultPermission, ...overrides["invoice-issue"] },
-      },
-      {
-        id: "invoice-received",
-        name: "매입관리",
-        permissions: { ...defaultPermission, ...overrides["invoice-received"] },
-      },
-      {
-        id: "invoice-list",
-        name: "발행내역",
-        permissions: { ...defaultPermission, ...overrides["invoice-list"] },
-      },
-      {
-        id: "invoice-hometax",
-        name: "홈택스연동",
-        permissions: { ...defaultPermission, ...overrides["invoice-hometax"] },
-      },
-    ],
-  },
-  {
-    id: "hr",
-    name: "인사/급여",
-    permissions: { ...defaultPermission, ...overrides["hr"] },
-    children: [
-      {
-        id: "employee",
-        name: "직원관리",
-        permissions: { ...defaultPermission, ...overrides["employee"] },
-      },
-      {
-        id: "department",
-        name: "부서관리",
-        permissions: { ...defaultPermission, ...overrides["department"] },
-      },
-      {
-        id: "payroll",
-        name: "급여관리",
-        permissions: { ...defaultPermission, ...overrides["payroll"] },
-      },
-      {
-        id: "insurance",
-        name: "4대보험",
-        permissions: { ...defaultPermission, ...overrides["insurance"] },
-      },
-    ],
-  },
-  {
-    id: "partners",
-    name: "거래처관리",
-    permissions: { ...defaultPermission, ...overrides["partners"] },
-  },
-  {
-    id: "inventory",
-    name: "재고관리",
-    permissions: { ...defaultPermission, ...overrides["inventory"] },
-    children: [
-      {
-        id: "products",
-        name: "품목관리",
-        permissions: { ...defaultPermission, ...overrides["products"] },
-      },
-      {
-        id: "stock",
-        name: "재고현황",
-        permissions: { ...defaultPermission, ...overrides["stock"] },
-      },
-      {
-        id: "purchase",
-        name: "구매관리",
-        permissions: { ...defaultPermission, ...overrides["purchase"] },
-      },
-      {
-        id: "sales",
-        name: "판매관리",
-        permissions: { ...defaultPermission, ...overrides["sales"] },
-      },
-    ],
-  },
-  {
-    id: "reports",
-    name: "보고서",
-    permissions: { ...defaultPermission, ...overrides["reports"] },
-  },
-  {
-    id: "settings",
-    name: "설정",
-    permissions: { ...defaultPermission, ...overrides["settings"] },
-    children: [
-      {
-        id: "company",
-        name: "회사정보",
-        permissions: { ...defaultPermission, ...overrides["company"] },
-      },
-      {
-        id: "users",
-        name: "사용자관리",
-        permissions: { ...defaultPermission, ...overrides["users"] },
-      },
-      {
-        id: "permissions",
-        name: "권한관리",
-        permissions: { ...defaultPermission, ...overrides["permissions"] },
-      },
-      {
-        id: "integrations",
-        name: "연동설정",
-        permissions: { ...defaultPermission, ...overrides["integrations"] },
-      },
-    ],
-  },
-];
-
-// Full permissions for admin
-const fullPermission: Permission = { view: true, create: true, edit: true, delete: true };
-
-const mockRoles: Role[] = [
-  {
-    id: "admin",
-    name: "관리자",
-    description: "시스템의 모든 기능에 접근할 수 있습니다.",
-    isSystem: true,
-    userCount: 2,
-    menuPermissions: createMenuStructure(
-      Object.fromEntries(
-        [
-          "dashboard", "accounting", "voucher", "ledger", "trial-balance", "financial-statements",
-          "accounts", "invoice", "invoice-issue", "invoice-received", "invoice-list", "invoice-hometax",
-          "hr", "employee", "department", "payroll", "insurance", "partners", "inventory",
-          "products", "stock", "purchase", "sales", "reports", "settings", "company",
-          "users", "permissions", "integrations"
-        ].map(k => [k, fullPermission])
-      )
-    ),
-  },
-  {
-    id: "manager",
-    name: "매니저",
-    description: "대부분의 기능에 접근할 수 있지만 시스템 설정은 제한됩니다.",
-    isSystem: true,
-    userCount: 3,
-    menuPermissions: createMenuStructure({
-      dashboard: { view: true },
-      accounting: { view: true, create: true, edit: true },
-      voucher: { view: true, create: true, edit: true },
-      ledger: { view: true },
-      "trial-balance": { view: true },
-      "financial-statements": { view: true },
-      invoice: { view: true, create: true, edit: true },
-      "invoice-issue": { view: true, create: true, edit: true },
-      "invoice-received": { view: true },
-      "invoice-list": { view: true },
-      hr: { view: true },
-      employee: { view: true },
-      partners: { view: true, create: true, edit: true },
-      inventory: { view: true, create: true, edit: true },
-      products: { view: true, create: true, edit: true },
-      stock: { view: true },
-      purchase: { view: true, create: true, edit: true },
-      sales: { view: true, create: true, edit: true },
-      reports: { view: true },
-      settings: { view: true },
-      company: { view: true },
-    }),
-  },
-  {
-    id: "accountant",
-    name: "회계담당",
-    description: "회계 및 세금계산서 관련 기능에 접근할 수 있습니다.",
-    isSystem: true,
-    userCount: 4,
-    menuPermissions: createMenuStructure({
-      dashboard: { view: true },
-      accounting: fullPermission,
-      voucher: fullPermission,
-      ledger: { view: true },
-      "trial-balance": { view: true },
-      "financial-statements": { view: true },
-      accounts: fullPermission,
-      invoice: fullPermission,
-      "invoice-issue": fullPermission,
-      "invoice-received": fullPermission,
-      "invoice-list": { view: true },
-      "invoice-hometax": fullPermission,
-      partners: { view: true },
-      reports: { view: true },
-    }),
-  },
-  {
-    id: "hr",
-    name: "인사담당",
-    description: "인사 및 급여 관련 기능에 접근할 수 있습니다.",
-    isSystem: true,
-    userCount: 2,
-    menuPermissions: createMenuStructure({
-      dashboard: { view: true },
-      hr: fullPermission,
-      employee: fullPermission,
-      department: fullPermission,
-      payroll: fullPermission,
-      insurance: fullPermission,
-      reports: { view: true },
-    }),
-  },
-  {
-    id: "user",
-    name: "일반사용자",
-    description: "기본적인 조회 기능만 사용할 수 있습니다.",
-    isSystem: true,
-    userCount: 10,
-    menuPermissions: createMenuStructure({
-      dashboard: { view: true },
-      accounting: { view: true },
-      voucher: { view: true },
-      ledger: { view: true },
-      invoice: { view: true },
-      "invoice-list": { view: true },
-      partners: { view: true },
-      inventory: { view: true },
-      stock: { view: true },
-    }),
-  },
-];
-
-// Permission action icons
 const actionIcons: Record<PermissionAction, typeof Eye> = {
   view: Eye,
   create: FilePlus,
@@ -358,15 +85,155 @@ const actionLabels: Record<PermissionAction, string> = {
   delete: "삭제",
 };
 
+interface MenuNode {
+  id: string;
+  name: string;
+  children?: MenuNode[];
+}
+
+/**
+ * Static catalogue of the application's menus. The server stores permissions as
+ * a flat list of `{code, name, description, module}` records, so each cell of
+ * this matrix maps to the code `<menuId>:<action>`.
+ */
+const MENU_CATALOG: MenuNode[] = [
+  { id: "dashboard", name: "대시보드" },
+  {
+    id: "accounting",
+    name: "회계관리",
+    children: [
+      { id: "voucher", name: "전표관리" },
+      { id: "ledger", name: "원장조회" },
+      { id: "trial-balance", name: "시산표" },
+      { id: "financial-statements", name: "재무제표" },
+      { id: "accounts", name: "계정과목관리" },
+    ],
+  },
+  {
+    id: "invoice",
+    name: "세금계산서",
+    children: [
+      { id: "invoice-issue", name: "매출발행" },
+      { id: "invoice-received", name: "매입관리" },
+      { id: "invoice-list", name: "발행내역" },
+      { id: "invoice-hometax", name: "홈택스연동" },
+    ],
+  },
+  {
+    id: "hr",
+    name: "인사/급여",
+    children: [
+      { id: "employee", name: "직원관리" },
+      { id: "department", name: "부서관리" },
+      { id: "payroll", name: "급여관리" },
+      { id: "insurance", name: "4대보험" },
+    ],
+  },
+  { id: "partners", name: "거래처관리" },
+  {
+    id: "inventory",
+    name: "재고관리",
+    children: [
+      { id: "products", name: "품목관리" },
+      { id: "stock", name: "재고현황" },
+      { id: "purchase", name: "구매관리" },
+      { id: "sales", name: "판매관리" },
+    ],
+  },
+  { id: "reports", name: "보고서" },
+  {
+    id: "settings",
+    name: "설정",
+    children: [
+      { id: "company", name: "회사정보" },
+      { id: "users", name: "사용자관리" },
+      { id: "permissions", name: "권한관리" },
+      { id: "integrations", name: "연동설정" },
+    ],
+  },
+];
+
+const permissionCode = (menuId: string, action: PermissionAction): string =>
+  `${menuId}:${action}`;
+
+const buildPermissionCatalog = (
+  menus: MenuNode[],
+  moduleId?: string,
+  acc: Map<string, ApiPermission> = new Map()
+): Map<string, ApiPermission> => {
+  menus.forEach((menu) => {
+    const module = moduleId ?? menu.id;
+    PERMISSION_ACTIONS.forEach((action) => {
+      const code = permissionCode(menu.id, action);
+      acc.set(code, {
+        code,
+        name: `${menu.name} ${actionLabels[action]}`,
+        module,
+      });
+    });
+    if (menu.children) {
+      buildPermissionCatalog(menu.children, module, acc);
+    }
+  });
+  return acc;
+};
+
+const PERMISSION_CATALOG = buildPermissionCatalog(MENU_CATALOG);
+
 export function PermissionPage() {
-  const [roles, setRoles] = useState(mockRoles);
-  const [selectedRole, setSelectedRole] = useState<Role | null>(mockRoles[0]);
+  const queryClient = useQueryClient();
+
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [draftCodes, setDraftCodes] = useState<Set<string>>(new Set());
   const [roleModalOpen, setRoleModalOpen] = useState(false);
-  const [editingRole, setEditingRole] = useState<Role | null>(null);
+  const [editingRole, setEditingRole] = useState<ApiRole | null>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [roleToDelete, setRoleToDelete] = useState<string | null>(null);
-  const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(["accounting", "invoice", "hr", "inventory", "settings"]));
-  const [hasChanges, setHasChanges] = useState(false);
+  const [roleToDelete, setRoleToDelete] = useState<ApiRole | null>(null);
+  const [checkingDelete, setCheckingDelete] = useState(false);
+  const [expandedMenus, setExpandedMenus] = useState<Set<string>>(
+    new Set(["accounting", "invoice", "hr", "inventory", "settings"])
+  );
+
+  const {
+    data: rolesResponse,
+    isLoading,
+    error: listError,
+  } = useQuery({
+    queryKey: ["roles"],
+    queryFn: () => apiClient.get<ApiRole[]>("/roles"),
+  });
+
+  const roles = useMemo(() => rolesResponse?.data ?? [], [rolesResponse]);
+
+  // Keep a valid selection whenever the role list changes
+  useEffect(() => {
+    if (roles.length === 0) {
+      setSelectedRoleId(null);
+      return;
+    }
+    setSelectedRoleId((current) =>
+      current && roles.some((role) => role.id === current) ? current : roles[0].id
+    );
+  }, [roles]);
+
+  const selectedRole = useMemo(
+    () => roles.find((role) => role.id === selectedRoleId) ?? null,
+    [roles, selectedRoleId]
+  );
+
+  const serverCodes = useMemo(
+    () => new Set((selectedRole?.permissions ?? []).map((p) => p.code)),
+    [selectedRole]
+  );
+
+  // Reset the working copy whenever the selected role (or its server state) changes
+  useEffect(() => {
+    setDraftCodes(new Set(serverCodes));
+  }, [serverCodes]);
+
+  const hasChanges =
+    draftCodes.size !== serverCodes.size ||
+    Array.from(draftCodes).some((code) => !serverCodes.has(code));
 
   // Role form
   const {
@@ -376,152 +243,171 @@ export function PermissionPage() {
     formState: { errors },
   } = useForm<RoleFormData>({
     resolver: zodResolver(roleSchema),
+    defaultValues: { code: "", name: "", description: "" },
+  });
+
+  const createRoleMutation = useMutation({
+    mutationFn: (payload: RoleFormData) => apiClient.post<ApiRole>("/roles", payload),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      setRoleModalOpen(false);
+      if (response.data?.id) {
+        setSelectedRoleId(response.data.id);
+      }
+      toast.success("등록 완료", "새 역할이 등록되었습니다.");
+    },
+    onError: (err: unknown) => {
+      toast.error("저장 실패", getErrorMessage(err, "역할 등록 중 오류가 발생했습니다."));
+    },
+  });
+
+  const updateRoleMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: RoleFormData }) =>
+      apiClient.put<ApiRole>(`/roles/${id}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      setRoleModalOpen(false);
+      toast.success("수정 완료", "역할이 수정되었습니다.");
+    },
+    onError: (err: unknown) => {
+      toast.error("저장 실패", getErrorMessage(err, "역할 수정 중 오류가 발생했습니다."));
+    },
+  });
+
+  const deleteRoleMutation = useMutation({
+    mutationFn: (id: string) => apiClient.delete<{ deleted: boolean }>(`/roles/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      setDeleteModalOpen(false);
+      setRoleToDelete(null);
+      toast.success("삭제 완료", "역할이 삭제되었습니다.");
+    },
+    onError: (err: unknown) => {
+      toast.error("삭제 실패", getErrorMessage(err, "역할 삭제 중 오류가 발생했습니다."));
+    },
+  });
+
+  const savePermissionsMutation = useMutation({
+    mutationFn: ({ id, permissions }: { id: string; permissions: ApiPermission[] }) =>
+      apiClient.put<ApiRole>(`/roles/${id}/permissions`, { permissions }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      toast.success("저장 완료", "권한 설정이 저장되었습니다.");
+    },
+    onError: (err: unknown) => {
+      toast.error("저장 실패", getErrorMessage(err, "권한 저장 중 오류가 발생했습니다."));
+    },
   });
 
   // Toggle menu expansion
   const toggleMenu = (menuId: string) => {
-    const newExpanded = new Set(expandedMenus);
-    if (newExpanded.has(menuId)) {
-      newExpanded.delete(menuId);
-    } else {
-      newExpanded.add(menuId);
-    }
-    setExpandedMenus(newExpanded);
+    setExpandedMenus((current) => {
+      const next = new Set(current);
+      if (next.has(menuId)) {
+        next.delete(menuId);
+      } else {
+        next.add(menuId);
+      }
+      return next;
+    });
   };
 
   // Open role modal for add/edit
-  const openRoleModal = (role?: Role) => {
+  const openRoleModal = (role?: ApiRole) => {
     if (role) {
       setEditingRole(role);
       reset({
+        code: role.code,
         name: role.name,
-        description: role.description,
+        description: role.description ?? "",
       });
     } else {
       setEditingRole(null);
-      reset({
-        name: "",
-        description: "",
-      });
+      reset({ code: "", name: "", description: "" });
     }
     setRoleModalOpen(true);
   };
 
   // Submit role form
-  const onSubmitRole = async (data: RoleFormData) => {
-    try {
-      if (editingRole) {
-        // Update existing role
-        setRoles(
-          roles.map((r) =>
-            r.id === editingRole.id ? { ...r, ...data } : r
-          )
-        );
-        if (selectedRole?.id === editingRole.id) {
-          setSelectedRole({ ...selectedRole, ...data });
-        }
-        toast.success("수정 완료", "역할이 수정되었습니다.");
-      } else {
-        // Add new role
-        const newRole: Role = {
-          id: crypto.randomUUID(),
-          ...data,
-          isSystem: false,
-          userCount: 0,
-          menuPermissions: createMenuStructure({ dashboard: { view: true } }),
-        };
-        setRoles((prev) => [...prev, newRole]);
-        toast.success("등록 완료", "새 역할이 등록되었습니다.");
-      }
-      setRoleModalOpen(false);
-    } catch {
-      toast.error("저장 실패", "역할 저장 중 오류가 발생했습니다.");
+  const onSubmitRole = (data: RoleFormData) => {
+    if (editingRole) {
+      updateRoleMutation.mutate({ id: editingRole.id, payload: data });
+      return;
     }
+    createRoleMutation.mutate(data);
   };
 
-  // Delete role
-  const handleDeleteRole = (id: string) => {
-    const role = roles.find((r) => r.id === id);
-    if (role?.isSystem) {
+  // Delete role - the server decides whether it is removable
+  const handleDeleteRole = async (role: ApiRole) => {
+    if (role.is_system) {
       toast.error("삭제 불가", "시스템 역할은 삭제할 수 없습니다.");
       return;
     }
-    if (role?.userCount && role.userCount > 0) {
-      toast.error("삭제 불가", "이 역할에 할당된 사용자가 있습니다. 먼저 사용자의 역할을 변경해주세요.");
-      return;
+    setCheckingDelete(true);
+    try {
+      const response = await apiClient.get<{ can_delete: boolean; reason: string }>(
+        `/roles/${role.id}/can-delete`
+      );
+      if (!response.data?.can_delete) {
+        toast.error("삭제 불가", response.data?.reason || "이 역할은 삭제할 수 없습니다.");
+        return;
+      }
+      setRoleToDelete(role);
+      setDeleteModalOpen(true);
+    } catch (err) {
+      toast.error(
+        "삭제 불가",
+        getErrorMessage(err, "삭제 가능 여부를 확인하지 못했습니다.")
+      );
+    } finally {
+      setCheckingDelete(false);
     }
-    setRoleToDelete(id);
-    setDeleteModalOpen(true);
   };
 
   const confirmDeleteRole = () => {
     if (roleToDelete) {
-      setRoles(roles.filter((r) => r.id !== roleToDelete));
-      if (selectedRole?.id === roleToDelete) {
-        setSelectedRole(roles[0] || null);
-      }
-      toast.success("삭제 완료", "역할이 삭제되었습니다.");
+      deleteRoleMutation.mutate(roleToDelete.id);
     }
-    setDeleteModalOpen(false);
-    setRoleToDelete(null);
   };
 
-  // Toggle permission (parentId reserved for future cascade logic)
-  const togglePermission = (menuId: string, action: PermissionAction, parentId?: string) => {
-    void parentId; // Reserved for future cascade logic
-    if (!selectedRole || selectedRole.isSystem) return;
-
-    const updatePermissions = (menus: MenuPermission[]): MenuPermission[] => {
-      return menus.map((menu) => {
-        if (menu.id === menuId) {
-          return {
-            ...menu,
-            permissions: {
-              ...menu.permissions,
-              [action]: !menu.permissions[action],
-            },
-          };
-        }
-        if (menu.children) {
-          return {
-            ...menu,
-            children: updatePermissions(menu.children),
-          };
-        }
-        return menu;
-      });
-    };
-
-    const updatedMenuPermissions = updatePermissions(selectedRole.menuPermissions);
-    const updatedRole = { ...selectedRole, menuPermissions: updatedMenuPermissions };
-
-    setSelectedRole(updatedRole);
-    setRoles(roles.map((r) => (r.id === selectedRole.id ? updatedRole : r)));
-    setHasChanges(true);
+  // Toggle a single permission cell in the working copy
+  const togglePermission = (menuId: string, action: PermissionAction) => {
+    if (!selectedRole || selectedRole.is_system) return;
+    const code = permissionCode(menuId, action);
+    setDraftCodes((current) => {
+      const next = new Set(current);
+      if (next.has(code)) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
   };
 
   // Save permissions
   const savePermissions = () => {
-    // TODO: API call to save permissions
-    toast.success("저장 완료", "권한 설정이 저장되었습니다.");
-    setHasChanges(false);
+    if (!selectedRole) return;
+    // Codes the server already holds but this screen does not model are kept as-is
+    const serverByCode = new Map(
+      (selectedRole.permissions ?? []).map((p) => [p.code, p])
+    );
+    const permissions = Array.from(draftCodes)
+      .map((code) => PERMISSION_CATALOG.get(code) ?? serverByCode.get(code))
+      .filter((permission): permission is ApiPermission => Boolean(permission));
+
+    savePermissionsMutation.mutate({ id: selectedRole.id, permissions });
   };
 
   // Render permission checkbox
-  const renderPermissionCheckbox = (
-    menu: MenuPermission,
-    action: PermissionAction,
-    parentId?: string
-  ) => {
-    const isEnabled = menu.permissions[action];
-    const isDisabled = selectedRole?.isSystem;
-    // ActionIcon is available if needed for future enhancement
-    void actionIcons[action];
+  const renderPermissionCheckbox = (menu: MenuNode, action: PermissionAction) => {
+    const isEnabled = draftCodes.has(permissionCode(menu.id, action));
+    const isDisabled = selectedRole?.is_system ?? true;
 
     return (
       <button
         type="button"
-        onClick={() => !isDisabled && togglePermission(menu.id, action, parentId)}
+        onClick={() => !isDisabled && togglePermission(menu.id, action)}
         className={cn(
           "w-8 h-8 rounded flex items-center justify-center transition-colors",
           isEnabled
@@ -538,13 +424,9 @@ export function PermissionPage() {
   };
 
   // Render menu row
-  const renderMenuRow = (menu: MenuPermission, level: number = 0, parentId?: string) => {
-    void parentId; // Reserved for cascade permission logic
-    const hasChildren = menu.children && menu.children.length > 0;
+  const renderMenuRow = (menu: MenuNode, level: number = 0) => {
+    const hasChildren = !!menu.children && menu.children.length > 0;
     const isExpanded = expandedMenus.has(menu.id);
-    // These can be used for visual indicators (partially selected, etc.)
-    void Object.values(menu.permissions).every(Boolean);
-    void Object.values(menu.permissions).some(Boolean);
 
     return (
       <div key={menu.id}>
@@ -577,19 +459,17 @@ export function PermissionPage() {
           </div>
 
           {/* Permission Checkboxes */}
-          {(["view", "create", "edit", "delete"] as PermissionAction[]).map(
-            (action) => (
-              <div key={action} className="flex justify-center">
-                {renderPermissionCheckbox(menu, action, parentId)}
-              </div>
-            )
-          )}
+          {PERMISSION_ACTIONS.map((action) => (
+            <div key={action} className="flex justify-center">
+              {renderPermissionCheckbox(menu, action)}
+            </div>
+          ))}
         </div>
 
         {/* Children */}
         {hasChildren && isExpanded && (
           <div className="border-l ml-6">
-            {menu.children!.map((child) => renderMenuRow(child, level + 1, menu.id))}
+            {menu.children!.map((child) => renderMenuRow(child, level + 1))}
           </div>
         )}
       </div>
@@ -620,63 +500,81 @@ export function PermissionPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="divide-y">
-              {roles.map((role) => (
-                <div
-                  key={role.id}
-                  className={cn(
-                    "p-4 cursor-pointer hover:bg-muted/50 transition-colors",
-                    selectedRole?.id === role.id && "bg-muted"
-                  )}
-                  onClick={() => setSelectedRole(role)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center">
-                        <span className="font-medium">{role.name}</span>
-                        {role.isSystem && (
-                          <Badge variant="secondary" className="ml-2 text-xs">
-                            시스템
-                          </Badge>
-                        )}
+            {isLoading ? (
+              <p className="p-4 text-sm text-muted-foreground">불러오는 중...</p>
+            ) : listError ? (
+              <p className="p-4 text-sm text-destructive">
+                {getErrorMessage(listError, "역할 목록을 불러오지 못했습니다.")}
+              </p>
+            ) : roles.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground">
+                등록된 역할이 없습니다.
+              </p>
+            ) : (
+              <div className="divide-y">
+                {roles.map((role) => (
+                  <div
+                    key={role.id}
+                    className={cn(
+                      "p-4 cursor-pointer hover:bg-muted/50 transition-colors",
+                      selectedRoleId === role.id && "bg-muted"
+                    )}
+                    onClick={() => setSelectedRoleId(role.id)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center">
+                          <span className="font-medium">{role.name}</span>
+                          {role.is_system && (
+                            <Badge variant="secondary" className="ml-2 text-xs">
+                              시스템
+                            </Badge>
+                          )}
+                          {!role.is_active && (
+                            <Badge variant="outline" className="ml-2 text-xs">
+                              비활성
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-1">
+                          {role.description}
+                        </p>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1 line-clamp-1">
-                        {role.description}
-                      </p>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openRoleModal(role);
-                        }}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      {!role.isSystem && (
+                      <div className="flex items-center space-x-1">
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="text-destructive hover:text-destructive"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDeleteRole(role.id);
+                            openRoleModal(role);
                           }}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Edit className="h-4 w-4" />
                         </Button>
-                      )}
+                        {!role.is_system && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:text-destructive"
+                            disabled={checkingDelete}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDeleteRole(role);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center mt-2 text-sm text-muted-foreground">
+                      <Shield className="h-3 w-3 mr-1" />
+                      {role.code}
                     </div>
                   </div>
-                  <div className="flex items-center mt-2 text-sm text-muted-foreground">
-                    <Users className="h-3 w-3 mr-1" />
-                    {role.userCount}명 사용중
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -687,14 +585,17 @@ export function PermissionPage() {
               <CardTitle className="text-lg">
                 {selectedRole?.name} 권한 설정
               </CardTitle>
-              {selectedRole?.isSystem && (
+              {selectedRole?.is_system && (
                 <p className="text-sm text-muted-foreground mt-1">
                   시스템 역할의 권한은 수정할 수 없습니다.
                 </p>
               )}
             </div>
-            {hasChanges && !selectedRole?.isSystem && (
-              <Button onClick={savePermissions}>
+            {hasChanges && !selectedRole?.is_system && (
+              <Button
+                onClick={savePermissions}
+                isLoading={savePermissionsMutation.isPending}
+              >
                 <Save className="h-4 w-4 mr-2" />
                 저장
               </Button>
@@ -706,27 +607,23 @@ export function PermissionPage() {
                 {/* Header */}
                 <div className="grid grid-cols-6 gap-2 items-center py-2 px-3 bg-muted rounded-t-lg font-medium text-sm">
                   <div className="col-span-2">메뉴</div>
-                  {(["view", "create", "edit", "delete"] as PermissionAction[]).map(
-                    (action) => {
-                      const Icon = actionIcons[action];
-                      return (
-                        <div
-                          key={action}
-                          className="flex flex-col items-center justify-center"
-                        >
-                          <Icon className="h-4 w-4 mb-1" />
-                          <span className="text-xs">{actionLabels[action]}</span>
-                        </div>
-                      );
-                    }
-                  )}
+                  {PERMISSION_ACTIONS.map((action) => {
+                    const Icon = actionIcons[action];
+                    return (
+                      <div
+                        key={action}
+                        className="flex flex-col items-center justify-center"
+                      >
+                        <Icon className="h-4 w-4 mb-1" />
+                        <span className="text-xs">{actionLabels[action]}</span>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Permission Rows */}
                 <div className="border rounded-b-lg divide-y">
-                  {selectedRole.menuPermissions.map((menu) =>
-                    renderMenuRow(menu)
-                  )}
+                  {MENU_CATALOG.map((menu) => renderMenuRow(menu))}
                 </div>
               </div>
             ) : (
@@ -747,19 +644,28 @@ export function PermissionPage() {
       >
         <form onSubmit={handleSubmit(onSubmitRole)} className="space-y-4">
           <Input
+            label="역할 코드"
+            required
+            placeholder="예: sales_manager"
+            error={errors.code?.message}
+            disabled={editingRole?.is_system}
+            {...register("code")}
+          />
+          <Input
             label="역할명"
             required
             placeholder="예: 영업담당"
             error={errors.name?.message}
-            disabled={editingRole?.isSystem}
+            disabled={editingRole?.is_system}
             {...register("name")}
           />
           <Textarea
             label="설명"
             placeholder="이 역할에 대한 설명을 입력하세요"
+            disabled={editingRole?.is_system}
             {...register("description")}
           />
-          {editingRole?.isSystem && (
+          {editingRole?.is_system && (
             <p className="text-sm text-muted-foreground">
               시스템 역할의 이름은 변경할 수 없습니다.
             </p>
@@ -772,7 +678,11 @@ export function PermissionPage() {
             >
               취소
             </Button>
-            <Button type="submit" disabled={editingRole?.isSystem}>
+            <Button
+              type="submit"
+              disabled={editingRole?.is_system}
+              isLoading={createRoleMutation.isPending || updateRoleMutation.isPending}
+            >
               {editingRole ? "수정" : "추가"}
             </Button>
           </div>
@@ -787,13 +697,17 @@ export function PermissionPage() {
       >
         <div className="space-y-4">
           <p className="text-muted-foreground">
-            이 역할을 삭제하시겠습니까? 삭제된 역할은 복구할 수 없습니다.
+            {roleToDelete?.name} 역할을 삭제하시겠습니까? 삭제된 역할은 복구할 수 없습니다.
           </p>
           <div className="flex justify-end space-x-2">
             <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>
               취소
             </Button>
-            <Button variant="destructive" onClick={confirmDeleteRole}>
+            <Button
+              variant="destructive"
+              isLoading={deleteRoleMutation.isPending}
+              onClick={confirmDeleteRole}
+            >
               삭제
             </Button>
           </div>

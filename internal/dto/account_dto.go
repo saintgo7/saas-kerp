@@ -116,25 +116,25 @@ func (r *UpdateAccountRequest) ApplyTo(account *domain.Account) error {
 
 // AccountResponse represents the response for an account
 type AccountResponse struct {
-	ID                 string             `json:"id"`
-	Code               string             `json:"code"`
-	Name               string             `json:"name"`
-	NameEn             string             `json:"name_en,omitempty"`
-	ParentID           string             `json:"parent_id,omitempty"`
-	Level              int                `json:"level"`
-	Path               string             `json:"path,omitempty"`
-	AccountType        string             `json:"account_type"`
-	AccountTypeLabel   string             `json:"account_type_label"`
-	AccountNature      string             `json:"account_nature"`
-	AccountNatureLabel string             `json:"account_nature_label"`
-	AccountCategory    string             `json:"account_category,omitempty"`
-	IsActive           bool               `json:"is_active"`
-	IsControlAccount   bool               `json:"is_control_account"`
-	AllowDirectPosting bool               `json:"allow_direct_posting"`
-	SortOrder          int                `json:"sort_order"`
-	Children           []AccountResponse  `json:"children,omitempty"`
-	CreatedAt          string             `json:"created_at"`
-	UpdatedAt          string             `json:"updated_at"`
+	ID                 string            `json:"id"`
+	Code               string            `json:"code"`
+	Name               string            `json:"name"`
+	NameEn             string            `json:"name_en,omitempty"`
+	ParentID           string            `json:"parent_id,omitempty"`
+	Level              int               `json:"level"`
+	Path               string            `json:"path,omitempty"`
+	AccountType        string            `json:"account_type"`
+	AccountTypeLabel   string            `json:"account_type_label"`
+	AccountNature      string            `json:"account_nature"`
+	AccountNatureLabel string            `json:"account_nature_label"`
+	AccountCategory    string            `json:"account_category,omitempty"`
+	IsActive           bool              `json:"is_active"`
+	IsControlAccount   bool              `json:"is_control_account"`
+	AllowDirectPosting bool              `json:"allow_direct_posting"`
+	SortOrder          int               `json:"sort_order"`
+	Children           []AccountResponse `json:"children,omitempty"`
+	CreatedAt          string            `json:"created_at"`
+	UpdatedAt          string            `json:"updated_at"`
 }
 
 // FromAccount converts domain.Account to AccountResponse

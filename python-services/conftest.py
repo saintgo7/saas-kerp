@@ -1,6 +1,7 @@
 """Shared pytest fixtures for all Python services."""
 
 import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -11,53 +12,84 @@ sys.path.insert(0, str(Path(__file__).parent / "shared"))
 
 
 # Crypto fixtures
+#
+# These are real random keys, not `bytes(n)`. Every one of them used to be
+# all-zero -- exactly the value the production code fell back to when
+# ARIA_ENCRYPTION_KEY was unset -- so the test suite validated the insecure
+# fallback path and reported it working.
 @pytest.fixture
 def aria_key_128() -> bytes:
-    """Return a 128-bit ARIA encryption key."""
-    return bytes(16)
+    """Return a random 128-bit ARIA encryption key."""
+    return secrets.token_bytes(16)
 
 
 @pytest.fixture
 def aria_key_192() -> bytes:
-    """Return a 192-bit ARIA encryption key."""
-    return bytes(24)
+    """Return a random 192-bit ARIA encryption key."""
+    return secrets.token_bytes(24)
 
 
 @pytest.fixture
 def aria_key_256() -> bytes:
-    """Return a 256-bit ARIA encryption key."""
-    return bytes(32)
+    """Return a random 256-bit ARIA encryption key."""
+    return secrets.token_bytes(32)
 
 
 @pytest.fixture
 def seed_key() -> bytes:
-    """Return a 128-bit SEED encryption key."""
-    return bytes(16)
+    """Return a random 128-bit symmetric key."""
+    return secrets.token_bytes(16)
 
 
 @pytest.fixture
 def sample_iv() -> bytes:
-    """Return a sample initialization vector."""
+    """Return a random initialization vector."""
+    return secrets.token_bytes(16)
+
+
+@pytest.fixture
+def all_zero_key_128() -> bytes:
+    """The all-zero key, for tests that assert it is REJECTED."""
     return bytes(16)
 
 
 # Korean business data fixtures
 @pytest.fixture
 def valid_business_number() -> str:
-    """Return a valid Korean business registration number (10 digits)."""
+    """Return a business registration number that passes the check digit.
+
+    "1234567890" does NOT pass `validate_business_number`; it only passed the
+    old length-only check. Callers that now run real validation need a number
+    whose check digit is correct.
+    """
+    return "1010138752"
+
+
+@pytest.fixture
+def invalid_business_number() -> str:
+    """Ten digits with a wrong check digit."""
     return "1234567890"
 
 
 @pytest.fixture
 def valid_corporate_number() -> str:
-    """Return a valid Korean corporate registration number (13 digits)."""
+    """Return a Korean corporate registration number (13 digits)."""
     return "1234567890123"
 
 
 @pytest.fixture
 def valid_resident_number() -> str:
-    """Return a sample resident registration number (for testing only)."""
-    return "880101-1234567"
+    """Return a resident registration number with a correct check digit.
+
+    Synthetic, for validation tests only. Never log or store a real one.
+    """
+    return "9001011234568"
+
+
+@pytest.fixture
+def invalid_resident_number() -> str:
+    """Thirteen digits with a wrong check digit."""
+    return "9001011234569"
 
 
 # Company fixtures
@@ -82,7 +114,7 @@ def sample_employee() -> dict:
     return {
         "employee_id": "emp-001",
         "name": "Kim Cheolsu",
-        "resident_no": "880101-1234567",
+        "resident_no": "900101-1234568",
         "nationality": "KR",
         "hire_date": "2026-01-15",
         "department": "Engineering",

@@ -11,6 +11,7 @@ import pytest
 from shared.crypto.pkcs7 import (
     PKCS7Padding,
     PKCS7Signature,
+    VerificationUnavailableError,
     generate_test_keypair,
 )
 
@@ -144,45 +145,70 @@ class TestPKCS7Padding:
         assert result == original
 
     def test_unpad_empty_data_raises_error(self):
-        """Test that unpadding empty data raises ValueError."""
+        """Test that unpadding empty data raises."""
         padder = PKCS7Padding(block_size=16)
 
-        with pytest.raises(ValueError, match="Data is empty"):
+        with pytest.raises(ValueError):
             padder.unpad(b"")
 
     def test_unpad_invalid_length_raises_error(self):
-        """Test that data not multiple of block size raises ValueError."""
+        """Test that data not multiple of block size raises."""
         padder = PKCS7Padding(block_size=16)
 
-        with pytest.raises(ValueError, match="not a multiple of block size"):
+        with pytest.raises(ValueError):
             padder.unpad(b"not 16 bytes")
 
     def test_unpad_zero_padding_value_raises_error(self):
-        """Test that zero padding value raises ValueError."""
+        """Test that zero padding value raises."""
         padder = PKCS7Padding(block_size=16)
         # Manually construct invalid data with padding value 0
         invalid_data = b"A" * 15 + b"\x00"
 
-        with pytest.raises(ValueError, match="Invalid padding length"):
+        with pytest.raises(ValueError):
             padder.unpad(invalid_data)
 
     def test_unpad_padding_larger_than_block_raises_error(self):
-        """Test that padding value larger than block size raises ValueError."""
+        """Test that padding value larger than block size raises."""
         padder = PKCS7Padding(block_size=16)
         # Manually construct invalid data with padding value 17
         invalid_data = b"A" * 15 + bytes([17])
 
-        with pytest.raises(ValueError, match="Invalid padding length"):
+        with pytest.raises(ValueError):
             padder.unpad(invalid_data)
 
     def test_unpad_inconsistent_padding_raises_error(self):
-        """Test that inconsistent padding bytes raise ValueError."""
+        """Test that inconsistent padding bytes raise."""
         padder = PKCS7Padding(block_size=16)
         # Padding claims to be 3 bytes but values don't match
         invalid_data = b"A" * 13 + bytes([3, 2, 3])
 
-        with pytest.raises(ValueError, match="Invalid padding bytes"):
+        with pytest.raises(ValueError):
             padder.unpad(invalid_data)
+
+    def test_unpad_failures_are_indistinguishable(self):
+        """Every unpadding failure must carry the SAME message.
+
+        A caller-visible difference between "bad padding length" and "bad
+        padding bytes" is a padding oracle: the ciphertext on the wire carries
+        no MAC of its own, so an attacker who can submit tampered blocks
+        recovers plaintext one byte at a time from the difference.
+        """
+        padder = PKCS7Padding(block_size=16)
+        bad_inputs = [
+            b"",
+            b"not 16 bytes",
+            b"A" * 15 + b"\x00",
+            b"A" * 15 + bytes([17]),
+            b"A" * 13 + bytes([3, 2, 3]),
+        ]
+
+        messages = set()
+        for data in bad_inputs:
+            with pytest.raises(ValueError) as exc_info:
+                padder.unpad(data)
+            messages.add(str(exc_info.value))
+
+        assert len(messages) == 1, f"padding errors leak the failure mode: {messages}"
 
     # ========================================================================
     # is_valid_padding Tests
@@ -244,11 +270,19 @@ class TestPKCS7Signature:
 
     @pytest.fixture
     def signature_handler(self, test_keypair):
-        """Create signature handler with test keypair."""
+        """Create a signature handler with the test keypair.
+
+        The same certificate is loaded twice on purpose: once as ours (for
+        signing) and once as the peer's (for verification), because this is a
+        loopback test that signs and verifies its own data. Production code must
+        NOT do this -- verifying with our own certificate proves only that we
+        could have produced the signature, which says nothing about the peer.
+        """
         private_key_pem, certificate_pem = test_keypair
         handler = PKCS7Signature()
         handler.load_private_key_bytes(private_key_pem)
         handler.load_certificate_bytes(certificate_pem)
+        handler.load_peer_certificate_bytes(certificate_pem)
         return handler
 
     # ========================================================================
@@ -376,12 +410,33 @@ class TestPKCS7Signature:
 
         assert result is False
 
-    def test_verify_raw_requires_certificate(self):
-        """Test that verify_raw without certificate raises ValueError."""
+    def test_verify_raw_requires_peer_certificate(self):
+        """Without a peer certificate, verification must raise -- not return.
+
+        The caller has to be able to tell "the signature is wrong" apart from
+        "we cannot check", and must reject the message in both cases. Returning
+        True here (or having the caller default `signature_valid = True`) is
+        what made response verification fail open.
+        """
         handler = PKCS7Signature()
 
-        with pytest.raises(ValueError, match="Certificate not loaded"):
+        with pytest.raises(VerificationUnavailableError):
             handler.verify_raw(b"data", b"sig")
+
+    def test_verify_raw_does_not_fall_back_to_own_certificate(self, test_keypair):
+        """A handler holding only OUR certificate must refuse to verify.
+
+        Our own signing certificate is not evidence about the counterparty.
+        """
+        private_key_pem, certificate_pem = test_keypair
+        handler = PKCS7Signature()
+        handler.load_private_key_bytes(private_key_pem)
+        handler.load_certificate_bytes(certificate_pem)
+
+        signature = handler.sign_raw(b"data")
+
+        with pytest.raises(VerificationUnavailableError):
+            handler.verify_raw(b"data", signature)
 
     # ========================================================================
     # Certificate Info Tests
@@ -448,6 +503,8 @@ class TestGenerateTestKeypair:
         handler = PKCS7Signature()
         handler.load_private_key_bytes(private_key_pem)
         handler.load_certificate_bytes(certificate_pem)
+        # Loopback: the signer is also the "peer" for this self-check.
+        handler.load_peer_certificate_bytes(certificate_pem)
 
         data = b"Test message"
         signature = handler.sign_raw(data)

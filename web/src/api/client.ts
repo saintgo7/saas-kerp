@@ -1,91 +1,58 @@
-import { API_BASE_URL, STORAGE_KEYS } from "@/constants";
+import { apiClient as httpClient } from "@/services/api";
 import type { ApiResponse } from "@/types";
 
+export type QueryParams = Record<
+  string,
+  string | number | boolean | undefined | null
+>;
+
 /**
- * Base API client for HTTP requests
+ * Thin wrapper over the shared axios instance in `services/api.ts`.
+ *
+ * It used to be a standalone `fetch` client. That had two fatal problems:
+ *  1. `new URL("/api/v1/...")` throws for a relative base, so every GET failed.
+ *  2. It had no token-refresh logic and cleared only two of the four session
+ *     keys on 401, which produced a /login <-> /dashboard redirect loop.
+ *
+ * Delegating means every page-level call now goes through the same request
+ * interceptor, refresh queue and session teardown.
  */
 class ApiClient {
-  private baseUrl: string;
-
-  constructor(baseUrl: string) {
-    this.baseUrl = baseUrl;
-  }
-
-  private getAuthHeaders(): HeadersInit {
-    const token = localStorage.getItem(STORAGE_KEYS.accessToken);
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-    };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-    return headers;
-  }
-
-  private async handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
-    if (!response.ok) {
-      if (response.status === 401) {
-        // Handle unauthorized - redirect to login
-        localStorage.removeItem(STORAGE_KEYS.accessToken);
-        localStorage.removeItem(STORAGE_KEYS.refreshToken);
-        window.location.href = "/login";
+  private toConfig(params?: QueryParams) {
+    if (!params) return undefined;
+    const cleaned: Record<string, string | number | boolean> = {};
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        cleaned[key] = value;
       }
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || `HTTP Error: ${response.status}`);
-    }
-    return response.json();
+    });
+    return { params: cleaned };
   }
 
-  async get<T>(endpoint: string, params?: Record<string, string | number | boolean | undefined>): Promise<ApiResponse<T>> {
-    const url = new URL(`${this.baseUrl}${endpoint}`);
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined) {
-          url.searchParams.append(key, String(value));
-        }
-      });
-    }
-    const response = await fetch(url.toString(), {
-      method: "GET",
-      headers: this.getAuthHeaders(),
-    });
-    return this.handleResponse<T>(response);
+  async get<T>(endpoint: string, params?: QueryParams): Promise<ApiResponse<T>> {
+    return httpClient.get<T>(endpoint, this.toConfig(params));
   }
 
   async post<T>(endpoint: string, data?: unknown): Promise<ApiResponse<T>> {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: "POST",
-      headers: this.getAuthHeaders(),
-      body: data ? JSON.stringify(data) : undefined,
-    });
-    return this.handleResponse<T>(response);
+    return httpClient.post<T>(endpoint, data);
   }
 
   async put<T>(endpoint: string, data?: unknown): Promise<ApiResponse<T>> {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: "PUT",
-      headers: this.getAuthHeaders(),
-      body: data ? JSON.stringify(data) : undefined,
-    });
-    return this.handleResponse<T>(response);
+    return httpClient.put<T>(endpoint, data);
   }
 
   async patch<T>(endpoint: string, data?: unknown): Promise<ApiResponse<T>> {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: "PATCH",
-      headers: this.getAuthHeaders(),
-      body: data ? JSON.stringify(data) : undefined,
-    });
-    return this.handleResponse<T>(response);
+    return httpClient.patch<T>(endpoint, data);
   }
 
   async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: "DELETE",
-      headers: this.getAuthHeaders(),
-    });
-    return this.handleResponse<T>(response);
+    return httpClient.delete<T>(endpoint);
+  }
+
+  /** Binary download. Returns the Blob itself, not an envelope. */
+  async getBlob(endpoint: string, params?: QueryParams): Promise<Blob> {
+    return httpClient.getBlob(endpoint, this.toConfig(params));
   }
 }
 
-export const apiClient = new ApiClient(API_BASE_URL);
+export const apiClient = new ApiClient();

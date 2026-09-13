@@ -12,21 +12,21 @@ import (
 
 // Common errors
 var (
-	ErrProviderNotFound     = errors.New("provider not found")
-	ErrProviderUnavailable  = errors.New("provider unavailable")
-	ErrProviderTimeout      = errors.New("provider timeout")
-	ErrInvalidCredentials   = errors.New("invalid credentials")
-	ErrQuotaExceeded        = errors.New("quota exceeded")
-	ErrAllProvidersFailed   = errors.New("all providers failed")
+	ErrProviderNotFound    = errors.New("provider not found")
+	ErrProviderUnavailable = errors.New("provider unavailable")
+	ErrProviderTimeout     = errors.New("provider timeout")
+	ErrInvalidCredentials  = errors.New("invalid credentials")
+	ErrQuotaExceeded       = errors.New("quota exceeded")
+	ErrAllProvidersFailed  = errors.New("all providers failed")
 )
 
 // ProviderType represents the type of provider
 type ProviderType string
 
 const (
-	ProviderTypePopbill  ProviderType = "popbill"
-	ProviderTypeHometax  ProviderType = "hometax"
-	ProviderTypeMock     ProviderType = "mock"
+	ProviderTypePopbill ProviderType = "popbill"
+	ProviderTypeHometax ProviderType = "hometax"
+	ProviderTypeMock    ProviderType = "mock"
 )
 
 // ProviderStatus represents the status of a provider
@@ -41,7 +41,7 @@ const (
 // ProviderConfig holds configuration for a provider
 type ProviderConfig struct {
 	Type       ProviderType
-	Priority   int           // Lower is higher priority
+	Priority   int // Lower is higher priority
 	Enabled    bool
 	Timeout    time.Duration
 	RetryCount int

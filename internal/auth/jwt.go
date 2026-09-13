@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/hex"
+	stderrors "errors"
 	"fmt"
 	"time"
 
@@ -69,18 +70,40 @@ func (s *JWTService) GenerateRefreshToken() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// ValidateToken validates and parses a JWT token
+// ValidateToken validates and parses a JWT access token.
+//
+// It enforces, in addition to the signature and expiry checks:
+//   - the signing algorithm is HS256 (no alg confusion / alg:none),
+//   - an "exp" claim is present,
+//   - the issuer matches the configured issuer,
+//   - the token_type claim is "access", so a token minted for another purpose
+//     (refresh, service-to-service, webhook, ...) can never authenticate a request.
 func (s *JWTService) ValidateToken(tokenString string) (*Claims, error) {
+	return s.ValidateTokenOfType(tokenString, TokenTypeAccess)
+}
+
+// ValidateTokenOfType validates a JWT and additionally requires the given token type.
+func (s *JWTService) ValidateTokenOfType(tokenString string, expected TokenType) (*Claims, error) {
+	opts := []jwt.ParserOption{
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithExpirationRequired(),
+	}
+	if s.issuer != "" {
+		opts = append(opts, jwt.WithIssuer(s.issuer))
+	}
+
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		// Validate signing method
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return s.secret, nil
-	})
+	}, opts...)
 
 	if err != nil {
-		if err == jwt.ErrTokenExpired {
+		// golang-jwt/v5 returns joined/wrapped errors, so pointer comparison never
+		// matches. errors.Is is required for the expiry branch to be reachable.
+		if stderrors.Is(err, jwt.ErrTokenExpired) {
 			return nil, errors.ErrTokenExpired
 		}
 		return nil, errors.Wrap(errors.CodeTokenInvalid, "invalid token", err)
@@ -88,6 +111,17 @@ func (s *JWTService) ValidateToken(tokenString string) (*Claims, error) {
 
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
+		return nil, errors.ErrTokenInvalid
+	}
+
+	// Reject tokens minted for a different purpose (e.g. a refresh token presented
+	// to the Auth middleware).
+	if claims.TokenType != expected {
+		return nil, errors.ErrTokenInvalid
+	}
+
+	// A token without a subject cannot identify anybody.
+	if claims.UserID == uuid.Nil {
 		return nil, errors.ErrTokenInvalid
 	}
 

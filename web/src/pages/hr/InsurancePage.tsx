@@ -34,7 +34,7 @@ import {
   Modal,
 } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { toast } from "@/stores/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { cn } from "@/lib/utils";
 
 // Types
@@ -298,7 +298,6 @@ export function InsurancePage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_selectedEmployee, _setSelectedEmployee] = useState<InsuranceEmployee | null>(
     null
   );
@@ -360,19 +359,14 @@ export function InsurancePage() {
     }
   };
 
-  // Handle EDI sync
-  const handleEdiSync = (insuranceType: InsuranceType) => {
-    const insurance = INSURANCE_TYPES.find((i) => i.key === insuranceType);
-    toast.info(
-      "EDI 연동 요청",
-      `${insurance?.agency}와 데이터 동기화를 시작합니다.`
-    );
+  // The EDI service is not reachable from the API yet, so nothing is sent.
+  const handleEdiSync = () => {
+    notifyUnavailable("4대보험 EDI 동기화");
   };
 
   // Handle report submission
   const handleSubmitReport = () => {
-    toast.success("신고서 제출 완료", "EDI를 통해 신고서가 전송되었습니다.");
-    setIsReportModalOpen(false);
+    notifyUnavailable("4대보험 신고서 EDI 전송");
   };
 
   return (
@@ -390,12 +384,17 @@ export function InsurancePage() {
             <Plus className="h-4 w-4 mr-2" />
             신고서 작성
           </Button>
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() => notifyUnavailable("보험료 내역 내보내기")}
+          >
             <Download className="h-4 w-4 mr-2" />
             보험료 내역
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable feature="4대보험" />
 
       {/* Month Selector */}
       <Card>
@@ -457,7 +456,7 @@ export function InsurancePage() {
                     className="h-8 w-8"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleEdiSync(insurance.key);
+                      handleEdiSync();
                     }}
                     title="EDI 동기화"
                   >
@@ -689,7 +688,12 @@ export function InsurancePage() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="icon" title="상세보기">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="상세보기"
+                            onClick={() => notifyUnavailable("4대보험 신고 상세 조회")}
+                          >
                             <Eye className="h-4 w-4" />
                           </Button>
                         </TableCell>

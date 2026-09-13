@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/saintgo7/saas-kerp/internal/errors"
 	"github.com/saintgo7/saas-kerp/internal/handler/response"
 )
 
@@ -27,6 +28,13 @@ func NewHealthHandler(db *gorm.DB, redis *redis.Client, logger *zap.Logger, vers
 	}
 }
 
+// Service status strings. They are intentionally coarse: this endpoint is
+// unauthenticated.
+const (
+	statusHealthy   = "healthy"
+	statusUnhealthy = "unhealthy"
+)
+
 // HealthStatus represents the health check response
 type HealthStatus struct {
 	Status    string            `json:"status"`
@@ -38,67 +46,76 @@ type HealthStatus struct {
 // Check performs a basic health check
 func (h *HealthHandler) Check(c *gin.Context) {
 	response.OK(c, HealthStatus{
-		Status:    "healthy",
+		Status:    statusHealthy,
 		Version:   h.version,
 		Timestamp: time.Now().UTC(),
 	})
 }
 
-// Ready performs a readiness check (checks all dependencies)
+// Ready performs a readiness check (checks all dependencies).
+//
+// The response deliberately carries no error text. This endpoint is
+// unauthenticated, and the connection errors it would otherwise echo contain the
+// database host, port, database name and account name. The cause is logged
+// instead, with the request ID, so operators can still correlate the two.
 func (h *HealthHandler) Ready(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
+	logger := h.GetLogger(c)
 	services := make(map[string]string)
 	healthy := true
 
 	// Check database
 	sqlDB, err := h.DB.DB()
+	if err == nil {
+		err = sqlDB.PingContext(ctx)
+	}
 	if err != nil {
-		services["database"] = "unhealthy: " + err.Error()
-		healthy = false
-	} else if err := sqlDB.PingContext(ctx); err != nil {
-		services["database"] = "unhealthy: " + err.Error()
+		if logger != nil {
+			logger.Error("readiness: database unhealthy", zap.Error(err))
+		}
+		services["database"] = statusUnhealthy
 		healthy = false
 	} else {
-		services["database"] = "healthy"
+		services["database"] = statusHealthy
 	}
 
 	// Check Redis
 	if h.Redis != nil {
 		if err := h.Redis.Ping(ctx).Err(); err != nil {
-			services["redis"] = "unhealthy: " + err.Error()
+			if logger != nil {
+				logger.Error("readiness: redis unhealthy", zap.Error(err))
+			}
+			services["redis"] = statusUnhealthy
 			healthy = false
 		} else {
-			services["redis"] = "healthy"
+			services["redis"] = statusHealthy
 		}
 	}
 
-	status := "healthy"
+	status := statusHealthy
 	statusCode := http.StatusOK
 	if !healthy {
-		status = "unhealthy"
+		status = statusUnhealthy
 		statusCode = http.StatusServiceUnavailable
 	}
 
-	c.JSON(statusCode, response.Response{
-		Success: healthy,
-		Data: HealthStatus{
-			Status:    status,
-			Version:   h.version,
-			Timestamp: time.Now().UTC(),
-			Services:  services,
-		},
-		Meta: response.Meta{
-			RequestID: c.GetString("request_id"),
-			Timestamp: time.Now().UTC(),
-		},
-	})
+	payload := HealthStatus{
+		Status:    status,
+		Version:   h.version,
+		Timestamp: time.Now().UTC(),
+		Services:  services,
+	}
+
+	if healthy {
+		response.OK(c, payload)
+		return
+	}
+	response.ErrorWithPayload(c, statusCode, errors.CodeUnavailable, "Service dependencies are unhealthy", payload)
 }
 
-// Live performs a liveness check (just confirms the service is running)
+// Live performs a liveness check (just confirms the service is running).
 func (h *HealthHandler) Live(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status": "alive",
-	})
+	response.OK(c, gin.H{"status": "alive"})
 }

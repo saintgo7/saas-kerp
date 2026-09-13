@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,14 +78,27 @@ func (s *ledgerService) GetAccountLedger(ctx context.Context, companyID, account
 	// Get opening balance
 	openingBalance := 0.0
 
-	// Find the period before the from date
-	prevMonth := from.AddDate(0, 0, -1)
-	prevYear := prevMonth.Year()
-	prevMonthNum := int(prevMonth.Month())
+	// The opening balance is the closing balance of the PRECEDING MONTH.
+	// Subtracting a single day (from.AddDate(0, 0, -1)) lands inside the same
+	// month for every from-date after the 1st, so the query returned the
+	// current month's own balance - which already contains the movement that
+	// is about to be listed - and every running balance came out inflated by
+	// the month-to-date turnover.
+	prevYear := from.Year()
+	prevMonthNum := int(from.Month()) - 1
+	if prevMonthNum == 0 {
+		prevYear--
+		prevMonthNum = 12
+	}
 
 	balance, err := s.ledgerRepo.GetBalance(ctx, companyID, accountID, prevYear, prevMonthNum)
-	if err == nil {
+	switch {
+	case err == nil:
 		openingBalance = balance.GetClosingBalance()
+	case errors.Is(err, domain.ErrLedgerBalanceNotFound):
+		// No prior period recorded: the account opens at zero.
+	default:
+		return nil, 0, err
 	}
 
 	// Get entries
@@ -212,25 +227,42 @@ func (s *ledgerService) PerformYearEndClose(ctx context.Context, companyID uuid.
 		return err
 	}
 
-	// Calculate net income from revenue and expense accounts
+	// Calculate net income from revenue and expense accounts.
+	//
+	// GetClosingBalance returns debit - credit, so a revenue account with a
+	// normal (credit) balance reports a NEGATIVE number. Feeding those values
+	// straight into `totalRevenue - totalExpense` produced -(revenue + expense):
+	// revenue 1,000,000 with expenses 600,000 - a profit of 400,000 - came out
+	// as -1,600,000 and was carried into retained earnings as a debit, so
+	// equity was understated by 2,000,000 and the next year's balance sheet
+	// was wrong from its first day.
+	//
+	// GetClosingBalanceByNature returns the statement amount instead:
+	// +1,000,000 of revenue and +600,000 of expense.
 	var totalRevenue, totalExpense float64
-	for _, balance := range balances {
-		if balance.Account != nil {
-			switch balance.Account.AccountType {
-			case domain.AccountTypeRevenue:
-				totalRevenue += balance.GetClosingBalance()
-			case domain.AccountTypeExpense:
-				totalExpense += balance.GetClosingBalance()
-			}
+	for i := range balances {
+		balance := &balances[i]
+		if balance.Account == nil {
+			// Without the account we cannot classify the balance, and a
+			// silently skipped revenue account is exactly how the net income
+			// ends up wrong. Refuse rather than guess.
+			return fmt.Errorf("year-end close: account %s not loaded for ledger balance", balance.AccountID)
+		}
+		switch balance.Account.AccountType {
+		case domain.AccountTypeRevenue:
+			totalRevenue += balance.GetClosingBalanceByNature(accountNature(balance.Account))
+		case domain.AccountTypeExpense:
+			totalExpense += balance.GetClosingBalanceByNature(accountNature(balance.Account))
 		}
 	}
 
-	netIncome := totalRevenue - totalExpense
+	netIncome := domain.RoundAmount(totalRevenue - totalExpense)
 
 	// Create closing entry balances for next year
 	nextYear := year + 1
 	var nextYearBalances []domain.LedgerBalance
 
+	retainedEarningsSeen := false
 	for _, balance := range balances {
 		if balance.Account == nil {
 			continue
@@ -252,15 +284,12 @@ func (s *ledgerService) PerformYearEndClose(ctx context.Context, companyID uuid.
 				ClosingCredit: balance.ClosingCredit,
 			}
 
-			// Add net income to retained earnings
+			// Add net income to retained earnings. A profit increases equity
+			// and equity is credit-nature, so a positive net income is a
+			// credit; a loss is a debit.
 			if balance.AccountID == retainedEarningsAccountID {
-				if netIncome > 0 {
-					nextBalance.OpeningCredit += netIncome
-					nextBalance.ClosingCredit += netIncome
-				} else {
-					nextBalance.OpeningDebit += -netIncome
-					nextBalance.ClosingDebit += -netIncome
-				}
+				retainedEarningsSeen = true
+				applyNetIncome(&nextBalance, netIncome)
 			}
 
 			nextYearBalances = append(nextYearBalances, nextBalance)
@@ -268,5 +297,44 @@ func (s *ledgerService) PerformYearEndClose(ctx context.Context, companyID uuid.
 		// Revenue and Expense accounts start fresh (zero balance)
 	}
 
+	// A company in its first year has no December row for the retained
+	// earnings account, and without this the whole net income would be
+	// dropped on the floor.
+	if !retainedEarningsSeen && !domain.IsZeroAmount(netIncome) {
+		nextBalance := domain.LedgerBalance{
+			CompanyID:   companyID,
+			AccountID:   retainedEarningsAccountID,
+			FiscalYear:  nextYear,
+			FiscalMonth: 1,
+		}
+		applyNetIncome(&nextBalance, netIncome)
+		nextYearBalances = append(nextYearBalances, nextBalance)
+	}
+
 	return s.ledgerRepo.UpsertBalances(ctx, nextYearBalances)
+}
+
+// accountNature returns the account's normal balance side, falling back to the
+// side implied by its type when the column was never populated.
+func accountNature(account *domain.Account) domain.AccountNature {
+	if account.AccountNature.IsValid() {
+		return account.AccountNature
+	}
+	switch account.AccountType {
+	case domain.AccountTypeAsset, domain.AccountTypeExpense:
+		return domain.AccountNatureDebit
+	default:
+		return domain.AccountNatureCredit
+	}
+}
+
+// applyNetIncome posts the year's result onto a retained earnings balance.
+func applyNetIncome(balance *domain.LedgerBalance, netIncome float64) {
+	if netIncome >= 0 {
+		balance.OpeningCredit = domain.RoundAmount(balance.OpeningCredit + netIncome)
+		balance.ClosingCredit = domain.RoundAmount(balance.ClosingCredit + netIncome)
+		return
+	}
+	balance.OpeningDebit = domain.RoundAmount(balance.OpeningDebit - netIncome)
+	balance.ClosingDebit = domain.RoundAmount(balance.ClosingDebit - netIncome)
 }

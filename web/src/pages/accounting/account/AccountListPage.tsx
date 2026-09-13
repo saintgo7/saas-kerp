@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Search,
@@ -25,210 +26,12 @@ import {
   Modal,
 } from "@/components/ui";
 import { ACCOUNT_TYPES } from "@/constants";
+import { accountsApi } from "@/api";
+import type { AccountTreeNode } from "@/api/accounts";
+import { getErrorMessage } from "@/services/api";
+import { toast } from "@/stores/ui";
+import { notifyUnavailable } from "@/components/common";
 import type { AccountType } from "@/types";
-
-// Account tree node interface
-interface AccountNode {
-  id: string;
-  code: string;
-  name: string;
-  type: AccountType;
-  parentId?: string;
-  level: number;
-  isActive: boolean;
-  description?: string;
-  children?: AccountNode[];
-}
-
-// Mock data - hierarchical account structure
-const mockAccounts: AccountNode[] = [
-  {
-    id: "1",
-    code: "1",
-    name: "자산",
-    type: "asset",
-    level: 1,
-    isActive: true,
-    children: [
-      {
-        id: "11",
-        code: "11",
-        name: "유동자산",
-        type: "asset",
-        parentId: "1",
-        level: 2,
-        isActive: true,
-        children: [
-          { id: "111", code: "111", name: "현금및현금성자산", type: "asset", parentId: "11", level: 3, isActive: true },
-          { id: "112", code: "112", name: "단기금융상품", type: "asset", parentId: "11", level: 3, isActive: true },
-          { id: "113", code: "113", name: "매출채권", type: "asset", parentId: "11", level: 3, isActive: true },
-          { id: "114", code: "114", name: "재고자산", type: "asset", parentId: "11", level: 3, isActive: true },
-          { id: "115", code: "115", name: "선급금", type: "asset", parentId: "11", level: 3, isActive: true },
-          { id: "116", code: "116", name: "선급비용", type: "asset", parentId: "11", level: 3, isActive: false },
-        ],
-      },
-      {
-        id: "12",
-        code: "12",
-        name: "비유동자산",
-        type: "asset",
-        parentId: "1",
-        level: 2,
-        isActive: true,
-        children: [
-          { id: "121", code: "121", name: "장기금융상품", type: "asset", parentId: "12", level: 3, isActive: true },
-          { id: "122", code: "122", name: "유형자산", type: "asset", parentId: "12", level: 3, isActive: true },
-          { id: "123", code: "123", name: "무형자산", type: "asset", parentId: "12", level: 3, isActive: true },
-        ],
-      },
-    ],
-  },
-  {
-    id: "2",
-    code: "2",
-    name: "부채",
-    type: "liability",
-    level: 1,
-    isActive: true,
-    children: [
-      {
-        id: "21",
-        code: "21",
-        name: "유동부채",
-        type: "liability",
-        parentId: "2",
-        level: 2,
-        isActive: true,
-        children: [
-          { id: "211", code: "211", name: "매입채무", type: "liability", parentId: "21", level: 3, isActive: true },
-          { id: "212", code: "212", name: "단기차입금", type: "liability", parentId: "21", level: 3, isActive: true },
-          { id: "213", code: "213", name: "미지급금", type: "liability", parentId: "21", level: 3, isActive: true },
-          { id: "214", code: "214", name: "예수금", type: "liability", parentId: "21", level: 3, isActive: true },
-          { id: "215", code: "215", name: "미지급비용", type: "liability", parentId: "21", level: 3, isActive: true },
-        ],
-      },
-      {
-        id: "22",
-        code: "22",
-        name: "비유동부채",
-        type: "liability",
-        parentId: "2",
-        level: 2,
-        isActive: true,
-        children: [
-          { id: "221", code: "221", name: "장기차입금", type: "liability", parentId: "22", level: 3, isActive: true },
-          { id: "222", code: "222", name: "퇴직급여충당부채", type: "liability", parentId: "22", level: 3, isActive: true },
-        ],
-      },
-    ],
-  },
-  {
-    id: "3",
-    code: "3",
-    name: "자본",
-    type: "equity",
-    level: 1,
-    isActive: true,
-    children: [
-      { id: "31", code: "31", name: "자본금", type: "equity", parentId: "3", level: 2, isActive: true },
-      { id: "32", code: "32", name: "자본잉여금", type: "equity", parentId: "3", level: 2, isActive: true },
-      { id: "33", code: "33", name: "이익잉여금", type: "equity", parentId: "3", level: 2, isActive: true },
-    ],
-  },
-  {
-    id: "4",
-    code: "4",
-    name: "수익",
-    type: "revenue",
-    level: 1,
-    isActive: true,
-    children: [
-      {
-        id: "41",
-        code: "41",
-        name: "매출",
-        type: "revenue",
-        parentId: "4",
-        level: 2,
-        isActive: true,
-        children: [
-          { id: "411", code: "411", name: "상품매출", type: "revenue", parentId: "41", level: 3, isActive: true },
-          { id: "412", code: "412", name: "제품매출", type: "revenue", parentId: "41", level: 3, isActive: true },
-          { id: "413", code: "413", name: "서비스매출", type: "revenue", parentId: "41", level: 3, isActive: true },
-        ],
-      },
-      {
-        id: "42",
-        code: "42",
-        name: "영업외수익",
-        type: "revenue",
-        parentId: "4",
-        level: 2,
-        isActive: true,
-        children: [
-          { id: "421", code: "421", name: "이자수익", type: "revenue", parentId: "42", level: 3, isActive: true },
-          { id: "422", code: "422", name: "배당금수익", type: "revenue", parentId: "42", level: 3, isActive: true },
-          { id: "423", code: "423", name: "잡이익", type: "revenue", parentId: "42", level: 3, isActive: true },
-        ],
-      },
-    ],
-  },
-  {
-    id: "5",
-    code: "5",
-    name: "비용",
-    type: "expense",
-    level: 1,
-    isActive: true,
-    children: [
-      {
-        id: "51",
-        code: "51",
-        name: "매출원가",
-        type: "expense",
-        parentId: "5",
-        level: 2,
-        isActive: true,
-        children: [
-          { id: "511", code: "511", name: "상품매출원가", type: "expense", parentId: "51", level: 3, isActive: true },
-          { id: "512", code: "512", name: "제품매출원가", type: "expense", parentId: "51", level: 3, isActive: true },
-        ],
-      },
-      {
-        id: "52",
-        code: "52",
-        name: "판매비와관리비",
-        type: "expense",
-        parentId: "5",
-        level: 2,
-        isActive: true,
-        children: [
-          { id: "521", code: "521", name: "급여", type: "expense", parentId: "52", level: 3, isActive: true },
-          { id: "522", code: "522", name: "퇴직급여", type: "expense", parentId: "52", level: 3, isActive: true },
-          { id: "523", code: "523", name: "복리후생비", type: "expense", parentId: "52", level: 3, isActive: true },
-          { id: "524", code: "524", name: "임차료", type: "expense", parentId: "52", level: 3, isActive: true },
-          { id: "525", code: "525", name: "접대비", type: "expense", parentId: "52", level: 3, isActive: true },
-          { id: "526", code: "526", name: "감가상각비", type: "expense", parentId: "52", level: 3, isActive: true },
-          { id: "527", code: "527", name: "통신비", type: "expense", parentId: "52", level: 3, isActive: true },
-          { id: "528", code: "528", name: "소모품비", type: "expense", parentId: "52", level: 3, isActive: true },
-        ],
-      },
-      {
-        id: "53",
-        code: "53",
-        name: "영업외비용",
-        type: "expense",
-        parentId: "5",
-        level: 2,
-        isActive: true,
-        children: [
-          { id: "531", code: "531", name: "이자비용", type: "expense", parentId: "53", level: 3, isActive: true },
-          { id: "532", code: "532", name: "잡손실", type: "expense", parentId: "53", level: 3, isActive: true },
-        ],
-      },
-    ],
-  },
-];
 
 const accountTypeStyles: Record<AccountType, { variant: "default" | "secondary" | "success" | "warning" | "destructive"; label: string }> = {
   asset: { variant: "success", label: "자산" },
@@ -238,9 +41,11 @@ const accountTypeStyles: Record<AccountType, { variant: "default" | "secondary" 
   expense: { variant: "destructive", label: "비용" },
 };
 
+const unknownType = { variant: "secondary" as const, label: "기타" };
+
 // Tree Node Component
 interface TreeNodeProps {
-  node: AccountNode;
+  node: AccountTreeNode;
   expandedNodes: Set<string>;
   onToggle: (id: string) => void;
   onEdit: (id: string) => void;
@@ -252,6 +57,7 @@ interface TreeNodeProps {
 function TreeNode({ node, expandedNodes, onToggle, onEdit, onDelete, searchTerm, selectedType }: TreeNodeProps) {
   const hasChildren = node.children && node.children.length > 0;
   const isExpanded = expandedNodes.has(node.id);
+  const typeStyle = accountTypeStyles[node.type] ?? unknownType;
 
   // Filter visibility based on search and type
   const matchesSearch = !searchTerm ||
@@ -260,7 +66,7 @@ function TreeNode({ node, expandedNodes, onToggle, onEdit, onDelete, searchTerm,
   const matchesType = !selectedType || node.type === selectedType;
 
   // Check if any children match
-  const hasMatchingChildren = (n: AccountNode): boolean => {
+  const hasMatchingChildren = (n: AccountTreeNode): boolean => {
     if (!n.children) return false;
     return n.children.some(child => {
       const childMatches = (!searchTerm || child.name.toLowerCase().includes(searchTerm.toLowerCase()) || child.code.includes(searchTerm)) &&
@@ -279,7 +85,7 @@ function TreeNode({ node, expandedNodes, onToggle, onEdit, onDelete, searchTerm,
         className={`flex items-center py-2 px-2 hover:bg-muted/50 rounded-md group ${
           !node.isActive ? "opacity-50" : ""
         }`}
-        style={{ paddingLeft: `${(node.level - 1) * 24 + 8}px` }}
+        style={{ paddingLeft: `${Math.max(node.level - 1, 0) * 24 + 8}px` }}
       >
         {/* Expand/Collapse Button */}
         <button
@@ -325,8 +131,8 @@ function TreeNode({ node, expandedNodes, onToggle, onEdit, onDelete, searchTerm,
         </Link>
 
         {/* Type Badge */}
-        <Badge variant={accountTypeStyles[node.type].variant} className="ml-2 shrink-0">
-          {accountTypeStyles[node.type].label}
+        <Badge variant={typeStyle.variant} className="ml-2 shrink-0">
+          {typeStyle.label}
         </Badge>
 
         {/* Status */}
@@ -383,29 +189,66 @@ function TreeNode({ node, expandedNodes, onToggle, onEdit, onDelete, searchTerm,
 }
 
 export function AccountListPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState<string>("");
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(["1", "2", "3", "4", "5"]));
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState<string | null>(null);
+  const seededExpansion = useRef(false);
+
+  // GET /accounts/tree — the backend fills `children` recursively.
+  const {
+    data: treeResponse,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["accounts", "tree"],
+    queryFn: () => accountsApi.tree(),
+  });
+
+  // No mock fallback: a chart of accounts that failed to load must not look real.
+  const accounts = useMemo(() => treeResponse?.data ?? [], [treeResponse]);
+
+  // Expand the roots once, when the real tree first arrives.
+  useEffect(() => {
+    if (seededExpansion.current || accounts.length === 0) return;
+    seededExpansion.current = true;
+    setExpandedNodes(new Set(accounts.map((account) => account.id)));
+  }, [accounts]);
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => accountsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      setDeleteModalOpen(false);
+      setAccountToDelete(null);
+      toast.success("삭제 완료", "계정과목이 삭제되었습니다.");
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        "삭제 실패",
+        getErrorMessage(err, "계정과목 삭제 중 오류가 발생했습니다.")
+      );
+    },
+  });
 
   // Count accounts recursively
   const countAccounts = useMemo(() => {
-    const count = (nodes: AccountNode[]): { total: number; byType: Record<string, number> } => {
-      let total = 0;
-      const byType: Record<string, number> = {};
+    let total = 0;
+    const byType: Record<string, number> = {};
 
-      const traverse = (node: AccountNode) => {
-        total++;
-        byType[node.type] = (byType[node.type] || 0) + 1;
-        node.children?.forEach(traverse);
-      };
-
-      nodes.forEach(traverse);
-      return { total, byType };
+    const traverse = (node: AccountTreeNode) => {
+      total++;
+      byType[node.type] = (byType[node.type] || 0) + 1;
+      node.children?.forEach(traverse);
     };
-    return count(mockAccounts);
-  }, []);
+
+    accounts.forEach(traverse);
+    return { total, byType };
+  }, [accounts]);
 
   const toggleNode = (id: string) => {
     setExpandedNodes((prev) => {
@@ -421,7 +264,7 @@ export function AccountListPage() {
 
   const expandAll = () => {
     const allIds: string[] = [];
-    const traverse = (nodes: AccountNode[]) => {
+    const traverse = (nodes: AccountTreeNode[]) => {
       nodes.forEach((node) => {
         if (node.children && node.children.length > 0) {
           allIds.push(node.id);
@@ -429,7 +272,7 @@ export function AccountListPage() {
         }
       });
     };
-    traverse(mockAccounts);
+    traverse(accounts);
     setExpandedNodes(new Set(allIds));
   };
 
@@ -438,7 +281,7 @@ export function AccountListPage() {
   };
 
   const handleEdit = (id: string) => {
-    window.location.href = `/accounting/accounts/${id}`;
+    navigate(`/accounting/accounts/${id}`);
   };
 
   const handleDelete = (id: string) => {
@@ -447,10 +290,9 @@ export function AccountListPage() {
   };
 
   const confirmDelete = () => {
-    // TODO: API call to delete account
-    console.log("Deleting account:", accountToDelete);
-    setDeleteModalOpen(false);
-    setAccountToDelete(null);
+    if (accountToDelete) {
+      deleteMutation.mutate(accountToDelete);
+    }
   };
 
   return (
@@ -544,7 +386,10 @@ export function AccountListPage() {
                 전체 접기
               </Button>
             </div>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => notifyUnavailable("계정과목 내보내기")}
+            >
               <Download className="h-4 w-4 mr-2" />
               내보내기
             </Button>
@@ -571,18 +416,32 @@ export function AccountListPage() {
 
           {/* Tree Body */}
           <div className="space-y-1">
-            {mockAccounts.map((account) => (
-              <TreeNode
-                key={account.id}
-                node={account}
-                expandedNodes={expandedNodes}
-                onToggle={toggleNode}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                searchTerm={searchTerm}
-                selectedType={selectedType}
-              />
-            ))}
+            {isLoading ? (
+              <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+                계정과목을 불러오는 중입니다.
+              </div>
+            ) : error ? (
+              <div className="px-3 py-8 text-center text-sm text-destructive">
+                {getErrorMessage(error, "계정과목 조회에 실패했습니다.")}
+              </div>
+            ) : accounts.length === 0 ? (
+              <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+                등록된 계정과목이 없습니다.
+              </div>
+            ) : (
+              accounts.map((account) => (
+                <TreeNode
+                  key={account.id}
+                  node={account}
+                  expandedNodes={expandedNodes}
+                  onToggle={toggleNode}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  searchTerm={searchTerm}
+                  selectedType={selectedType}
+                />
+              ))
+            )}
           </div>
 
           {/* Info */}
@@ -608,7 +467,11 @@ export function AccountListPage() {
             <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>
               취소
             </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              isLoading={deleteMutation.isPending}
+            >
               삭제
             </Button>
           </div>

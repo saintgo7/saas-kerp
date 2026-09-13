@@ -52,16 +52,34 @@ func (VoucherEntry) TableName() string {
 	return "voucher_entries"
 }
 
-// Validate validates the entry data
+// Normalize quantizes the entry amounts to the scale the database stores
+// (DECIMAL(18,2)). It must be called before the entry is validated, summed or
+// persisted: PostgreSQL rounds every row independently, so an unrounded Go
+// value silently becomes a different stored value and the voucher header stops
+// matching SUM(voucher_entries).
+func (e *VoucherEntry) Normalize() {
+	e.DebitAmount = RoundAmount(e.DebitAmount)
+	e.CreditAmount = RoundAmount(e.CreditAmount)
+}
+
+// Validate validates the entry data.
+//
+// Amounts are judged at the stored scale. An amount such as 0.004 is non-zero
+// in Go but is stored as 0.00, which violates the chk_entry_amount database
+// constraint; rejecting it here turns a raw 500 into a validation error.
 func (e *VoucherEntry) Validate() error {
-	// Check that exactly one of debit or credit is set
-	if e.DebitAmount > 0 && e.CreditAmount > 0 {
-		return ErrEntryInvalidAmount
-	}
-	if e.DebitAmount == 0 && e.CreditAmount == 0 {
+	if e.DebitAmount < 0 || e.CreditAmount < 0 {
 		return ErrEntryZeroAmount
 	}
-	if e.DebitAmount < 0 || e.CreditAmount < 0 {
+
+	debit := RoundAmount(e.DebitAmount)
+	credit := RoundAmount(e.CreditAmount)
+
+	// Check that exactly one of debit or credit is set
+	if debit > 0 && credit > 0 {
+		return ErrEntryInvalidAmount
+	}
+	if IsZeroAmount(debit) && IsZeroAmount(credit) {
 		return ErrEntryZeroAmount
 	}
 	return nil

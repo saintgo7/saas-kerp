@@ -6,9 +6,8 @@ Handles 4대보험 EDI operations through gRPC.
 """
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
-import grpc
 import structlog
 
 # These imports will work after proto generation
@@ -16,13 +15,11 @@ import structlog
 # from generated import insurance_pb2_grpc
 
 from config import settings
-from edi.client import create_nps_client, create_nhis_client, create_ei_client, EDIClient
-from edi.message import (
-    EDIMessage,
-    InsuranceType as EDIInsuranceType,
-    DocumentType as EDIDocumentType,
-)
+from edi.client import EDIClient
 from providers import NPSProvider, NHISProvider, EIProvider, BaseProvider
+from providers.base import UntrustedResponseError
+from shared.crypto import load_symmetric_key
+from shared.utils.validators import mask_name
 
 
 logger = structlog.get_logger(__name__)
@@ -46,15 +43,20 @@ class InsuranceServicer:
         self._init_providers()
 
     def _init_providers(self) -> None:
-        """Initialize insurance providers."""
-        # Note: In production, encryption keys should come from config/secrets
-        encryption_key = settings.crypto.aria_key
-        if encryption_key:
-            key_bytes = bytes.fromhex(encryption_key)
-        else:
-            # Use placeholder for development
-            key_bytes = bytes(16)
-            logger.warning("Using placeholder encryption key - configure ARIA_ENCRYPTION_KEY for production")
+        """
+        Initialize insurance providers.
+
+        The ARIA key is validated here so a misconfigured deployment fails at
+        startup rather than at the first 취득신고. Providers each load the key
+        themselves at connect time; this check exists so the failure is loud and
+        early instead of surfacing as a per-request error.
+
+        Raises:
+            WeakKeyError: If ARIA_ENCRYPTION_KEY is unset or trivially weak
+        """
+        # Fails closed. Previously an unset key produced a warning and an
+        # all-zero key that was never actually passed to the providers anyway.
+        load_symmetric_key(settings.crypto.aria_key, name="ARIA_ENCRYPTION_KEY")
 
         # Initialize providers
         self._providers = {
@@ -65,6 +67,27 @@ class InsuranceServicer:
         }
 
         logger.info("Insurance providers initialized", count=len(self._providers))
+
+    @staticmethod
+    def _client_safe_error(exc: Exception) -> str:
+        """
+        Reduce an internal exception to something safe to return to a caller.
+
+        Exception text here has carried file paths, internal hostnames and
+        upstream response bodies. Callers get a stable, generic message; the
+        detail stays in the server log.
+
+        Args:
+            exc: The exception that occurred
+
+        Returns:
+            A message safe to place in a gRPC response
+        """
+        if isinstance(exc, UntrustedResponseError):
+            return "공단 응답의 서명을 검증하지 못했습니다"
+        if isinstance(exc, (ConnectionError, TimeoutError)):
+            return "공단 EDI 서버와 통신하지 못했습니다"
+        return "처리 중 오류가 발생했습니다"
 
     def _get_provider(self, insurance_type: int) -> Optional[BaseProvider]:
         """Get provider for insurance type."""
@@ -90,7 +113,7 @@ class InsuranceServicer:
             "Processing acquisition submission",
             request_id=request_id,
             company_id=request.company.company_id,
-            employee_name=request.employee.name,
+            employee=mask_name(request.employee.name),
             insurance_types=[t for t in request.insurance_types],
         )
 
@@ -151,7 +174,7 @@ class InsuranceServicer:
                     insurance_type=ins_type,
                     success=False,
                     error_code="SUBMISSION_ERROR",
-                    error_message=str(e),
+                    error_message=self._client_safe_error(e),
                 ))
                 all_success = False
 
@@ -174,7 +197,7 @@ class InsuranceServicer:
             "Processing loss submission",
             request_id=request_id,
             company_id=request.company.company_id,
-            employee_name=request.employee.name,
+            employee=mask_name(request.employee.name),
         )
 
         results = []
@@ -231,7 +254,7 @@ class InsuranceServicer:
                     insurance_type=ins_type,
                     success=False,
                     error_code="SUBMISSION_ERROR",
-                    error_message=str(e),
+                    error_message=self._client_safe_error(e),
                 ))
                 all_success = False
 
@@ -309,7 +332,7 @@ class InsuranceServicer:
                     insurance_type=ins_type,
                     success=False,
                     error_code="SUBMISSION_ERROR",
-                    error_message=str(e),
+                    error_message=self._client_safe_error(e),
                 ))
                 all_success = False
 
@@ -376,7 +399,7 @@ class InsuranceServicer:
                 submission_id=request.submission_id,
                 insurance_type=request.insurance_type,
                 status=insurance_pb2.SUBMISSION_STATUS_ERROR,
-                status_message=str(e),
+                status_message=self._client_safe_error(e),
             )
 
     async def DownloadResult(self, request, context):
@@ -483,7 +506,7 @@ class InsuranceServicer:
                 results.append(insurance_pb2.BatchItemResult(
                     item_id=item.item_id,
                     success=False,
-                    error_message=str(e),
+                    error_message=self._client_safe_error(e),
                 ))
                 failed_count += 1
 

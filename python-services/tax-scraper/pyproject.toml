@@ -3,18 +3,29 @@ name = "tax-scraper"
 version = "0.1.0"
 description = "K-ERP Tax Invoice Scraper - Hometax gRPC Service"
 requires-python = ">=3.11"
+# Upper bounds are set so a minor release cannot silently change behaviour.
+# `requirements.txt` remains the pinned install manifest for containers.
 dependencies = [
-    "grpcio>=1.60.0",
-    "grpcio-tools>=1.60.0",
-    "grpcio-health-checking>=1.60.0",
-    "playwright>=1.40.0",
-    "pydantic>=2.5.0",
-    "pydantic-settings>=2.1.0",
-    "python-dotenv>=1.0.0",
-    "structlog>=23.2.0",
-    "httpx>=0.25.0",
-    "cryptography>=41.0.0",
-    "redis>=5.0.0",
+    "grpcio>=1.60.0,<2.0.0",
+    "grpcio-tools>=1.60.0,<2.0.0",
+    "grpcio-health-checking>=1.60.0,<2.0.0",
+    "grpcio-reflection>=1.60.0,<2.0.0",
+    "playwright>=1.40.0,<2.0.0",
+    "pydantic>=2.5.0,<3.0.0",
+    "pydantic-settings>=2.1.0,<3.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "structlog>=23.2.0,<25.0.0",
+    "httpx>=0.25.0,<0.28.0",
+    # 42.0.4 is the floor: the 41.x series carries published advisories for
+    # PKCS#7/PKCS#12 parsing and RSA PKCS#1 v1.5 timing.
+    "cryptography>=42.0.4,<44.0.0",
+    "redis>=5.0.0,<6.0.0",
+    # Imported by src/scrapers/hometax.py; was missing from both manifests, so
+    # `pip install -e .` produced a package that failed at import.
+    "tenacity>=8.2.0,<9.0.0",
+    # Imported by src/scrapers/hometax.py and src/crypto/seed.py.
+    "loguru>=0.7.0,<1.0.0",
+    "pycryptodome>=3.19.0,<4.0.0",
 ]
 
 [project.optional-dependencies]

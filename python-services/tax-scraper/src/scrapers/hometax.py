@@ -3,14 +3,33 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 
 from loguru import logger
 from playwright.async_api import Browser, Page, Playwright, async_playwright
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from config.settings import get_settings
+from src.hometax.amounts import AmountParseError, parse_amount
+
+
+class HometaxAuthError(Exception):
+    """Authentication failed permanently -- do not retry.
+
+    Hometax locks an account after repeated failed logins, so a wrong password
+    must not be tried three more times.
+    """
+
+
+class HometaxTransientError(Exception):
+    """A transport-level problem that another attempt might get past."""
 
 
 class HometaxLoginType(Enum):
@@ -43,9 +62,9 @@ class TaxInvoiceSearchResult:
     supplier_name: str
     buyer_business_number: str
     buyer_name: str
-    supply_amount: float
-    tax_amount: float
-    total_amount: float
+    supply_amount: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
     status: str
 
 
@@ -105,27 +124,40 @@ class HometaxScraper:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
+        # Retry ONLY transient transport problems. The decorator used to retry
+        # every exception, including a rejected password -- three attempts per
+        # call, straight into Hometax's account lockout.
+        retry=retry_if_exception_type(HometaxTransientError),
+        reraise=True,
     )
     async def login(self) -> bool:
-        """Login to Hometax."""
+        """Login to Hometax.
+
+        Returns:
+            True when the session is authenticated
+
+        Raises:
+            HometaxAuthError: Credentials were rejected (not retried)
+            NotImplementedError: Login type has no implementation
+            HometaxTransientError: Transport problem worth retrying
+        """
         logger.info(f"Logging into Hometax with {self.credentials.login_type.value}...")
+
+        if self.credentials.login_type == HometaxLoginType.CERTIFICATE:
+            return await self._login_with_certificate()
+        if self.credentials.login_type != HometaxLoginType.SIMPLE:
+            raise NotImplementedError(
+                f"Login type {self.credentials.login_type} not implemented"
+            )
 
         try:
             await self.page.goto(self.LOGIN_URL, timeout=self.settings.hometax_login_timeout)
             await self.page.wait_for_load_state("networkidle")
-
-            if self.credentials.login_type == HometaxLoginType.CERTIFICATE:
-                return await self._login_with_certificate()
-            elif self.credentials.login_type == HometaxLoginType.SIMPLE:
-                return await self._login_with_simple()
-            else:
-                raise NotImplementedError(
-                    f"Login type {self.credentials.login_type} not implemented"
-                )
-
         except Exception as e:
-            logger.error(f"Login failed: {e}")
-            raise
+            logger.error(f"Could not reach the Hometax login page: {type(e).__name__}")
+            raise HometaxTransientError("Hometax login page unreachable") from e
+
+        return await self._login_with_simple()
 
     async def _login_with_certificate(self) -> bool:
         """Login using digital certificate."""
@@ -167,8 +199,12 @@ class HometaxScraper:
             logger.info("Login successful")
             return True
 
+        # Permanent: raising a non-retryable type stops the tenacity decorator
+        # from replaying a rejected credential into an account lockout.
         logger.error("Login failed - invalid credentials or captcha required")
-        return False
+        raise HometaxAuthError(
+            "Hometax rejected the credentials, or a captcha is required"
+        )
 
     async def _check_login_success(self) -> bool:
         """Check if login was successful."""
@@ -222,9 +258,10 @@ class HometaxScraper:
         # This is a stub - actual implementation would parse the HTML table
         # The structure depends on Hometax's current page layout
 
-        try:
-            rows = await self.page.query_selector_all("table.result tbody tr")
+        rows = await self.page.query_selector_all("table.result tbody tr")
+        failures = 0
 
+        try:
             for row in rows:
                 cells = await row.query_selector_all("td")
                 if len(cells) >= 9:
@@ -244,8 +281,16 @@ class HometaxScraper:
                             status="issued",
                         )
                     )
-        except Exception as e:
-            logger.warning(f"Error parsing results: {e}")
+        except AmountParseError as e:
+            # An amount we cannot read must stop the record set, not silently
+            # shrink it: a partial list under-reports 매출/매입.
+            logger.error(f"Amount parsing failed while reading results: {e}")
+            raise
+
+        if failures:
+            raise ValueError(
+                f"{failures} of {len(rows)} result rows could not be parsed"
+            )
 
         return results
 
@@ -253,12 +298,24 @@ class HometaxScraper:
         """Get text content from element."""
         return (await element.text_content() or "").strip()
 
-    def _parse_amount(self, text: str) -> float:
-        """Parse amount string to float."""
-        try:
-            return float(text.replace(",", "").replace("원", ""))
-        except ValueError:
-            return 0.0
+    def _parse_amount(self, text: str) -> Decimal:
+        """Parse a scraped amount.
+
+        Returns a Decimal and raises on unparseable input. The previous version
+        returned 0.0 on any ValueError, so a formatting change recorded 공급가액
+        and 세액 as zero with no signal anywhere downstream. float was also the
+        wrong type for money.
+
+        Args:
+            text: Raw amount text
+
+        Returns:
+            The amount
+
+        Raises:
+            AmountParseError: If the text is not a number
+        """
+        return parse_amount(text)
 
     async def get_invoice_detail(self, nts_confirm_number: str) -> dict[str, Any] | None:
         """Get detailed tax invoice by NTS confirmation number."""

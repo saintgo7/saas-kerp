@@ -8,8 +8,8 @@ import (
 
 // Department errors
 var (
-	ErrDepartmentNotFound   = errors.New("department not found")
-	ErrDepartmentCodeExists = errors.New("department code already exists")
+	ErrDepartmentNotFound    = errors.New("department not found")
+	ErrDepartmentCodeExists  = errors.New("department code already exists")
 	ErrDepartmentHasChildren = errors.New("department has children and cannot be deleted")
 )
 

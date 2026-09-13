@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm, useFieldArray, Controller } from "react-hook-form";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Plus, Trash2, Save, ArrowLeft, AlertCircle } from "lucide-react";
@@ -17,45 +18,65 @@ import {
 } from "@/components/ui";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/stores/ui";
+import { accountsApi, vouchersApi } from "@/api";
+import { getErrorMessage } from "@/services/api";
+import type { VoucherType } from "@/hooks/useVoucher";
 
-// Mock account options
-const accountOptions = [
-  { value: "101", label: "101 현금" },
-  { value: "102", label: "102 보통예금" },
-  { value: "103", label: "103 당좌예금" },
-  { value: "108", label: "108 받을어음" },
-  { value: "109", label: "109 외상매출금" },
-  { value: "141", label: "141 상품" },
-  { value: "142", label: "142 제품" },
-  { value: "201", label: "201 지급어음" },
-  { value: "202", label: "202 외상매입금" },
-  { value: "253", label: "253 미지급금" },
-  { value: "254", label: "254 예수금" },
-  { value: "255", label: "255 부가세예수금" },
-  { value: "401", label: "401 상품매출" },
-  { value: "402", label: "402 제품매출" },
-  { value: "501", label: "501 상품매입" },
-  { value: "502", label: "502 원재료매입" },
-  { value: "801", label: "801 급여" },
-  { value: "802", label: "802 복리후생비" },
-  { value: "803", label: "803 여비교통비" },
-  { value: "804", label: "804 접대비" },
-  { value: "805", label: "805 통신비" },
-  { value: "806", label: "806 소모품비" },
-  { value: "810", label: "810 지급임차료" },
+/**
+ * Voucher types accepted by the backend
+ * (internal/dto/voucher_dto.go: oneof=general sales purchase payment receipt
+ * adjustment closing). `voucher_type` is required on create; omitting it made
+ * every POST /vouchers fail with 400.
+ */
+const VOUCHER_TYPES: { value: VoucherType; label: string }[] = [
+  { value: "general", label: "일반전표" },
+  { value: "sales", label: "매출전표" },
+  { value: "purchase", label: "매입전표" },
+  { value: "payment", label: "지급전표" },
+  { value: "receipt", label: "입금전표" },
+  { value: "adjustment", label: "결산조정" },
+  { value: "closing", label: "마감전표" },
 ];
 
-// Validation schema
+/**
+ * Won has no sub-unit, so amounts are whole numbers, but a debit/credit sum can
+ * still pick up float error. Compare with a tolerance instead of `===`; the
+ * backend does the same.
+ */
+const BALANCE_EPSILON = 0.005;
+
+function isBalanced(totalDebit: number, totalCredit: number): boolean {
+  return (
+    Math.abs(totalDebit - totalCredit) < BALANCE_EPSILON && totalDebit > 0
+  );
+}
+
+/**
+ * An empty number input yields NaN under `valueAsNumber`, which zod rejects at
+ * the type layer with an English message and skips the balance refine entirely.
+ * Coerce blank input to 0 instead.
+ */
+function toAmount(value: unknown): number {
+  if (value === "" || value === null || value === undefined) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+const amountSchema = z
+  .number({ message: "숫자를 입력하세요" })
+  .min(0, "0 이상이어야 합니다");
+
 const voucherEntrySchema = z.object({
-  accountCode: z.string().min(1, "계정과목을 선택하세요"),
-  debitAmount: z.number().min(0, "0 이상이어야 합니다"),
-  creditAmount: z.number().min(0, "0 이상이어야 합니다"),
+  accountId: z.string().min(1, "계정과목을 선택하세요"),
+  debitAmount: amountSchema,
+  creditAmount: amountSchema,
   description: z.string().optional(),
 });
 
 const voucherSchema = z
   .object({
     voucherDate: z.string().min(1, "전표일자를 입력하세요"),
+    voucherType: z.string().min(1, "전표유형을 선택하세요"),
     description: z.string().min(1, "적요를 입력하세요"),
     entries: z
       .array(voucherEntrySchema)
@@ -68,7 +89,7 @@ const voucherSchema = z
         (sum, e) => sum + e.creditAmount,
         0
       );
-      return totalDebit === totalCredit && totalDebit > 0;
+      return isBalanced(totalDebit, totalCredit);
     },
     {
       message: "차변과 대변의 합계가 일치해야 합니다",
@@ -80,7 +101,31 @@ type VoucherFormData = z.infer<typeof voucherSchema>;
 
 export function VoucherFormPage() {
   const navigate = useNavigate();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const queryClient = useQueryClient();
+
+  // GET /api/v1/accounts — the picker used to be a hardcoded list of 23 codes
+  // that had nothing to do with the company's actual chart of accounts.
+  const {
+    data: accountsResponse,
+    isLoading: isLoadingAccounts,
+    isError: isAccountsError,
+    error: accountsError,
+  } = useQuery({
+    queryKey: ["accounts", "list", { pageSize: 100, isActive: true }],
+    queryFn: () => accountsApi.list({ pageSize: 100, isActive: true }),
+  });
+
+  const accountOptions = useMemo(
+    () =>
+      (accountsResponse?.data.items ?? [])
+        // Only leaf accounts may be posted to.
+        .filter((account) => account.allowDirectPosting !== false)
+        .map((account) => ({
+          value: account.id,
+          label: `${account.code} ${account.name}`,
+        })),
+    [accountsResponse]
+  );
 
   const {
     register,
@@ -92,10 +137,11 @@ export function VoucherFormPage() {
     resolver: zodResolver(voucherSchema),
     defaultValues: {
       voucherDate: new Date().toISOString().split("T")[0],
+      voucherType: "general",
       description: "",
       entries: [
-        { accountCode: "", debitAmount: 0, creditAmount: 0, description: "" },
-        { accountCode: "", debitAmount: 0, creditAmount: 0, description: "" },
+        { accountId: "", debitAmount: 0, creditAmount: 0, description: "" },
+        { accountId: "", debitAmount: 0, creditAmount: 0, description: "" },
       ],
     },
   });
@@ -106,26 +152,46 @@ export function VoucherFormPage() {
   });
 
   const entries = watch("entries");
-  const totalDebit = entries?.reduce((sum, e) => sum + (Number(e.debitAmount) || 0), 0) || 0;
-  const totalCredit = entries?.reduce((sum, e) => sum + (Number(e.creditAmount) || 0), 0) || 0;
-  const isBalanced = totalDebit === totalCredit && totalDebit > 0;
+  const totalDebit =
+    entries?.reduce((sum, e) => sum + toAmount(e.debitAmount), 0) || 0;
+  const totalCredit =
+    entries?.reduce((sum, e) => sum + toAmount(e.creditAmount), 0) || 0;
+  const balanced = isBalanced(totalDebit, totalCredit);
 
-  const onSubmit = async (data: VoucherFormData) => {
-    setIsSubmitting(true);
-    try {
-      // TODO: API call
-      console.log("Voucher data:", data);
+  // POST /api/v1/vouchers
+  const createMutation = useMutation({
+    mutationFn: (data: VoucherFormData) =>
+      vouchersApi.create({
+        voucherDate: data.voucherDate,
+        voucherType: data.voucherType as VoucherType,
+        description: data.description,
+        entries: data.entries.map((entry) => ({
+          accountId: entry.accountId,
+          debitAmount: toAmount(entry.debitAmount),
+          creditAmount: toAmount(entry.creditAmount),
+          description: entry.description,
+        })),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
       toast.success("전표 저장 완료", "전표가 성공적으로 저장되었습니다.");
       navigate("/accounting/voucher");
-    } catch {
-      toast.error("저장 실패", "전표 저장 중 오류가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    },
+    onError: (err: unknown) => {
+      // Only the server can tell us the save succeeded. Previously this screen
+      // logged the form and claimed success without any request at all.
+      toast.error(
+        "저장 실패",
+        getErrorMessage(err, "전표 저장 중 오류가 발생했습니다.")
+      );
+    },
+  });
+
+  const onSubmit = (data: VoucherFormData) => createMutation.mutate(data);
+  const isSubmitting = createMutation.isPending;
 
   const addEntry = () => {
-    append({ accountCode: "", debitAmount: 0, creditAmount: 0, description: "" });
+    append({ accountId: "", debitAmount: 0, creditAmount: 0, description: "" });
   };
 
   return (
@@ -167,6 +233,19 @@ export function VoucherFormPage() {
                 error={errors.voucherDate?.message}
                 {...register("voucherDate")}
               />
+              <Controller
+                name="voucherType"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    label="전표유형"
+                    required
+                    options={VOUCHER_TYPES}
+                    error={errors.voucherType?.message}
+                    {...field}
+                  />
+                )}
+              />
               <div className="md:col-span-2">
                 <Textarea
                   label="적요"
@@ -198,6 +277,19 @@ export function VoucherFormPage() {
               </div>
             )}
 
+            {/* The chart of accounts must load before entries can be posted. */}
+            {isAccountsError && (
+              <div className="flex items-center space-x-2 p-3 mb-4 bg-destructive/10 text-destructive rounded-lg">
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm">
+                  {getErrorMessage(
+                    accountsError,
+                    "계정과목을 불러오지 못했습니다."
+                  )}
+                </span>
+              </div>
+            )}
+
             {/* Table Header */}
             <div className="grid grid-cols-12 gap-2 px-2 py-2 bg-muted rounded-t-lg font-medium text-sm">
               <div className="col-span-3">계정과목</div>
@@ -216,13 +308,15 @@ export function VoucherFormPage() {
                 >
                   <div className="col-span-3">
                     <Controller
-                      name={`entries.${index}.accountCode`}
+                      name={`entries.${index}.accountId`}
                       control={control}
                       render={({ field }) => (
                         <Select
                           options={accountOptions}
-                          placeholder="계정선택"
-                          error={errors.entries?.[index]?.accountCode?.message}
+                          placeholder={
+                            isLoadingAccounts ? "불러오는 중..." : "계정선택"
+                          }
+                          error={errors.entries?.[index]?.accountId?.message}
                           {...field}
                         />
                       )}
@@ -235,7 +329,9 @@ export function VoucherFormPage() {
                       placeholder="0"
                       className="text-right font-mono"
                       error={errors.entries?.[index]?.debitAmount?.message}
-                      {...register(`entries.${index}.debitAmount`, { valueAsNumber: true })}
+                      {...register(`entries.${index}.debitAmount`, {
+                        setValueAs: toAmount,
+                      })}
                     />
                   </div>
                   <div className="col-span-2">
@@ -245,7 +341,9 @@ export function VoucherFormPage() {
                       placeholder="0"
                       className="text-right font-mono"
                       error={errors.entries?.[index]?.creditAmount?.message}
-                      {...register(`entries.${index}.creditAmount`, { valueAsNumber: true })}
+                      {...register(`entries.${index}.creditAmount`, {
+                        setValueAs: toAmount,
+                      })}
                     />
                   </div>
                   <div className="col-span-4">
@@ -281,14 +379,17 @@ export function VoucherFormPage() {
               </div>
               <div className="col-span-5 flex items-center space-x-2">
                 <Badge
-                  variant={isBalanced ? "success" : "destructive"}
+                  variant={balanced ? "success" : "destructive"}
                   className="ml-2"
                 >
-                  {isBalanced ? "균형" : "불균형"}
+                  {balanced ? "균형" : "불균형"}
                 </Badge>
-                {!isBalanced && totalDebit > 0 && (
+                {!balanced && totalDebit > 0 && (
                   <span className="text-sm text-destructive">
-                    차이: {formatCurrency(Math.abs(totalDebit - totalCredit), { showSymbol: false })}
+                    차이:{" "}
+                    {formatCurrency(Math.abs(totalDebit - totalCredit), {
+                      showSymbol: false,
+                    })}
                   </span>
                 )}
               </div>

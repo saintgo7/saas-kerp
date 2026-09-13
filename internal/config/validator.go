@@ -40,8 +40,14 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("jwt.secret is required"))
 	}
 
-	if c.App.Env == "production" && c.JWT.Secret == "change-me-in-production" {
-		errs = append(errs, errors.New("jwt.secret must be changed in production"))
+	// Reject placeholder or weak JWT secrets for all non-development environments
+	// (staging and production). ValidateSecret rejects on length, known
+	// placeholder values, placeholder-looking substrings, repetition, character
+	// sequences and Shannon entropy — a `.env.example` value cannot pass it.
+	if c.App.Env != "development" && c.JWT.Secret != "" {
+		if err := ValidateSecret("jwt.secret", c.JWT.Secret); err != nil {
+			errs = append(errs, fmt.Errorf("%w (environment: %s)", err, c.App.Env))
+		}
 	}
 
 	if c.JWT.AccessTokenTTL <= 0 {

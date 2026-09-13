@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Download,
   Printer,
@@ -23,13 +22,17 @@ import {
   CardContent,
   Badge,
 } from "@/components/ui";
-import { DateRangePicker } from "@/components/common";
+import {
+  DateRangePicker,
+  FeatureUnavailable,
+  notifyUnavailable,
+} from "@/components/common";
 import { formatCurrency, cn } from "@/lib/utils";
-import { reportsApi } from "@/api/reports";
 import type { HRReportData, DepartmentHeadcount, HiringTrendItem } from "@/api/reports";
 
-// Mock data for development
-const mockHRReportData: HRReportData = {
+// Sample figures shown behind the FeatureUnavailable banner: the backend has
+// no /reports/hr endpoint, so nothing on this screen comes from the server.
+const sampleHRReportData: HRReportData = {
   asOfDate: "2024-01-31",
   headcount: {
     total: 90,
@@ -264,23 +267,8 @@ export function HRReportPage() {
   const [endDate, setEndDate] = useState(today.toISOString().split("T")[0]);
   const [activeTab, setActiveTab] = useState<"headcount" | "payroll" | "attendance">("headcount");
 
-  // Fetch HR report data
-  const {
-    data: hrReportResponse,
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ["reports", "hr", startDate, endDate],
-    queryFn: () =>
-      reportsApi.getHRReport({
-        startDate,
-        endDate,
-      }),
-    enabled: !!startDate && !!endDate,
-  });
-
-  // Use mock data if no real data
-  const hrData = hrReportResponse?.data || mockHRReportData;
+  // No HR report endpoint exists yet, so there is nothing to fetch.
+  const hrData = sampleHRReportData;
 
   const handleDateChange = (start: string, end: string) => {
     setStartDate(start);
@@ -303,7 +291,7 @@ export function HRReportPage() {
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => notifyUnavailable("내보내기")}>
             <Download className="h-4 w-4 mr-2" />
             내보내기
           </Button>
@@ -313,6 +301,11 @@ export function HRReportPage() {
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable
+        feature="인사 현황"
+        detail="서버에 인사 통계 API가 아직 없습니다. 아래 숫자는 화면 구성을 보여주기 위한 예시이며 실제 인사 데이터가 아닙니다."
+      />
 
       {/* Filters */}
       <Card>
@@ -410,20 +403,7 @@ export function HRReportPage() {
       </div>
 
       {/* Main Content */}
-      {isLoading ? (
-        <Card>
-          <CardContent className="py-16 flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </CardContent>
-        </Card>
-      ) : error ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <p className="text-destructive">데이터를 불러올 수 없습니다.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <>
+      <>
           {/* Tab Navigation */}
           <div className="flex space-x-1 border-b">
             <button
@@ -835,8 +815,7 @@ export function HRReportPage() {
               </Card>
             </div>
           )}
-        </>
-      )}
+      </>
     </div>
   );
 }

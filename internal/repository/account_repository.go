@@ -9,16 +9,16 @@ import (
 
 // AccountFilter defines filter options for account queries
 type AccountFilter struct {
-	CompanyID    uuid.UUID
-	ParentID     *uuid.UUID
-	AccountType  *domain.AccountType
-	IsActive     *bool
-	SearchTerm   string
-	IncludeTree  bool
-	Page         int
-	PageSize     int
-	SortBy       string
-	SortDesc     bool
+	CompanyID   uuid.UUID
+	ParentID    *uuid.UUID
+	AccountType *domain.AccountType
+	IsActive    *bool
+	SearchTerm  string
+	IncludeTree bool
+	Page        int
+	PageSize    int
+	SortBy      string
+	SortDesc    bool
 }
 
 // AccountRepository defines the interface for account data access

@@ -120,10 +120,23 @@ func (r *projectRepositoryGorm) ExistsByCode(ctx context.Context, companyID uuid
 	return count > 0, nil
 }
 
+// IsInUse reports whether the project is still referenced by accounting data.
+//
+// voucher_entries.project_id is a real foreign key with no ON DELETE clause
+// (db/migrations/000005_accounting_tables.up.sql), so deleting a referenced
+// project raises 23503. The stub that used to live here returned false
+// unconditionally, which turned a clean ErrProjectInUse into a raw database
+// error surfaced as a 500 and made the UI advertise the project as deletable.
 func (r *projectRepositoryGorm) IsInUse(ctx context.Context, companyID, projectID uuid.UUID) (bool, error) {
-	// Check if project is referenced in vouchers or other tables
-	// For now, return false as we don't have project references in vouchers yet
-	return false, nil
+	var count int64
+	if err := r.db.WithContext(ctx).
+		Model(&domain.VoucherEntry{}).
+		Where("company_id = ? AND project_id = ?", companyID, projectID).
+		Limit(1).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (r *projectRepositoryGorm) GetStats(ctx context.Context, companyID uuid.UUID) (*ProjectStats, error) {

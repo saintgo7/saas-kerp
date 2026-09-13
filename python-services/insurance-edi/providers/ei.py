@@ -12,7 +12,14 @@ from datetime import datetime
 
 import structlog
 
-from .base import BaseProvider, ProviderStatus, SubmissionResult, StatusResult
+from .base import (
+    BaseProvider,
+    ProviderStatus,
+    SubmissionResult,
+    StatusResult,
+    mask_business_number,
+    mask_name,
+)
 from edi.client import create_ei_client
 from edi.message import (
     EDIMessage,
@@ -21,6 +28,7 @@ from edi.message import (
     MessageType,
 )
 from config import settings
+from shared.crypto import load_symmetric_key
 
 
 logger = structlog.get_logger(__name__)
@@ -72,15 +80,27 @@ class EIProvider(BaseProvider):
         self._status = ProviderStatus.UNKNOWN
 
     async def health_check(self) -> bool:
-        """Check EI/WCI provider availability."""
-        return self._status == ProviderStatus.AVAILABLE
+        """
+        Report whether this provider is actually usable.
+
+        Checks that a live connection exists, not just that a status enum was
+        set to AVAILABLE at some point in the past.
+
+        Returns:
+            True if the provider holds a connected client
+        """
+        return self._status == ProviderStatus.AVAILABLE and self._is_client_live()
 
     def _get_encryption_key(self) -> bytes:
         """Get ARIA encryption key for EI/WCI."""
-        key_hex = settings.crypto.aria_key
-        if key_hex:
-            return bytes.fromhex(key_hex)
-        return bytes(16)
+        # Fail closed. An unset key previously fell back to bytes(16) -- an
+        # all-zero, publicly known key -- and every 취득/상실/변경 전문, each
+        # carrying a plaintext 13-digit 주민등록번호, went out encrypted under it.
+        # Nothing logged, nothing looked wrong.
+        return load_symmetric_key(
+            settings.crypto.aria_key,
+            name="ARIA_ENCRYPTION_KEY",
+        )
 
     async def submit_acquisition(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -96,7 +116,12 @@ class EIProvider(BaseProvider):
         - acquisition.work_hours: 주당 근로시간
         - acquisition.contract_type: 계약형태
         """
-        logger.info("Submitting EI acquisition", data=data)
+        logger.info(
+            "Submitting EI acquisition",
+            business_no=mask_business_number(data.get("company", {}).get("business_no", "")),
+            workplace_no=data.get("company", {}).get("workplace_no", ""),
+            employee=mask_name(data.get("employee", {}).get("name", "")),
+        )
 
         errors = self._validate_company_data(data) + self._validate_employee_data(data)
         if errors:
@@ -145,7 +170,8 @@ class EIProvider(BaseProvider):
             if not self._client:
                 await self.connect()
 
-            response, _ = await self._client.send_with_retry(message)
+            response, sig_valid = await self._client.send_with_retry(message)
+            self._require_valid_signature(response, sig_valid)
             success, msg = self._parse_response_code(response.response_code)
 
             return SubmissionResult(
@@ -160,7 +186,7 @@ class EIProvider(BaseProvider):
             return SubmissionResult(
                 success=False,
                 error_code="SUBMISSION_ERROR",
-                error_message=str(e),
+                error_message=self._client_safe_error(e),
             ).to_dict()
 
     def _determine_employment_type(self, work_hours: int, acq: Dict) -> str:
@@ -195,7 +221,12 @@ class EIProvider(BaseProvider):
         EI loss is particularly important for unemployment benefits.
         Loss reasons determine benefit eligibility.
         """
-        logger.info("Submitting EI loss", data=data)
+        logger.info(
+            "Submitting EI loss",
+            business_no=mask_business_number(data.get("company", {}).get("business_no", "")),
+            workplace_no=data.get("company", {}).get("workplace_no", ""),
+            employee=mask_name(data.get("employee", {}).get("name", "")),
+        )
 
         errors = self._validate_company_data(data) + self._validate_employee_data(data)
         if errors:
@@ -241,7 +272,8 @@ class EIProvider(BaseProvider):
             if not self._client:
                 await self.connect()
 
-            response, _ = await self._client.send_with_retry(message)
+            response, sig_valid = await self._client.send_with_retry(message)
+            self._require_valid_signature(response, sig_valid)
             success, msg = self._parse_response_code(response.response_code)
 
             return SubmissionResult(
@@ -256,7 +288,7 @@ class EIProvider(BaseProvider):
             return SubmissionResult(
                 success=False,
                 error_code="SUBMISSION_ERROR",
-                error_message=str(e),
+                error_message=self._client_safe_error(e),
             ).to_dict()
 
     def _map_loss_reason(self, reason_code: str, is_voluntary: bool) -> Dict[str, Any]:
@@ -296,7 +328,12 @@ class EIProvider(BaseProvider):
 
     async def submit_change(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Submit change report to EI/WCI."""
-        logger.info("Submitting EI change", data=data)
+        logger.info(
+            "Submitting EI change",
+            business_no=mask_business_number(data.get("company", {}).get("business_no", "")),
+            workplace_no=data.get("company", {}).get("workplace_no", ""),
+            employee=mask_name(data.get("employee", {}).get("name", "")),
+        )
 
         errors = self._validate_company_data(data) + self._validate_employee_data(data)
         if errors:
@@ -334,7 +371,8 @@ class EIProvider(BaseProvider):
             if not self._client:
                 await self.connect()
 
-            response, _ = await self._client.send_with_retry(message)
+            response, sig_valid = await self._client.send_with_retry(message)
+            self._require_valid_signature(response, sig_valid)
             success, msg = self._parse_response_code(response.response_code)
 
             return SubmissionResult(
@@ -349,7 +387,7 @@ class EIProvider(BaseProvider):
             return SubmissionResult(
                 success=False,
                 error_code="SUBMISSION_ERROR",
-                error_message=str(e),
+                error_message=self._client_safe_error(e),
             ).to_dict()
 
     async def query_status(self, submission_id: str) -> Dict[str, Any]:
@@ -366,7 +404,8 @@ class EIProvider(BaseProvider):
                 reference_id=submission_id,
             )
 
-            response, _ = await self._client.send_with_retry(message)
+            response, sig_valid = await self._client.send_with_retry(message)
+            self._require_valid_signature(response, sig_valid)
 
             status_map = {
                 "0": "completed",
@@ -385,7 +424,7 @@ class EIProvider(BaseProvider):
             logger.exception("EI status query failed", error=str(e))
             return StatusResult(
                 status="error",
-                message=str(e),
+                message=self._client_safe_error(e),
             ).to_dict()
 
     async def download_result(
@@ -413,7 +452,8 @@ class EIProvider(BaseProvider):
             )
             message.header.message_type = MessageType.REQUEST_DOWNLOAD
 
-            response, _ = await self._client.send_with_retry(message)
+            response, sig_valid = await self._client.send_with_retry(message)
+            self._require_valid_signature(response, sig_valid)
 
             if response.response_data:
                 return {

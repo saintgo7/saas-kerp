@@ -210,12 +210,42 @@ class TestARIAModeCBC:
     # Initialization Tests
     # ========================================================================
 
-    def test_init_with_key_only(self):
-        """Test initialization with key only (default IV)."""
-        key = b"0123456789abcdef"
-        cipher = ARIAModeCBC(key)
+    def test_init_without_iv_is_rejected(self):
+        """An IV must be supplied: there is no safe default.
 
-        assert cipher.iv == bytes(16)  # Default IV is all zeros
+        This test used to assert the opposite -- that omitting the IV gave an
+        all-zero one -- which pinned the unsafe behaviour in place.
+        """
+        key = b"0123456789abcdef"
+
+        with pytest.raises(TypeError):
+            ARIAModeCBC(key)
+
+    def test_with_random_iv_generates_distinct_ivs(self):
+        """`with_random_iv` must not produce a predictable or repeated IV."""
+        key = b"0123456789abcdef"
+
+        ivs = {ARIAModeCBC.with_random_iv(key).iv for _ in range(16)}
+
+        assert len(ivs) == 16
+        assert bytes(16) not in ivs
+
+    def test_seal_uses_a_fresh_iv_per_message(self):
+        """Two seals of the same plaintext must differ.
+
+        A reused IV leaks that two 4대보험 전문 share a prefix, and those bodies
+        start with a fixed format.
+        """
+        cipher = ARIAModeCBC.with_random_iv(b"0123456789abcdef")
+        plaintext = b"A" * 32
+
+        first = cipher.seal(plaintext)
+        second = cipher.seal(plaintext)
+
+        assert first != second
+        assert first[:16] != second[:16]
+        assert cipher.unseal(first) == plaintext
+        assert cipher.unseal(second) == plaintext
 
     def test_init_with_key_and_iv(self):
         """Test initialization with key and custom IV."""
@@ -265,7 +295,7 @@ class TestARIAModeCBC:
     def test_encrypt_invalid_length_raises_error(self):
         """Test that plaintext not multiple of 16 raises ValueError."""
         key = b"0123456789abcdef"
-        cipher = ARIAModeCBC(key)
+        cipher = ARIAModeCBC.with_random_iv(key)
 
         with pytest.raises(ValueError, match="multiple of 16"):
             cipher.encrypt(b"not 16 bytes")
@@ -331,7 +361,7 @@ class TestARIAModeCBC:
     def test_decrypt_invalid_length_raises_error(self):
         """Test that ciphertext not multiple of 16 raises ValueError."""
         key = b"0123456789abcdef"
-        cipher = ARIAModeCBC(key)
+        cipher = ARIAModeCBC.with_random_iv(key)
 
         with pytest.raises(ValueError, match="multiple of 16"):
             cipher.decrypt(b"not 16 bytes")

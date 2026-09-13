@@ -13,255 +13,13 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui";
-import { DateRangePicker } from "@/components/common";
+import { DateRangePicker, notifyUnavailable } from "@/components/common";
 import { formatCurrency } from "@/lib/utils";
 import { ledgerApi } from "@/api";
-import type { TrialBalanceRow, TrialBalanceData } from "@/api/ledger";
+import { getErrorMessage } from "@/services/api";
+import type { TrialBalanceRow } from "@/api/ledger";
 import type { AccountType } from "@/types";
 import { ACCOUNT_TYPES } from "@/constants";
-
-// Mock data for development
-const mockTrialBalanceData: TrialBalanceData = {
-  period: {
-    startDate: "2024-01-01",
-    endDate: "2024-01-31",
-  },
-  rows: [
-    // Assets
-    {
-      accountId: "1",
-      accountCode: "1",
-      accountName: "자산",
-      accountType: "asset",
-      level: 0,
-      openingDebit: 50000000,
-      openingCredit: 0,
-      periodDebit: 15000000,
-      periodCredit: 8000000,
-      closingDebit: 57000000,
-      closingCredit: 0,
-      isLeaf: false,
-    },
-    {
-      accountId: "101",
-      accountCode: "101",
-      accountName: "현금",
-      accountType: "asset",
-      level: 1,
-      parentId: "1",
-      openingDebit: 5000000,
-      openingCredit: 0,
-      periodDebit: 3000000,
-      periodCredit: 1500000,
-      closingDebit: 6500000,
-      closingCredit: 0,
-      isLeaf: true,
-    },
-    {
-      accountId: "102",
-      accountCode: "102",
-      accountName: "보통예금",
-      accountType: "asset",
-      level: 1,
-      parentId: "1",
-      openingDebit: 20000000,
-      openingCredit: 0,
-      periodDebit: 8000000,
-      periodCredit: 5000000,
-      closingDebit: 23000000,
-      closingCredit: 0,
-      isLeaf: true,
-    },
-    {
-      accountId: "109",
-      accountCode: "109",
-      accountName: "외상매출금",
-      accountType: "asset",
-      level: 1,
-      parentId: "1",
-      openingDebit: 10000000,
-      openingCredit: 0,
-      periodDebit: 4000000,
-      periodCredit: 1500000,
-      closingDebit: 12500000,
-      closingCredit: 0,
-      isLeaf: true,
-    },
-    {
-      accountId: "141",
-      accountCode: "141",
-      accountName: "상품",
-      accountType: "asset",
-      level: 1,
-      parentId: "1",
-      openingDebit: 15000000,
-      openingCredit: 0,
-      periodDebit: 0,
-      periodCredit: 0,
-      closingDebit: 15000000,
-      closingCredit: 0,
-      isLeaf: true,
-    },
-    // Liabilities
-    {
-      accountId: "2",
-      accountCode: "2",
-      accountName: "부채",
-      accountType: "liability",
-      level: 0,
-      openingDebit: 0,
-      openingCredit: 20000000,
-      periodDebit: 3000000,
-      periodCredit: 5000000,
-      closingDebit: 0,
-      closingCredit: 22000000,
-      isLeaf: false,
-    },
-    {
-      accountId: "202",
-      accountCode: "202",
-      accountName: "외상매입금",
-      accountType: "liability",
-      level: 1,
-      parentId: "2",
-      openingDebit: 0,
-      openingCredit: 15000000,
-      periodDebit: 3000000,
-      periodCredit: 4000000,
-      closingDebit: 0,
-      closingCredit: 16000000,
-      isLeaf: true,
-    },
-    {
-      accountId: "253",
-      accountCode: "253",
-      accountName: "미지급금",
-      accountType: "liability",
-      level: 1,
-      parentId: "2",
-      openingDebit: 0,
-      openingCredit: 5000000,
-      periodDebit: 0,
-      periodCredit: 1000000,
-      closingDebit: 0,
-      closingCredit: 6000000,
-      isLeaf: true,
-    },
-    // Equity
-    {
-      accountId: "3",
-      accountCode: "3",
-      accountName: "자본",
-      accountType: "equity",
-      level: 0,
-      openingDebit: 0,
-      openingCredit: 30000000,
-      periodDebit: 0,
-      periodCredit: 0,
-      closingDebit: 0,
-      closingCredit: 30000000,
-      isLeaf: false,
-    },
-    {
-      accountId: "301",
-      accountCode: "301",
-      accountName: "자본금",
-      accountType: "equity",
-      level: 1,
-      parentId: "3",
-      openingDebit: 0,
-      openingCredit: 30000000,
-      periodDebit: 0,
-      periodCredit: 0,
-      closingDebit: 0,
-      closingCredit: 30000000,
-      isLeaf: true,
-    },
-    // Revenue
-    {
-      accountId: "4",
-      accountCode: "4",
-      accountName: "수익",
-      accountType: "revenue",
-      level: 0,
-      openingDebit: 0,
-      openingCredit: 0,
-      periodDebit: 0,
-      periodCredit: 12000000,
-      closingDebit: 0,
-      closingCredit: 12000000,
-      isLeaf: false,
-    },
-    {
-      accountId: "401",
-      accountCode: "401",
-      accountName: "상품매출",
-      accountType: "revenue",
-      level: 1,
-      parentId: "4",
-      openingDebit: 0,
-      openingCredit: 0,
-      periodDebit: 0,
-      periodCredit: 12000000,
-      closingDebit: 0,
-      closingCredit: 12000000,
-      isLeaf: true,
-    },
-    // Expenses
-    {
-      accountId: "5",
-      accountCode: "5",
-      accountName: "비용",
-      accountType: "expense",
-      level: 0,
-      openingDebit: 0,
-      openingCredit: 0,
-      periodDebit: 7000000,
-      periodCredit: 0,
-      closingDebit: 7000000,
-      closingCredit: 0,
-      isLeaf: false,
-    },
-    {
-      accountId: "501",
-      accountCode: "501",
-      accountName: "상품매입",
-      accountType: "expense",
-      level: 1,
-      parentId: "5",
-      openingDebit: 0,
-      openingCredit: 0,
-      periodDebit: 5000000,
-      periodCredit: 0,
-      closingDebit: 5000000,
-      closingCredit: 0,
-      isLeaf: true,
-    },
-    {
-      accountId: "801",
-      accountCode: "801",
-      accountName: "급여",
-      accountType: "expense",
-      level: 1,
-      parentId: "5",
-      openingDebit: 0,
-      openingCredit: 0,
-      periodDebit: 2000000,
-      periodCredit: 0,
-      closingDebit: 2000000,
-      closingCredit: 0,
-      isLeaf: true,
-    },
-  ],
-  totals: {
-    openingDebit: 50000000,
-    openingCredit: 50000000,
-    periodDebit: 25000000,
-    periodCredit: 25000000,
-    closingDebit: 64000000,
-    closingCredit: 64000000,
-  },
-};
 
 export function TrialBalancePage() {
   const today = new Date();
@@ -287,8 +45,9 @@ export function TrialBalancePage() {
     enabled: !!startDate && !!endDate,
   });
 
-  // Use mock data if no real data
-  const trialBalanceData = trialBalanceResponse?.data || mockTrialBalanceData;
+  // Never fall back to sample figures: an accounting screen must show only
+  // what the server actually returned.
+  const trialBalanceData = trialBalanceResponse?.data ?? null;
 
   // Group rows by account type
   const groupedRows = useMemo(() => {
@@ -300,14 +59,14 @@ export function TrialBalancePage() {
       expense: [],
     };
 
-    trialBalanceData.rows.forEach((row) => {
+    trialBalanceData?.rows.forEach((row) => {
       if (row.level === 0 || (viewMode === "detail" && row.level > 0)) {
         groups[row.accountType].push(row);
       }
     });
 
     return groups;
-  }, [trialBalanceData.rows, viewMode]);
+  }, [trialBalanceData, viewMode]);
 
   const handleDateChange = (start: string, end: string) => {
     setStartDate(start);
@@ -342,8 +101,10 @@ export function TrialBalancePage() {
   };
 
   // Check if trial balance is balanced
-  const isBalanced =
-    trialBalanceData.totals.closingDebit === trialBalanceData.totals.closingCredit;
+  const totals = trialBalanceData?.totals ?? null;
+  const isBalanced = totals
+    ? totals.closingDebit === totals.closingCredit
+    : false;
 
   return (
     <div className="space-y-6">
@@ -356,7 +117,7 @@ export function TrialBalancePage() {
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => notifyUnavailable("내보내기")}>
             <Download className="h-4 w-4 mr-2" />
             내보내기
           </Button>
@@ -403,32 +164,31 @@ export function TrialBalancePage() {
       </Card>
 
       {/* Balance Status */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Badge variant={isBalanced ? "success" : "destructive"}>
-                {isBalanced ? "균형" : "불균형"}
-              </Badge>
-              <span className="text-sm text-muted-foreground">
-                차변과 대변의 합계가 {isBalanced ? "일치합니다." : "일치하지 않습니다."}
-              </span>
+      {totals && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <Badge variant={isBalanced ? "success" : "destructive"}>
+                  {isBalanced ? "균형" : "불균형"}
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  차변과 대변의 합계가 {isBalanced ? "일치합니다." : "일치하지 않습니다."}
+                </span>
+              </div>
+              {!isBalanced && (
+                <span className="text-sm text-destructive font-mono">
+                  차이:{" "}
+                  {formatCurrency(
+                    Math.abs(totals.closingDebit - totals.closingCredit),
+                    { showSymbol: false }
+                  )}
+                </span>
+              )}
             </div>
-            {!isBalanced && (
-              <span className="text-sm text-destructive font-mono">
-                차이:{" "}
-                {formatCurrency(
-                  Math.abs(
-                    trialBalanceData.totals.closingDebit -
-                      trialBalanceData.totals.closingCredit
-                  ),
-                  { showSymbol: false }
-                )}
-              </span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Trial Balance Table */}
       {isLoading ? (
@@ -440,7 +200,17 @@ export function TrialBalancePage() {
       ) : error ? (
         <Card>
           <CardContent className="py-16 text-center">
-            <p className="text-destructive">데이터를 불러올 수 없습니다.</p>
+            <p className="text-destructive">
+              {getErrorMessage(error, "시산표 조회에 실패했습니다.")}
+            </p>
+          </CardContent>
+        </Card>
+      ) : !trialBalanceData ? (
+        <Card>
+          <CardContent className="py-16 text-center">
+            <p className="text-muted-foreground">
+              조회된 시산표 데이터가 없습니다.
+            </p>
           </CardContent>
         </Card>
       ) : (

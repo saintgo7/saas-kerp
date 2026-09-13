@@ -26,6 +26,7 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { formatDate, formatPhoneNumber } from "@/lib/utils";
 import { EMPLOYEE_STATUS } from "@/constants";
 import type { EmployeeStatus } from "@/types";
@@ -133,6 +134,8 @@ export function EmployeeListPage() {
         </Link>
       </div>
 
+      <FeatureUnavailable feature="직원 관리" />
+
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -200,7 +203,10 @@ export function EmployeeListPage() {
                 </option>
               ))}
             </select>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => notifyUnavailable("직원 목록 내보내기")}
+            >
               <Download className="h-4 w-4 mr-2" />
               내보내기
             </Button>

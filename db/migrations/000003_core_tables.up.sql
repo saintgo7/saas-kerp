@@ -193,22 +193,22 @@ COMMENT ON TABLE audit_logs IS 'System audit trail';
 -- ============================================
 -- REFRESH_TOKENS
 -- ============================================
+-- Column set matches the Go/GORM RefreshToken model (token, revoked).
+-- The table is defined here so the RLS policies in 000010 can reference it;
+-- its indexes are created in 000013 (whose CREATE TABLE IF NOT EXISTS is a
+-- no-op because this statement already created the table).
 CREATE TABLE refresh_tokens (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
-    token_hash VARCHAR(255) NOT NULL UNIQUE,
-    device_info VARCHAR(500),
-    ip_address INET,
+    token VARCHAR(255) NOT NULL UNIQUE,
 
     expires_at TIMESTAMPTZ NOT NULL,
-    revoked_at TIMESTAMPTZ,
+    revoked BOOLEAN NOT NULL DEFAULT FALSE,
 
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
-CREATE INDEX idx_refresh_tokens_expires ON refresh_tokens(expires_at) WHERE revoked_at IS NULL;
 
 COMMENT ON TABLE refresh_tokens IS 'JWT refresh tokens for session management';
 

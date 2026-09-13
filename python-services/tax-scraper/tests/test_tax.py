@@ -10,7 +10,7 @@ Tests cover:
 import pytest
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import sys
 from pathlib import Path
@@ -433,35 +433,35 @@ class TestHometaxModels:
         assert result.error_message is None
 
 
-class TestSEEDCipher:
-    """Tests for SEED encryption."""
+class TestAESCBCCipher:
+    """Tests for the AES-CBC helper (formerly mis-named SEEDCipher)."""
 
     @pytest.fixture
     def seed_cipher(self):
         """Create test SEED cipher."""
-        from src.crypto.seed import SEEDCipher
+        from src.crypto.seed import AESCBCCipher
 
         # 16-byte test key
         key = b"1234567890123456"
-        return SEEDCipher(key)
+        return AESCBCCipher(key)
 
-    def test_seed_cipher_init_valid_key(self, seed_cipher):
-        """Test SEED cipher initialization with valid key."""
+    def test_cipher_init_valid_key(self, seed_cipher):
+        """Test cipher initialization with valid key."""
         assert seed_cipher._key == b"1234567890123456"
 
     def test_seed_cipher_init_invalid_key(self):
         """Test SEED cipher initialization with invalid key."""
-        from src.crypto.seed import SEEDCipher
+        from src.crypto.seed import AESCBCCipher
 
         with pytest.raises(ValueError):
-            SEEDCipher(b"short")
+            AESCBCCipher(b"short")
 
     def test_seed_cipher_from_hex(self):
         """Test SEED cipher creation from hex key."""
-        from src.crypto.seed import SEEDCipher
+        from src.crypto.seed import AESCBCCipher
 
         hex_key = "31323334353637383930313233343536"  # "1234567890123456" in hex
-        cipher = SEEDCipher.from_hex(hex_key)
+        cipher = AESCBCCipher.from_hex(hex_key)
 
         assert cipher._key == b"1234567890123456"
 
@@ -489,22 +489,22 @@ class TestSEEDCipher:
         with pytest.raises(ValueError):
             seed_cipher.decrypt(b"short")
 
-    def test_generate_seed_key(self):
-        """Test SEED key generation."""
-        from src.crypto.seed import generate_seed_key, SEEDCipher
+    def test_generate_aes_key(self):
+        """Test AES key generation."""
+        from src.crypto.seed import generate_aes_key, AESCBCCipher
 
-        key = generate_seed_key()
+        key = generate_aes_key()
 
-        assert len(key) == SEEDCipher.KEY_SIZE
+        assert len(key) == AESCBCCipher.KEY_SIZE
         assert isinstance(key, bytes)
 
     def test_derive_key_from_password(self):
         """Test key derivation from password."""
-        from src.crypto.seed import derive_key_from_password, SEEDCipher
+        from src.crypto.seed import derive_key_from_password, AESCBCCipher
 
         key, salt = derive_key_from_password("test_password")
 
-        assert len(key) == SEEDCipher.KEY_SIZE
+        assert len(key) == AESCBCCipher.KEY_SIZE
         assert len(salt) == 16
 
         # Same password with same salt should produce same key
@@ -586,3 +586,25 @@ class TestHometaxConstants:
         assert TIMEOUTS["page_load"] > 0
         assert TIMEOUTS["navigation"] > 0
         assert TIMEOUTS["element_wait"] > 0
+
+
+class TestSEEDIsNotImplemented:
+    """SEED must fail loudly rather than quietly running AES."""
+
+    def test_seed_cipher_construction_raises(self):
+        """Constructing SEEDCipher raises instead of silently using AES.
+
+        The old class was named SEEDCipher and ran AES underneath, so callers
+        believed they held SEED ciphertext that no SEED peer could decrypt.
+        """
+        from src.crypto.seed import SEEDCipher, SEEDNotImplementedError
+
+        with pytest.raises(SEEDNotImplementedError):
+            SEEDCipher(b"1234567890123456")
+
+    def test_seed_from_hex_raises(self):
+        """The alternate constructor must refuse too."""
+        from src.crypto.seed import SEEDCipher, SEEDNotImplementedError
+
+        with pytest.raises(SEEDNotImplementedError):
+            SEEDCipher.from_hex("31323334353637383930313233343536")

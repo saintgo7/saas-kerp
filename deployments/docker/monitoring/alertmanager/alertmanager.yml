@@ -1,0 +1,47 @@
+# Alertmanager Configuration
+# K-ERP SaaS Monitoring
+#
+# Prometheus evaluates monitoring/prometheus/alerts.yml and ships firing alerts
+# here. Until a real receiver is configured below, alerts are grouped and held
+# in the Alertmanager UI (http://kerp-alertmanager:9093 inside the network)
+# but are NOT delivered anywhere.
+#
+# TODO(operator): replace `default-receiver` with a real channel. Alertmanager
+# does not expand environment variables, so the webhook URL must be written
+# into this file on the deployment host (keep it out of git) or supplied via a
+# mounted override.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: default-receiver
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: critical-receiver
+      group_wait: 10s
+      repeat_interval: 1h
+
+receivers:
+  - name: default-receiver
+    # No delivery configured yet - see TODO above.
+
+  - name: critical-receiver
+    # Example (uncomment and fill in on the deployment host):
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/XXX/YYY/ZZZ'
+    #     channel: '#kerp-alerts'
+    #     send_resolved: true
+
+inhibit_rules:
+  # A critical alert on an instance silences warnings for the same instance.
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ['alertname', 'instance']

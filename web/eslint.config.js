@@ -19,5 +19,31 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Underscore-prefixed bindings are the conventional "deliberately
+      // unused" marker (destructured rest-omit, placeholder parameters that
+      // keep a signature). Without this, `npm run lint` exits non-zero and
+      // cannot be used as a CI gate.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
+      // Credentials and tokens have leaked through console.log in this app.
+      // console.warn/error stay available for genuine diagnostics.
+      'no-console': ['error', { allow: ['warn', 'error'] }],
+    },
+  },
+  {
+    // Test setup and mocks may log freely.
+    files: ['src/__tests__/**/*.{ts,tsx}', '**/*.{test,spec}.{ts,tsx}'],
+    rules: {
+      'no-console': 'off',
+    },
   },
 ])

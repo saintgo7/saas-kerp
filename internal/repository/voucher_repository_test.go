@@ -486,7 +486,7 @@ func (s *VoucherRepositoryTestSuite) TestDeleteEntriesByVoucher_Success() {
 	voucher := s.newTestVoucher()
 	s.repo.Create(ctx, voucher)
 
-	err := s.repo.DeleteEntriesByVoucher(ctx, voucher.ID)
+	err := s.repo.DeleteEntriesByVoucher(ctx, s.companyID, voucher.ID)
 
 	s.NoError(err)
 

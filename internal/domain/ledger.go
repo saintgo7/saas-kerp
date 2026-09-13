@@ -70,9 +70,22 @@ func (p *FiscalPeriod) Close(userID uuid.UUID) error {
 	return nil
 }
 
-// LedgerBalance represents pre-aggregated account balances by period
+// LedgerBalance represents pre-aggregated account balances by period.
+//
+// This model deliberately does NOT embed BaseModel. The ledger_balances table
+// (db/migrations/000005_accounting_tables.up.sql) carries only updated_at as
+// its audit column, so embedding BaseModel made GORM put created_at in every
+// INSERT column list and every write failed with
+// `42703: column "created_at" of relation "ledger_balances" does not exist` -
+// taking period close, the trial balance and the year-end close with it.
+//
+// Declaring only the columns that exist keeps this model correct whether or
+// not the accompanying migration that adds created_at has been applied: if the
+// column is added with a NOT NULL DEFAULT NOW(), the database fills it in.
 type LedgerBalance struct {
-	BaseModel
+	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v7()" json:"id"`
+	UpdatedAt time.Time `gorm:"not null;default:now()" json:"updated_at"`
+
 	CompanyID uuid.UUID `gorm:"type:uuid;not null;index" json:"company_id"`
 	AccountID uuid.UUID `gorm:"type:uuid;not null;index" json:"account_id"`
 
@@ -121,63 +134,89 @@ func (lb *LedgerBalance) GetPeriodMovement() float64 {
 	return lb.PeriodDebit - lb.PeriodCredit
 }
 
-// GetClosingBalance returns the closing net balance
+// GetClosingBalance returns the closing net balance expressed on the DEBIT
+// side: debit - credit. A credit-nature account (liability, equity, revenue)
+// therefore reports a NEGATIVE value when it carries a normal balance.
+//
+// Callers that need the amount as it is presented on a financial statement
+// must use GetClosingBalanceByNature instead; mixing the two conventions is
+// what made the year-end close report a loss for a profitable year.
 func (lb *LedgerBalance) GetClosingBalance() float64 {
+	return lb.ClosingDebit - lb.ClosingCredit
+}
+
+// GetClosingBalanceByNature returns the closing balance signed according to
+// the account's normal balance side, i.e. the amount as it appears on the
+// financial statements. Revenue of 1,000,000 returns +1,000,000 (not
+// -1,000,000), and an expense of 600,000 returns +600,000.
+//
+// A negative result means the account carries a balance on the side opposite
+// to its nature (for example a revenue account with a net debit balance after
+// sales returns), which is meaningful and must not be clamped.
+func (lb *LedgerBalance) GetClosingBalanceByNature(nature AccountNature) float64 {
+	if nature == AccountNatureCredit {
+		return lb.ClosingCredit - lb.ClosingDebit
+	}
 	return lb.ClosingDebit - lb.ClosingCredit
 }
 
 // AccountLedgerEntry represents a single ledger entry for an account
 type AccountLedgerEntry struct {
-	VoucherID     uuid.UUID `json:"voucher_id"`
-	VoucherNo     string    `json:"voucher_no"`
-	VoucherDate   time.Time `json:"voucher_date"`
-	VoucherType   string    `json:"voucher_type"`
-	EntryID       uuid.UUID `json:"entry_id"`
-	LineNo        int       `json:"line_no"`
-	Description   string    `json:"description"`
-	DebitAmount   float64   `json:"debit_amount"`
-	CreditAmount  float64   `json:"credit_amount"`
-	Balance       float64   `json:"balance"` // Running balance
-	PartnerID     *uuid.UUID `json:"partner_id,omitempty"`
-	PartnerName   string    `json:"partner_name,omitempty"`
-	DepartmentID  *uuid.UUID `json:"department_id,omitempty"`
-	DepartmentName string   `json:"department_name,omitempty"`
+	VoucherID      uuid.UUID  `json:"voucher_id"`
+	VoucherNo      string     `json:"voucher_no"`
+	VoucherDate    time.Time  `json:"voucher_date"`
+	VoucherType    string     `json:"voucher_type"`
+	EntryID        uuid.UUID  `json:"entry_id"`
+	LineNo         int        `json:"line_no"`
+	Description    string     `json:"description"`
+	DebitAmount    float64    `json:"debit_amount"`
+	CreditAmount   float64    `json:"credit_amount"`
+	Balance        float64    `json:"balance"` // Running balance
+	PartnerID      *uuid.UUID `json:"partner_id,omitempty"`
+	PartnerName    string     `json:"partner_name,omitempty"`
+	DepartmentID   *uuid.UUID `json:"department_id,omitempty"`
+	DepartmentName string     `json:"department_name,omitempty"`
 }
 
 // TrialBalanceItem represents a single item in the trial balance report
 type TrialBalanceItem struct {
-	AccountID       uuid.UUID `json:"account_id"`
-	AccountCode     string    `json:"account_code"`
-	AccountName     string    `json:"account_name"`
-	AccountType     string    `json:"account_type"`
-	AccountLevel    int       `json:"account_level"`
-	OpeningDebit    float64   `json:"opening_debit"`
-	OpeningCredit   float64   `json:"opening_credit"`
-	PeriodDebit     float64   `json:"period_debit"`
-	PeriodCredit    float64   `json:"period_credit"`
-	ClosingDebit    float64   `json:"closing_debit"`
-	ClosingCredit   float64   `json:"closing_credit"`
-	IsSubTotal      bool      `json:"is_sub_total"`
-	IsTotal         bool      `json:"is_total"`
+	AccountID     uuid.UUID `json:"account_id"`
+	AccountCode   string    `json:"account_code"`
+	AccountName   string    `json:"account_name"`
+	AccountType   string    `json:"account_type"`
+	AccountLevel  int       `json:"account_level"`
+	OpeningDebit  float64   `json:"opening_debit"`
+	OpeningCredit float64   `json:"opening_credit"`
+	PeriodDebit   float64   `json:"period_debit"`
+	PeriodCredit  float64   `json:"period_credit"`
+	ClosingDebit  float64   `json:"closing_debit"`
+	ClosingCredit float64   `json:"closing_credit"`
+	IsSubTotal    bool      `json:"is_sub_total"`
+	IsTotal       bool      `json:"is_total"`
 }
 
 // TrialBalance represents a trial balance report
 type TrialBalance struct {
-	CompanyID     uuid.UUID          `json:"company_id"`
-	FiscalYear    int                `json:"fiscal_year"`
-	FiscalMonth   int                `json:"fiscal_month"`
-	PeriodName    string             `json:"period_name"`
-	StartDate     time.Time          `json:"start_date"`
-	EndDate       time.Time          `json:"end_date"`
-	GeneratedAt   time.Time          `json:"generated_at"`
-	Items         []TrialBalanceItem `json:"items"`
-	TotalDebit    float64            `json:"total_debit"`
-	TotalCredit   float64            `json:"total_credit"`
-	IsBalanced    bool               `json:"is_balanced"`
+	CompanyID   uuid.UUID          `json:"company_id"`
+	FiscalYear  int                `json:"fiscal_year"`
+	FiscalMonth int                `json:"fiscal_month"`
+	PeriodName  string             `json:"period_name"`
+	StartDate   time.Time          `json:"start_date"`
+	EndDate     time.Time          `json:"end_date"`
+	GeneratedAt time.Time          `json:"generated_at"`
+	Items       []TrialBalanceItem `json:"items"`
+	TotalDebit  float64            `json:"total_debit"`
+	TotalCredit float64            `json:"total_credit"`
+	IsBalanced  bool               `json:"is_balanced"`
 }
 
-// Validate checks if the trial balance is balanced
+// Validate checks if the trial balance is balanced.
+//
+// The totals are float64 sums over hundreds of DECIMAL(18,2) rows, so binary
+// representation error accumulates. An exact == comparison reports a perfectly
+// balanced ledger as unbalanced; BalanceEpsilon is the same tolerance the
+// voucher layer uses.
 func (tb *TrialBalance) Validate() bool {
-	tb.IsBalanced = tb.TotalDebit == tb.TotalCredit
+	tb.IsBalanced = AmountsEqual(tb.TotalDebit, tb.TotalCredit)
 	return tb.IsBalanced
 }

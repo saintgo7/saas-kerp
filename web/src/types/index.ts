@@ -1,9 +1,38 @@
 // Common API Response Types
+export interface ApiError {
+  code: string;
+  message: string;
+  /** Free-form extra context (internal/dto/common.go ErrorInfo.detail) */
+  detail?: string;
+  details?: { field: string; message: string }[];
+}
+
+/**
+ * internal/dto/common.go Meta. Every handler now emits this one shape; the
+ * older flat `{ total, page, page_size }` meta no longer exists.
+ */
+export interface ApiPagination {
+  page: number;
+  per_page: number;
+  total: number;
+  total_pages: number;
+}
+
+export interface ApiMeta {
+  request_id?: string;
+  timestamp?: string;
+  pagination?: ApiPagination;
+}
+
+/**
+ * The single response envelope (internal/dto/common.go Response).
+ * Errors live at `error.message`; there is no top-level `message`.
+ */
 export interface ApiResponse<T> {
   success: boolean;
   data: T;
-  message?: string;
-  errors?: Record<string, string[]>;
+  error?: ApiError;
+  meta?: ApiMeta;
 }
 
 export interface PaginatedResponse<T> {
@@ -34,7 +63,8 @@ export interface User {
   updatedAt: string;
 }
 
-export type UserRole = "admin" | "manager" | "accountant" | "hr" | "user";
+// Mirrors internal/domain/user.go UserRole
+export type UserRole = "admin" | "user" | "viewer";
 
 export interface AuthTokens {
   accessToken: string;
@@ -78,11 +108,18 @@ export interface Account {
   companyId: string;
   code: string;
   name: string;
+  nameEn?: string;
   type: AccountType;
   parentId?: string;
   level: number;
   isActive: boolean;
   description?: string;
+  // Mirrors internal/dto/account_dto.go AccountResponse
+  accountNature?: "debit" | "credit";
+  accountCategory?: string;
+  isControlAccount?: boolean;
+  allowDirectPosting?: boolean;
+  sortOrder?: number;
 }
 
 export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
@@ -266,25 +303,29 @@ export interface Partner {
   companyId: string;
   code: string;
   name: string;
+  nameEn?: string;
   businessNumber?: string;
   representativeName?: string;
-  businessType?: string;
-  businessCategory?: string;
   partnerType: PartnerType;
   address?: string;
+  addressDetail?: string;
+  zipCode?: string;
   phone?: string;
   fax?: string;
   email?: string;
-  bankName?: string;
-  bankAccount?: string;
-  accountHolder?: string;
-  note?: string;
+  website?: string;
+  paymentTermDays?: number;
+  creditLimit?: number;
+  arAccountId?: string;
+  apAccountId?: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-export type PartnerType = "customer" | "supplier" | "both";
+// Mirrors internal/dto/partner_dto.go (oneof=customer vendor both).
+// The backend has no "supplier" value.
+export type PartnerType = "customer" | "vendor" | "both";
 
 // Menu & Navigation Types
 export interface MenuItem {

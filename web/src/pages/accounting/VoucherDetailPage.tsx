@@ -13,7 +13,7 @@ import {
   Printer,
   MoreHorizontal,
   Clock,
-  User,
+  Tag,
   Calendar,
   FileText,
 } from "lucide-react";
@@ -35,18 +35,28 @@ import {
 } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { vouchersApi } from "@/api";
+import { getErrorMessage } from "@/services/api";
 import { toast } from "@/stores/ui";
-import type { VoucherStatus } from "@/types";
+import { notifyUnavailable } from "@/components/common";
+import type { VoucherStatus } from "@/hooks/useVoucher";
 
 const statusStyles: Record<
   VoucherStatus,
-  { variant: "default" | "secondary" | "destructive" | "success" | "warning"; label: string }
+  {
+    variant: "default" | "secondary" | "destructive" | "success" | "warning" | "info";
+    label: string;
+  }
 > = {
   draft: { variant: "secondary", label: "작성중" },
   pending: { variant: "warning", label: "승인대기" },
   approved: { variant: "success", label: "승인완료" },
+  posted: { variant: "info", label: "전기완료" },
   rejected: { variant: "destructive", label: "반려" },
+  cancelled: { variant: "secondary", label: "취소" },
 };
+
+/** Fallback for a status the backend adds later; never crash the page. */
+const unknownStatus = { variant: "secondary" as const, label: "알 수 없음" };
 
 export function VoucherDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -64,19 +74,21 @@ export function VoucherDetailPage() {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["voucher", id],
+    queryKey: ["vouchers", "detail", id],
     queryFn: () => vouchersApi.get(id!),
     enabled: !!id,
   });
 
   const voucher = voucherResponse?.data;
+  const statusStyle = voucher
+    ? statusStyles[voucher.status] ?? unknownStatus
+    : unknownStatus;
 
-  // Approval mutation
+  // Approval mutation (POST /vouchers/:id/approve | /reject)
   const approvalMutation = useMutation({
     mutationFn: (data: { action: "approve" | "reject"; comment?: string }) =>
       vouchersApi.approval(id!, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["voucher", id] });
       queryClient.invalidateQueries({ queryKey: ["vouchers"] });
       setShowApprovalModal(false);
       setApprovalComment("");
@@ -87,45 +99,51 @@ export function VoucherDetailPage() {
           : "전표가 반려되었습니다."
       );
     },
-    onError: (error: Error) => {
-      toast.error("처리 실패", error.message);
+    onError: (err: unknown) => {
+      toast.error(
+        "처리 실패",
+        getErrorMessage(err, "전표 승인/반려 처리 중 오류가 발생했습니다.")
+      );
     },
   });
 
-  // Delete mutation
+  // Delete mutation (DELETE /vouchers/:id — draft only)
   const deleteMutation = useMutation({
     mutationFn: () => vouchersApi.delete(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      setShowDeleteModal(false);
       toast.success("삭제 완료", "전표가 삭제되었습니다.");
       navigate("/accounting/voucher");
     },
-    onError: (error: Error) => {
-      toast.error("삭제 실패", error.message);
+    onError: (err: unknown) => {
+      toast.error(
+        "삭제 실패",
+        getErrorMessage(err, "전표 삭제 중 오류가 발생했습니다.")
+      );
     },
   });
 
-  // Copy mutation
-  const copyMutation = useMutation({
-    mutationFn: () => vouchersApi.copy(id!),
-    onSuccess: (response) => {
-      toast.success("복사 완료", "전표가 복사되었습니다.");
-      navigate(`/accounting/voucher/${response.data.id}`);
-    },
-    onError: (error: Error) => {
-      toast.error("복사 실패", error.message);
-    },
-  });
-
-  // Reverse mutation
+  // Reverse mutation (POST /vouchers/:id/reverse)
   const reverseMutation = useMutation({
-    mutationFn: () => vouchersApi.reverse(id!),
+    mutationFn: () => {
+      const reversalDate = new Date().toISOString().split("T")[0];
+      return vouchersApi.reverse(
+        id!,
+        reversalDate,
+        `${voucher?.voucherNo ?? ""} 역분개`
+      );
+    },
     onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
       toast.success("역분개 완료", "역분개 전표가 생성되었습니다.");
       navigate(`/accounting/voucher/${response.data.id}`);
     },
-    onError: (error: Error) => {
-      toast.error("역분개 실패", error.message);
+    onError: (err: unknown) => {
+      toast.error(
+        "역분개 실패",
+        getErrorMessage(err, "역분개 처리 중 오류가 발생했습니다.")
+      );
     },
   });
 
@@ -156,7 +174,9 @@ export function VoucherDetailPage() {
   if (error || !voucher) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-center">
-        <p className="text-destructive mb-4">전표를 불러올 수 없습니다.</p>
+        <p className="text-destructive mb-4">
+          {getErrorMessage(error, "전표를 불러올 수 없습니다.")}
+        </p>
         <Button variant="outline" onClick={() => navigate("/accounting/voucher")}>
           목록으로 돌아가기
         </Button>
@@ -174,9 +194,9 @@ export function VoucherDetailPage() {
           </Button>
           <div>
             <div className="flex items-center space-x-3">
-              <h1 className="text-2xl font-bold">{voucher.voucherNumber}</h1>
-              <Badge variant={statusStyles[voucher.status].variant}>
-                {statusStyles[voucher.status].label}
+              <h1 className="text-2xl font-bold">{voucher.voucherNo}</h1>
+              <Badge variant={statusStyle.variant}>
+                {voucher.statusLabel || statusStyle.label}
               </Badge>
             </div>
             <p className="text-muted-foreground">{voucher.description}</p>
@@ -234,25 +254,32 @@ export function VoucherDetailPage() {
               <div className="bg-popover border rounded-lg shadow-lg py-1 min-w-[160px]">
                 <button
                   className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
-                  onClick={() => copyMutation.mutate()}
+                  onClick={() => notifyUnavailable("전표 복사")}
                 >
                   <Copy className="h-4 w-4 mr-2" />
                   전표 복사
                 </button>
-                {voucher.status === "approved" && (
+                {(voucher.status === "approved" || voucher.status === "posted") && (
                   <button
                     className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
                     onClick={() => reverseMutation.mutate()}
+                    disabled={reverseMutation.isPending}
                   >
                     <RotateCcw className="h-4 w-4 mr-2" />
                     역분개
                   </button>
                 )}
-                <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted">
+                <button
+                  className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
+                  onClick={() => notifyUnavailable("전표 내보내기")}
+                >
                   <Download className="h-4 w-4 mr-2" />
                   내보내기
                 </button>
-                <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted">
+                <button
+                  className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
+                  onClick={() => window.print()}
+                >
                   <Printer className="h-4 w-4 mr-2" />
                   인쇄
                 </button>
@@ -282,11 +309,13 @@ export function VoucherDetailPage() {
           <CardContent className="p-4">
             <div className="flex items-center space-x-3">
               <div className="p-2 bg-primary/10 rounded-lg">
-                <User className="h-5 w-5 text-primary" />
+                <Tag className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">작성자</p>
-                <p className="font-semibold">{voucher.createdBy}</p>
+                <p className="text-sm text-muted-foreground">전표유형</p>
+                <p className="font-semibold">
+                  {voucher.voucherTypeLabel || voucher.voucherType}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -338,28 +367,38 @@ export function VoucherDetailPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {voucher.entries.map((entry, index) => (
-                <TableRow key={entry.id}>
-                  <TableCell className="text-muted-foreground">{index + 1}</TableCell>
-                  <TableCell>
-                    <span className="font-mono text-sm mr-2">
-                      {entry.account?.code || entry.accountId}
-                    </span>
-                    <span>{entry.account?.name}</span>
+              {voucher.entries.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    분개 내역이 없습니다.
                   </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {entry.debitAmount > 0
-                      ? formatCurrency(entry.debitAmount, { showSymbol: false })
-                      : "-"}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {entry.creditAmount > 0
-                      ? formatCurrency(entry.creditAmount, { showSymbol: false })
-                      : "-"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{entry.description || "-"}</TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                voucher.entries.map((entry, index) => (
+                  <TableRow key={entry.id ?? `${entry.accountId}-${index}`}>
+                    <TableCell className="text-muted-foreground">
+                      {entry.lineNo ?? index + 1}
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-mono text-sm mr-2">
+                        {entry.accountCode || entry.accountId}
+                      </span>
+                      <span>{entry.accountName}</span>
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      {entry.debitAmount > 0
+                        ? formatCurrency(entry.debitAmount, { showSymbol: false })
+                        : "-"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      {entry.creditAmount > 0
+                        ? formatCurrency(entry.creditAmount, { showSymbol: false })
+                        : "-"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{entry.description || "-"}</TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
 
@@ -395,17 +434,22 @@ export function VoucherDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Approval Info */}
-      {(voucher.status === "approved" || voucher.status === "rejected") && voucher.approvedBy && (
+      {/* Processing Info — the backend does not return an approver name. */}
+      {(voucher.status === "approved" ||
+        voucher.status === "rejected" ||
+        voucher.status === "posted" ||
+        voucher.status === "cancelled") && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">승인 정보</CardTitle>
+            <CardTitle className="text-lg">처리 정보</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-muted-foreground">처리자</p>
-                <p className="font-semibold">{voucher.approvedBy}</p>
+                <p className="text-sm text-muted-foreground">처리 상태</p>
+                <p className="font-semibold">
+                  {voucher.statusLabel || statusStyle.label}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">처리일시</p>

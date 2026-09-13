@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -10,6 +9,8 @@ import (
 	appctx "github.com/saintgo7/saas-kerp/internal/context"
 	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/dto"
+	"github.com/saintgo7/saas-kerp/internal/handler/response"
+	"github.com/saintgo7/saas-kerp/internal/middleware"
 	"github.com/saintgo7/saas-kerp/internal/repository"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
@@ -29,13 +30,14 @@ func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 	projects := r.Group("/projects")
 	{
 		projects.GET("", h.List)
-		projects.POST("", h.Create)
 		projects.GET("/stats", h.GetStats)
 		projects.GET("/:id", h.GetByID)
-		projects.PUT("/:id", h.Update)
-		projects.DELETE("/:id", h.Delete)
 		projects.GET("/:id/can-delete", h.CanDelete)
 		projects.GET("/code/:code", h.GetByCode)
+
+		projects.POST("", middleware.RequireWriter(), h.Create)
+		projects.PUT("/:id", middleware.RequireWriter(), h.Update)
+		projects.DELETE("/:id", middleware.RequireWriter(), h.Delete)
 	}
 }
 
@@ -64,7 +66,7 @@ func (h *ProjectHandler) Create(c *gin.Context) {
 		case domain.ErrProjectNameEmpty:
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse("VAL_004", "Project name is required"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -83,16 +85,7 @@ func (h *ProjectHandler) List(c *gin.Context) {
 		PageSize:   20,
 	}
 
-	if page := c.Query("page"); page != "" {
-		if p, err := strconv.Atoi(page); err == nil && p > 0 {
-			filter.Page = p
-		}
-	}
-	if pageSize := c.Query("page_size"); pageSize != "" {
-		if ps, err := strconv.Atoi(pageSize); err == nil && ps > 0 {
-			filter.PageSize = ps
-		}
-	}
+	filter.Page, filter.PageSize = parsePageParams(c, 20)
 	if status := c.Query("status"); status != "" {
 		s := domain.ProjectStatus(status)
 		if s.IsValid() {
@@ -111,18 +104,13 @@ func (h *ProjectHandler) List(c *gin.Context) {
 
 	projects, total, err := h.service.List(c.Request.Context(), filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
 	c.JSON(http.StatusOK, dto.SuccessWithMeta(
 		dto.FromProjects(projects),
-		&dto.MetaInfo{
-			Total:      total,
-			Page:       filter.Page,
-			PageSize:   filter.PageSize,
-			TotalPages: int((total + int64(filter.PageSize) - 1) / int64(filter.PageSize)),
-		},
+		listMeta(total, filter.Page, filter.PageSize),
 	))
 }
 
@@ -141,7 +129,7 @@ func (h *ProjectHandler) GetByID(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Project not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -159,7 +147,7 @@ func (h *ProjectHandler) GetByCode(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Project not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -188,7 +176,7 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Project not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -200,7 +188,7 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 		case domain.ErrProjectCodeExists:
 			c.JSON(http.StatusConflict, dto.ErrorResponse("BIZ_001", "Project code already exists"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -224,7 +212,7 @@ func (h *ProjectHandler) Delete(c *gin.Context) {
 		case domain.ErrProjectInUse:
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse("BIZ_002", "Project is in use and cannot be deleted"))
 		default:
-			c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+			response.InternalErrorLogged(c, "Internal server error", err)
 		}
 		return
 	}
@@ -247,7 +235,7 @@ func (h *ProjectHandler) CanDelete(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse("RES_001", "Project not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 
@@ -263,7 +251,7 @@ func (h *ProjectHandler) GetStats(c *gin.Context) {
 
 	stats, err := h.service.GetStats(c.Request.Context(), companyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("SRV_001", err.Error()))
+		response.InternalErrorLogged(c, "Internal server error", err)
 		return
 	}
 

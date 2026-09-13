@@ -3,12 +3,12 @@ Tax invoice issuance page object.
 """
 import asyncio
 from datetime import datetime
-from typing import Optional
 
 import structlog
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeout
 
 from ..constants import (
+    ERROR_MESSAGES,
     MENU_TAX_INVOICE_SALES,
     SELECTORS,
     TIMEOUTS,
@@ -164,44 +164,148 @@ class TaxInvoiceIssuePage:
             await self.page.fill(f"{row_prefix}tax", str(item.tax_amount))
 
     async def _check_issue_result(self) -> IssuedInvoiceResult:
-        """Check the result of invoice issuance."""
-        # Check for error alert
-        alert = await self.page.query_selector(SELECTORS["alert_popup"])
-        if alert:
-            alert_visible = await alert.is_visible()
-            if alert_visible:
-                alert_text = await alert.text_content()
-                # Check if it's a success message
-                if "정상" in alert_text or "완료" in alert_text or "발급" in alert_text:
-                    # Close alert
-                    confirm_btn = await alert.query_selector(SELECTORS["confirm_btn"])
-                    if confirm_btn:
-                        await confirm_btn.click()
-                else:
-                    return IssuedInvoiceResult(
-                        success=False,
-                        invoice_number="",
-                        issue_date=datetime.now(),
-                        error_message=alert_text.strip() if alert_text else "Unknown error",
-                    )
+        """
+        Determine the outcome of an issuance attempt.
 
-        # Try to get issued invoice info
+        Classification is failure-first and evidence-based:
+
+        1. If the alert text matches a known failure message, it is a failure.
+           The previous logic asked whether the alert contained "발급" and called
+           that success -- but `ERROR_MESSAGES["ISSUE_FAILED"]` is
+           "발급에 실패했습니다", which contains "발급". Explicit rejections from
+           the 국세청 were therefore recorded as successful issuances, and the
+           alert was dismissed, erasing the evidence.
+        2. Success requires a 국세청 승인번호. Nothing else proves the filing
+           reached the NTS.
+        3. Anything else is undetermined, and undetermined is not success.
+
+        Returns:
+            IssuedInvoiceResult reflecting what was actually observed
+        """
+        alert_text = await self._read_alert_text()
+
+        if alert_text:
+            # Failure first: check against the known error strings before
+            # considering any success wording.
+            if self._is_failure_alert(alert_text):
+                self.log.warning("issue_rejected", alert=alert_text[:120])
+                return IssuedInvoiceResult(
+                    success=False,
+                    invoice_number="",
+                    issue_date=datetime.now(),
+                    error_message=alert_text.strip(),
+                )
+
+            if self._is_success_alert(alert_text):
+                await self._dismiss_alert()
+            else:
+                # An alert we do not recognise is not evidence of success.
+                self.log.warning("issue_unrecognised_alert", alert=alert_text[:120])
+                return IssuedInvoiceResult(
+                    success=False,
+                    invoice_number="",
+                    issue_date=datetime.now(),
+                    error_message=(
+                        f"RESULT_UNDETERMINED: unrecognised response from Hometax: "
+                        f"{alert_text.strip()[:200]}"
+                    ),
+                )
+
         invoice_number = await self._get_element_value("#resultInvoiceNum, #taxInvoiceNum")
         nts_confirm = await self._get_element_value("#resultNtsConfirmNum, #ntsConfirmNum")
 
-        if invoice_number:
+        # The 국세청 승인번호 is the only proof the invoice was transmitted.
+        if invoice_number and nts_confirm:
             return IssuedInvoiceResult(
                 success=True,
                 invoice_number=invoice_number,
                 issue_date=datetime.now(),
-                nts_confirm_number=nts_confirm if nts_confirm else None,
+                nts_confirm_number=nts_confirm,
             )
 
-        # Default to success if no error detected
+        if invoice_number and not nts_confirm:
+            return IssuedInvoiceResult(
+                success=False,
+                invoice_number=invoice_number,
+                issue_date=datetime.now(),
+                error_message=(
+                    "RESULT_UNDETERMINED: an invoice number was returned but no "
+                    "국세청 승인번호. The filing may not have reached the NTS -- "
+                    "reconcile against Hometax before treating it as issued."
+                ),
+            )
+
+        # No alert, no invoice number, no confirmation number. Previously this
+        # returned success=True with an empty invoice number, so a selector
+        # mismatch or a page that never loaded was recorded as a successful
+        # issuance.
         return IssuedInvoiceResult(
-            success=True,
+            success=False,
             invoice_number="",
             issue_date=datetime.now(),
+            error_message=(
+                "RESULT_UNDETERMINED: no confirmation and no error was found on the "
+                "page. The selectors may not match the current Hometax DOM. The "
+                "issuance status is unknown and must be reconciled."
+            ),
+        )
+
+    async def _read_alert_text(self) -> str:
+        """Return the visible alert text, or an empty string when there is none."""
+        alert = await self.page.query_selector(SELECTORS["alert_popup"])
+        if not alert:
+            return ""
+
+        if not await alert.is_visible():
+            return ""
+
+        text = await alert.text_content()
+        return text or ""
+
+    async def _dismiss_alert(self) -> None:
+        """Close the alert popup if it has a confirm button."""
+        alert = await self.page.query_selector(SELECTORS["alert_popup"])
+        if not alert:
+            return
+        confirm_btn = await alert.query_selector(SELECTORS["confirm_btn"])
+        if confirm_btn:
+            await confirm_btn.click()
+
+    @staticmethod
+    def _is_failure_alert(alert_text: str) -> bool:
+        """
+        Whether the alert text matches a known failure message.
+
+        Args:
+            alert_text: Text read from the alert popup
+
+        Returns:
+            True if this is a rejection
+        """
+        text = alert_text.strip()
+        if any(msg in text for msg in ERROR_MESSAGES.values()):
+            return True
+        # Generic failure wording, checked before any success wording.
+        return any(token in text for token in ("실패", "오류", "에러", "불가", "거부"))
+
+    @staticmethod
+    def _is_success_alert(alert_text: str) -> bool:
+        """
+        Whether the alert text unambiguously reports success.
+
+        Note the absence of a bare "발급" match: it appears in
+        "발급에 실패했습니다" too.
+
+        Args:
+            alert_text: Text read from the alert popup
+
+        Returns:
+            True if this is a success notice
+        """
+        text = alert_text.strip()
+        return any(
+            token in text
+            for token in ("정상적으로 발급", "발급이 완료", "정상 처리", "정상처리")
         )
 
     async def _get_element_value(self, selector: str) -> str:

@@ -1,0 +1,121 @@
+# Test Dockerfile for K-ERP SaaS Platform
+# Multi-stage build for efficient test execution
+
+# ==============================================================================
+# Stage 1: Base Go Environment
+# ==============================================================================
+FROM golang:1.22-alpine AS go-base
+
+# Install system dependencies
+RUN apk add --no-cache \
+    git \
+    gcc \
+    musl-dev \
+    postgresql-client \
+    make \
+    curl \
+    bash
+
+# Set working directory
+WORKDIR /app
+
+# Install Go test tools
+# Pinned: `@latest` makes the test image non-reproducible and would pull a
+# compromised release without any change to this repository.
+RUN go install github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@v2.5.0 && \
+    go install gotest.tools/gotestsum@v1.12.0 && \
+    go install github.com/axw/gocov/gocov@v1.1.0 && \
+    go install github.com/AlekSi/gocov-xml@v1.1.0
+
+# ==============================================================================
+# Stage 2: Dependency Cache
+# ==============================================================================
+FROM go-base AS deps
+
+WORKDIR /app
+
+# Copy go.mod and go.sum for dependency caching
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# ==============================================================================
+# Stage 3: Test Runner
+# ==============================================================================
+FROM deps AS test-runner
+
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Create results directories
+RUN mkdir -p /app/test-results /app/coverage
+
+# Default test command
+CMD ["./scripts/test-orchestrator.sh", "-m", "standard", "all"]
+
+# ==============================================================================
+# Stage 4: Unit Test Runner
+# ==============================================================================
+FROM test-runner AS unit-test
+
+CMD ["go", "test", "-v", "-race", "-short", "-coverprofile=/app/coverage/unit.out", "./..."]
+
+# ==============================================================================
+# Stage 5: Integration Test Runner
+# ==============================================================================
+FROM test-runner AS integration-test
+
+# Database readiness + forward-only migration helpers.
+# scripts/wait-for-db.sh did not exist before, so this stage never built.
+COPY scripts/wait-for-db.sh /usr/local/bin/wait-for-db
+COPY scripts/apply-test-migrations.sh /usr/local/bin/apply-test-migrations
+RUN chmod +x /usr/local/bin/wait-for-db /usr/local/bin/apply-test-migrations
+
+CMD ["sh", "-c", "wait-for-db && apply-test-migrations && go test -v -race -tags=integration -coverprofile=/app/coverage/integration.out ./..."]
+
+# ==============================================================================
+# Stage 6: Sharded Test Runner
+# ==============================================================================
+FROM test-runner AS sharded-test
+
+# Sharded test execution script
+COPY <<'EOF' /usr/local/bin/run-shard
+#!/bin/bash
+set -e
+
+SHARD_INDEX=${TEST_SHARD_INDEX:-1}
+SHARD_TOTAL=${TEST_SHARD_TOTAL:-4}
+
+echo "Running test shard $SHARD_INDEX of $SHARD_TOTAL"
+
+# Get all test packages
+packages=$(go list ./... | grep -v vendor)
+
+# Calculate shard
+total_packages=$(echo "$packages" | wc -l)
+packages_per_shard=$(( (total_packages + SHARD_TOTAL - 1) / SHARD_TOTAL ))
+start=$(( (SHARD_INDEX - 1) * packages_per_shard + 1 ))
+end=$(( SHARD_INDEX * packages_per_shard ))
+
+# Get packages for this shard
+shard_packages=$(echo "$packages" | sed -n "${start},${end}p")
+
+if [ -n "$shard_packages" ]; then
+    echo "Testing packages:"
+    echo "$shard_packages"
+    echo "$shard_packages" | xargs go test -v -race -coverprofile=/app/coverage/shard-${SHARD_INDEX}.out
+else
+    echo "No packages for this shard"
+fi
+EOF
+RUN chmod +x /usr/local/bin/run-shard
+
+CMD ["run-shard"]
+
+# ==============================================================================
+# Default Stage
+# ==============================================================================
+FROM test-runner AS default

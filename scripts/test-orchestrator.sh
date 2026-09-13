@@ -2,7 +2,15 @@
 # Test Automation Orchestrator
 # K-ERP SaaS Platform - Intelligent Test Execution Script
 
-set -e
+# `pipefail` is the load-bearing flag here. Every suite is judged with
+#   if <runner> 2>&1 | tee log; then ... fi
+# and without pipefail the pipeline's status is `tee`'s, which is 0 whenever the
+# log file is writable. That turned every failing suite - Go, Python, frontend,
+# E2E - into "passed", including through `make test-all`.
+#
+# `-u` needs the `[@]:-` guards further down: under bash 3.2 (the macOS
+# default) expanding an empty array is an unbound-variable error.
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -128,14 +136,14 @@ discover_go_tests() {
         local pkg_dir=$(dirname "$file")
         local pkg_path=${pkg_dir#$PROJECT_ROOT/}
 
-        if [[ ! " ${test_packages[*]} " =~ " ${pkg_path} " ]]; then
+        if [[ ! " ${test_packages[*]:-} " =~ " ${pkg_path} " ]]; then
             test_packages+=("$pkg_path")
             ((count++))
         fi
     done < <(find "$PROJECT_ROOT" -name "*_test.go" -not -path "*/vendor/*" -print0 2>/dev/null)
 
     log INFO "Found $count Go test packages"
-    echo "${test_packages[@]}"
+    echo "${test_packages[@]:-}"
 }
 
 discover_python_tests() {
@@ -150,7 +158,7 @@ discover_python_tests() {
     done < <(find "$PROJECT_ROOT/python-services" -name "test_*.py" -o -name "*_test.py" -print0 2>/dev/null)
 
     log INFO "Found $count Python test files"
-    echo "${test_files[@]}"
+    echo "${test_files[@]:-}"
 }
 
 discover_frontend_tests() {
@@ -165,7 +173,7 @@ discover_frontend_tests() {
     done < <(find "$PROJECT_ROOT/web" -name "*.test.ts" -o -name "*.test.tsx" -o -name "*.spec.ts" -o -name "*.spec.tsx" -not -path "*/node_modules/*" -print0 2>/dev/null)
 
     log INFO "Found $count Frontend test files"
-    echo "${test_files[@]}"
+    echo "${test_files[@]:-}"
 }
 
 discover_e2e_tests() {
@@ -180,7 +188,7 @@ discover_e2e_tests() {
     done < <(find "$PROJECT_ROOT/tests/e2e" -name "*.ts" -o -name "*.spec.ts" -print0 2>/dev/null)
 
     log INFO "Found $count E2E test files"
-    echo "${test_files[@]}"
+    echo "${test_files[@]:-}"
 }
 
 # ============================================================================
@@ -495,7 +503,8 @@ print_results_summary() {
     local passed=0
     local failed=0
 
-    for result in "${TEST_RESULTS[@]}"; do
+    for result in "${TEST_RESULTS[@]:-}"; do
+        [[ -z "$result" ]] && continue
         ((total++))
         if [[ "$result" == *":0" ]]; then
             ((passed++))

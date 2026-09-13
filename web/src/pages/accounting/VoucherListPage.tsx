@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Search,
@@ -26,89 +27,102 @@ import {
   TableHead,
   TableRow,
   TableCell,
+  Modal,
 } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { VOUCHER_STATUS } from "@/constants";
-import type { VoucherStatus } from "@/types";
+import { vouchersApi } from "@/api";
+import { getErrorMessage } from "@/services/api";
+import { toast } from "@/stores/ui";
+import { notifyUnavailable } from "@/components/common";
+import type { VoucherStatus } from "@/hooks/useVoucher";
 
-// Mock data
-const mockVouchers = [
-  {
-    id: "1",
-    voucherNumber: "2024-0125",
-    voucherDate: "2024-01-15",
-    description: "거래처 매입 - A상사",
-    status: "approved" as VoucherStatus,
-    totalDebit: 5500000,
-    totalCredit: 5500000,
-    createdBy: "홍길동",
-    createdAt: "2024-01-15T09:30:00",
-  },
-  {
-    id: "2",
-    voucherNumber: "2024-0124",
-    voucherDate: "2024-01-14",
-    description: "제품 판매 - B기업",
-    status: "pending" as VoucherStatus,
-    totalDebit: 12000000,
-    totalCredit: 12000000,
-    createdBy: "김철수",
-    createdAt: "2024-01-14T14:20:00",
-  },
-  {
-    id: "3",
-    voucherNumber: "2024-0123",
-    voucherDate: "2024-01-13",
-    description: "급여 지급",
-    status: "approved" as VoucherStatus,
-    totalDebit: 8500000,
-    totalCredit: 8500000,
-    createdBy: "이영희",
-    createdAt: "2024-01-13T10:00:00",
-  },
-  {
-    id: "4",
-    voucherNumber: "2024-0122",
-    voucherDate: "2024-01-12",
-    description: "사무용품 구입",
-    status: "draft" as VoucherStatus,
-    totalDebit: 320000,
-    totalCredit: 320000,
-    createdBy: "박민수",
-    createdAt: "2024-01-12T16:45:00",
-  },
-  {
-    id: "5",
-    voucherNumber: "2024-0121",
-    voucherDate: "2024-01-11",
-    description: "임대료 지급",
-    status: "rejected" as VoucherStatus,
-    totalDebit: 2000000,
-    totalCredit: 2000000,
-    createdBy: "최지현",
-    createdAt: "2024-01-11T11:15:00",
-  },
-];
+const PAGE_SIZE = 20;
 
-const statusStyles: Record<VoucherStatus, { variant: "default" | "secondary" | "destructive" | "success" | "warning"; label: string }> = {
+const statusStyles: Record<
+  VoucherStatus,
+  {
+    variant: "default" | "secondary" | "destructive" | "success" | "warning" | "info";
+    label: string;
+  }
+> = {
   draft: { variant: "secondary", label: "작성중" },
   pending: { variant: "warning", label: "승인대기" },
   approved: { variant: "success", label: "승인완료" },
+  posted: { variant: "info", label: "전기완료" },
   rejected: { variant: "destructive", label: "반려" },
+  cancelled: { variant: "secondary", label: "취소" },
 };
 
+/** Fallback for a status the backend adds later; never crash the page. */
+const unknownStatus = { variant: "secondary" as const, label: "알 수 없음" };
+
 export function VoucherListPage() {
+  const queryClient = useQueryClient();
+
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("");
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [voucherToDelete, setVoucherToDelete] = useState<string | null>(null);
 
-  const filteredVouchers = mockVouchers.filter((voucher) => {
-    const matchesSearch =
-      voucher.voucherNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      voucher.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = !selectedStatus || voucher.status === selectedStatus;
-    return matchesSearch && matchesStatus;
+  // Keep the search box responsive without firing a request per keystroke.
+  // Resetting the page/selection happens in the same timer rather than in a
+  // second effect: a synchronous setState inside an effect cascades renders.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setPage(1);
+      setSelectedRows([]);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
+  const {
+    data: response,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["vouchers", "list", { page, debouncedSearch, selectedStatus }],
+    queryFn: () =>
+      vouchersApi.list({
+        page,
+        pageSize: PAGE_SIZE,
+        search: debouncedSearch || undefined,
+        status: (selectedStatus as VoucherStatus) || undefined,
+      }),
   });
+
+  // No mock fallback: a list that failed to load must not look like real data.
+  const vouchers = response?.data?.items ?? [];
+  const total = response?.data?.total ?? 0;
+  const totalPages = response?.data?.totalPages ?? 1;
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => vouchersApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      setDeleteModalOpen(false);
+      setVoucherToDelete(null);
+      toast.success("삭제 완료", "전표가 삭제되었습니다.");
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        "삭제 실패",
+        getErrorMessage(err, "전표 삭제 중 오류가 발생했습니다.")
+      );
+    },
+  });
+
+  const pageNumbers = useMemo(() => {
+    const start = Math.max(1, Math.min(page - 1, totalPages - 2));
+    const end = Math.min(totalPages, start + 2);
+    const numbers: number[] = [];
+    for (let n = start; n <= end; n += 1) numbers.push(n);
+    return numbers;
+  }, [page, totalPages]);
 
   const toggleRowSelection = (id: string) => {
     setSelectedRows((prev) =>
@@ -117,10 +131,21 @@ export function VoucherListPage() {
   };
 
   const toggleAllRows = () => {
-    if (selectedRows.length === filteredVouchers.length) {
+    if (vouchers.length > 0 && selectedRows.length === vouchers.length) {
       setSelectedRows([]);
     } else {
-      setSelectedRows(filteredVouchers.map((v) => v.id));
+      setSelectedRows(vouchers.map((v) => v.id));
+    }
+  };
+
+  const handleDelete = (id: string) => {
+    setVoucherToDelete(id);
+    setDeleteModalOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (voucherToDelete) {
+      deleteMutation.mutate(voucherToDelete);
     }
   };
 
@@ -158,7 +183,11 @@ export function VoucherListPage() {
             <select
               className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
+              onChange={(e) => {
+                setSelectedStatus(e.target.value);
+                setPage(1);
+                setSelectedRows([]);
+              }}
             >
               <option value="">전체 상태</option>
               {VOUCHER_STATUS.map((status) => (
@@ -167,10 +196,17 @@ export function VoucherListPage() {
                 </option>
               ))}
             </select>
-            <Button variant="outline" size="icon">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => notifyUnavailable("전표 상세 필터")}
+            >
               <Filter className="h-4 w-4" />
             </Button>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => notifyUnavailable("전표 목록 내보내기")}
+            >
               <Download className="h-4 w-4 mr-2" />
               내보내기
             </Button>
@@ -187,11 +223,20 @@ export function VoucherListPage() {
                 {selectedRows.length}개 항목 선택됨
               </span>
               <div className="flex items-center space-x-2">
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => notifyUnavailable("전표 일괄 승인")}
+                >
                   <Check className="h-4 w-4 mr-2" />
                   일괄 승인
                 </Button>
-                <Button variant="outline" size="sm" className="text-destructive">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={() => notifyUnavailable("전표 일괄 반려")}
+                >
                   <X className="h-4 w-4 mr-2" />
                   일괄 반려
                 </Button>
@@ -214,7 +259,7 @@ export function VoucherListPage() {
                   <input
                     type="checkbox"
                     className="rounded border-input"
-                    checked={selectedRows.length === filteredVouchers.length}
+                    checked={vouchers.length > 0 && selectedRows.length === vouchers.length}
                     onChange={toggleAllRows}
                   />
                 </TableHead>
@@ -224,104 +269,169 @@ export function VoucherListPage() {
                 <TableHead className="text-right">차변</TableHead>
                 <TableHead className="text-right">대변</TableHead>
                 <TableHead>상태</TableHead>
-                <TableHead>작성자</TableHead>
+                <TableHead>유형</TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredVouchers.map((voucher) => (
-                <TableRow key={voucher.id}>
-                  <TableCell>
-                    <input
-                      type="checkbox"
-                      className="rounded border-input"
-                      checked={selectedRows.includes(voucher.id)}
-                      onChange={() => toggleRowSelection(voucher.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Link
-                      to={`/accounting/voucher/${voucher.id}`}
-                      className="font-medium text-primary hover:underline"
-                    >
-                      {voucher.voucherNumber}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{formatDate(voucher.voucherDate)}</TableCell>
-                  <TableCell className="max-w-[200px] truncate">
-                    {voucher.description}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {formatCurrency(voucher.totalDebit, { showSymbol: false })}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {formatCurrency(voucher.totalCredit, { showSymbol: false })}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusStyles[voucher.status].variant}>
-                      {statusStyles[voucher.status].label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{voucher.createdBy}</TableCell>
-                  <TableCell>
-                    <div className="relative group">
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                      <div className="absolute right-0 hidden group-hover:block z-10">
-                        <div className="bg-popover border rounded-lg shadow-lg py-1 min-w-[120px]">
-                          <Link
-                            to={`/accounting/voucher/${voucher.id}`}
-                            className="flex items-center px-3 py-2 text-sm hover:bg-muted"
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            상세보기
-                          </Link>
-                          <Link
-                            to={`/accounting/voucher/${voucher.id}/edit`}
-                            className="flex items-center px-3 py-2 text-sm hover:bg-muted"
-                          >
-                            <Edit className="h-4 w-4 mr-2" />
-                            수정
-                          </Link>
-                          <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive">
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            삭제
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    전표를 불러오는 중입니다.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : error ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center py-8 text-destructive">
+                    {getErrorMessage(error, "전표 목록 조회에 실패했습니다.")}
+                  </TableCell>
+                </TableRow>
+              ) : vouchers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    조회된 전표가 없습니다.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                vouchers.map((voucher) => {
+                  const style = statusStyles[voucher.status] ?? unknownStatus;
+                  return (
+                    <TableRow key={voucher.id}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          className="rounded border-input"
+                          checked={selectedRows.includes(voucher.id)}
+                          onChange={() => toggleRowSelection(voucher.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Link
+                          to={`/accounting/voucher/${voucher.id}`}
+                          className="font-medium text-primary hover:underline"
+                        >
+                          {voucher.voucherNo}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{formatDate(voucher.voucherDate)}</TableCell>
+                      <TableCell className="max-w-[200px] truncate">
+                        {voucher.description}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatCurrency(voucher.totalDebit, { showSymbol: false })}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatCurrency(voucher.totalCredit, { showSymbol: false })}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={style.variant}>
+                          {voucher.statusLabel || style.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {voucher.voucherTypeLabel || voucher.voucherType}
+                      </TableCell>
+                      <TableCell>
+                        <div className="relative group">
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                          <div className="absolute right-0 hidden group-hover:block z-10">
+                            <div className="bg-popover border rounded-lg shadow-lg py-1 min-w-[120px]">
+                              <Link
+                                to={`/accounting/voucher/${voucher.id}`}
+                                className="flex items-center px-3 py-2 text-sm hover:bg-muted"
+                              >
+                                <Eye className="h-4 w-4 mr-2" />
+                                상세보기
+                              </Link>
+                              <Link
+                                to={`/accounting/voucher/${voucher.id}/edit`}
+                                className="flex items-center px-3 py-2 text-sm hover:bg-muted"
+                              >
+                                <Edit className="h-4 w-4 mr-2" />
+                                수정
+                              </Link>
+                              <button
+                                onClick={() => handleDelete(voucher.id)}
+                                className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                삭제
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
             </TableBody>
           </Table>
 
           {/* Pagination */}
           <div className="flex items-center justify-between mt-4 pt-4 border-t">
             <p className="text-sm text-muted-foreground">
-              총 {filteredVouchers.length}건
+              총 {total}건
             </p>
             <div className="flex items-center space-x-2">
-              <Button variant="outline" size="sm" disabled>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
                 이전
               </Button>
-              <Button variant="outline" size="sm" className="bg-primary text-primary-foreground">
-                1
-              </Button>
-              <Button variant="outline" size="sm">
-                2
-              </Button>
-              <Button variant="outline" size="sm">
-                3
-              </Button>
-              <Button variant="outline" size="sm">
+              {pageNumbers.map((n) => (
+                <Button
+                  key={n}
+                  variant="outline"
+                  size="sm"
+                  className={n === page ? "bg-primary text-primary-foreground" : ""}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </Button>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
                 다음
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        title="전표 삭제"
+      >
+        <div className="space-y-4">
+          <p className="text-muted-foreground">
+            이 전표를 삭제하시겠습니까? 작성중 상태의 전표만 삭제할 수 있습니다.
+          </p>
+          <div className="flex justify-end space-x-2">
+            <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>
+              취소
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              isLoading={deleteMutation.isPending}
+            >
+              삭제
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

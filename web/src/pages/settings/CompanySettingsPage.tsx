@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useEffect } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import {
   Building2,
@@ -10,8 +11,6 @@ import {
   MapPin,
   FileText,
   Plus,
-  Trash2,
-  Edit,
 } from "lucide-react";
 import {
   Button,
@@ -20,8 +19,6 @@ import {
   CardHeader,
   CardTitle,
   CardContent,
-  Modal,
-  Badge,
   Table,
   TableHeader,
   TableBody,
@@ -29,8 +26,61 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui";
-import { formatBusinessNumber, formatPhoneNumber } from "@/lib/utils";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
+import { apiClient } from "@/api";
+import { getErrorMessage } from "@/services/api";
 import { toast } from "@/stores/ui";
+
+// Server contract: internal/dto/company_dto.go
+interface CompanySettings {
+  fiscal_year_start: number;
+  default_currency: string;
+  decimal_places: number;
+  tax_rate: number;
+  voucher_auto_number: boolean;
+  voucher_number_format: string;
+  invoice_prefix: string;
+  timezone: string;
+  date_format: string;
+  language: string;
+}
+
+interface Company {
+  id: string;
+  code: string;
+  name: string;
+  name_en?: string;
+  business_number?: string;
+  representative?: string;
+  phone?: string;
+  fax?: string;
+  email?: string;
+  website?: string;
+  zip_code?: string;
+  address?: string;
+  address_detail?: string;
+  status: string;
+  settings: CompanySettings;
+  trial_ends_at?: string;
+  logo?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface UpdateCompanyPayload {
+  name: string;
+  name_en: string;
+  business_number: string;
+  representative: string;
+  phone: string;
+  fax: string;
+  email: string;
+  website: string;
+  zip_code: string;
+  address: string;
+  address_detail: string;
+  logo: string;
+}
 
 // Validation schema for company settings
 const companySchema = z.object({
@@ -39,8 +89,6 @@ const companySchema = z.object({
     .string()
     .regex(/^\d{10}$/, "사업자등록번호는 10자리 숫자입니다"),
   representativeName: z.string().min(1, "대표자명을 입력하세요"),
-  businessType: z.string().optional(),
-  businessCategory: z.string().optional(),
   address: z.string().optional(),
   detailAddress: z.string().optional(),
   phone: z.string().optional(),
@@ -51,231 +99,198 @@ const companySchema = z.object({
 
 const fiscalYearSchema = z.object({
   fiscalYearStart: z.string().min(1, "회계연도 시작일을 선택하세요"),
-  fiscalYearEnd: z.string().min(1, "회계연도 종료일을 선택하세요"),
-});
-
-const branchSchema = z.object({
-  name: z.string().min(1, "사업장명을 입력하세요"),
-  businessNumber: z.string().optional(),
-  address: z.string().min(1, "주소를 입력하세요"),
-  phone: z.string().optional(),
-  isHeadquarters: z.boolean().optional(),
 });
 
 type CompanyFormData = z.infer<typeof companySchema>;
 type FiscalYearFormData = z.infer<typeof fiscalYearSchema>;
-type BranchFormData = z.infer<typeof branchSchema>;
 
-// Mock company data
-const mockCompany: CompanyFormData = {
-  name: "(주)테크솔루션",
-  businessNumber: "1234567890",
-  representativeName: "김대표",
-  businessType: "서비스업",
-  businessCategory: "소프트웨어 개발",
-  address: "서울특별시 강남구 테헤란로 123",
-  detailAddress: "테크빌딩 10층",
-  phone: "0212345678",
-  fax: "0212345679",
-  email: "contact@techsolution.co.kr",
-  website: "https://techsolution.co.kr",
+const toDateInput = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
-// Mock fiscal year data
-const mockFiscalYear: FiscalYearFormData = {
-  fiscalYearStart: "2024-01-01",
-  fiscalYearEnd: "2024-12-31",
+/**
+ * The server stores only the fiscal year *start month* (1-12), so the start
+ * date input is normalised to the first day of that month in the current year.
+ */
+const fiscalStartToDateInput = (startMonth: number): string => {
+  const month = startMonth >= 1 && startMonth <= 12 ? startMonth : 1;
+  return `${new Date().getFullYear()}-${String(month).padStart(2, "0")}-01`;
 };
 
-// Mock branches data
-const mockBranches = [
-  {
-    id: "1",
-    name: "본사",
-    businessNumber: "1234567890",
-    address: "서울특별시 강남구 테헤란로 123",
-    phone: "0212345678",
-    isHeadquarters: true,
-  },
-  {
-    id: "2",
-    name: "부산지사",
-    businessNumber: "1234567891",
-    address: "부산광역시 해운대구 마린시티로 456",
-    phone: "0519876543",
-    isHeadquarters: false,
-  },
-  {
-    id: "3",
-    name: "대전지사",
-    businessNumber: "1234567892",
-    address: "대전광역시 유성구 대학로 789",
-    phone: "0421112233",
-    isHeadquarters: false,
-  },
-];
+/** The end date is derived, not stored: start + 1 year - 1 day. */
+const deriveFiscalYearEnd = (start: string): string => {
+  if (!start) return "";
+  const parsed = new Date(`${start}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const end = new Date(
+    parsed.getFullYear() + 1,
+    parsed.getMonth(),
+    parsed.getDate()
+  );
+  end.setDate(end.getDate() - 1);
+  return toDateInput(end);
+};
+
+const digitsOnly = (value?: string): string => (value ?? "").replace(/\D/g, "");
 
 export function CompanySettingsPage() {
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const [branches, setBranches] = useState(mockBranches);
-  const [branchModalOpen, setBranchModalOpen] = useState(false);
-  const [editingBranch, setEditingBranch] = useState<typeof mockBranches[0] | null>(null);
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [branchToDelete, setBranchToDelete] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const {
+    data: companyResponse,
+    isLoading,
+    error: loadError,
+  } = useQuery({
+    queryKey: ["company"],
+    queryFn: () => apiClient.get<Company>("/company"),
+  });
+
+  const company = companyResponse?.data;
 
   // Company form
   const {
     register: registerCompany,
     handleSubmit: handleSubmitCompany,
+    reset: resetCompany,
     formState: { errors: companyErrors },
   } = useForm<CompanyFormData>({
     resolver: zodResolver(companySchema),
-    defaultValues: mockCompany,
+    defaultValues: {
+      name: "",
+      businessNumber: "",
+      representativeName: "",
+      address: "",
+      detailAddress: "",
+      phone: "",
+      fax: "",
+      email: "",
+      website: "",
+    },
   });
 
   // Fiscal year form
   const {
     register: registerFiscal,
     handleSubmit: handleSubmitFiscal,
+    reset: resetFiscal,
+    control: fiscalControl,
     formState: { errors: fiscalErrors },
   } = useForm<FiscalYearFormData>({
     resolver: zodResolver(fiscalYearSchema),
-    defaultValues: mockFiscalYear,
+    defaultValues: { fiscalYearStart: "" },
   });
 
-  // Branch form
-  const {
-    register: registerBranch,
-    handleSubmit: handleSubmitBranch,
-    reset: resetBranch,
-    formState: { errors: branchErrors },
-  } = useForm<BranchFormData>({
-    resolver: zodResolver(branchSchema),
+  const fiscalYearStart = useWatch({
+    control: fiscalControl,
+    name: "fiscalYearStart",
+  });
+  const fiscalYearEnd = deriveFiscalYearEnd(fiscalYearStart);
+
+  // Populate both forms once the server data arrives
+  useEffect(() => {
+    if (!company) return;
+    resetCompany({
+      name: company.name ?? "",
+      businessNumber: digitsOnly(company.business_number),
+      representativeName: company.representative ?? "",
+      address: company.address ?? "",
+      detailAddress: company.address_detail ?? "",
+      phone: company.phone ?? "",
+      fax: company.fax ?? "",
+      email: company.email ?? "",
+      website: company.website ?? "",
+    });
+    resetFiscal({
+      fiscalYearStart: fiscalStartToDateInput(company.settings?.fiscal_year_start ?? 1),
+    });
+  }, [company, resetCompany, resetFiscal]);
+
+  const updateCompanyMutation = useMutation({
+    mutationFn: (payload: UpdateCompanyPayload) =>
+      apiClient.put<Company>("/company", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["company"] });
+      toast.success("저장 완료", "회사 정보가 저장되었습니다.");
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        "저장 실패",
+        getErrorMessage(err, "회사 정보 저장 중 오류가 발생했습니다.")
+      );
+    },
+  });
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: (payload: { fiscal_year_start: number }) =>
+      apiClient.put<CompanySettings>("/company/settings", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["company"] });
+      toast.success("저장 완료", "회계 기간이 저장되었습니다.");
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        "저장 실패",
+        getErrorMessage(err, "회계 기간 저장 중 오류가 발생했습니다.")
+      );
+    },
   });
 
   // Handle company save
-  const onSubmitCompany = async (data: CompanyFormData) => {
-    setIsSubmitting(true);
-    try {
-      // TODO: API call
-      console.log("Company data:", data);
-      toast.success("저장 완료", "회사 정보가 저장되었습니다.");
-    } catch {
-      toast.error("저장 실패", "회사 정보 저장 중 오류가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
+  const onSubmitCompany = (data: CompanyFormData) => {
+    updateCompanyMutation.mutate({
+      name: data.name,
+      // Fields the screen does not expose are echoed back so PUT does not wipe them.
+      name_en: company?.name_en ?? "",
+      business_number: data.businessNumber,
+      representative: data.representativeName,
+      phone: data.phone ?? "",
+      fax: data.fax ?? "",
+      email: data.email ?? "",
+      website: data.website ?? "",
+      zip_code: company?.zip_code ?? "",
+      address: data.address ?? "",
+      address_detail: data.detailAddress ?? "",
+      logo: company?.logo ?? "",
+    });
   };
 
   // Handle fiscal year save
-  const onSubmitFiscal = async (data: FiscalYearFormData) => {
-    setIsSubmitting(true);
-    try {
-      // TODO: API call
-      console.log("Fiscal year data:", data);
-      toast.success("저장 완료", "회계 기간이 저장되었습니다.");
-    } catch {
-      toast.error("저장 실패", "회계 기간 저장 중 오류가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Handle logo upload
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        toast.error("파일 크기 초과", "로고 파일은 2MB 이하여야 합니다.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        setLogoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Handle branch add/edit
-  const openBranchModal = (branch?: typeof mockBranches[0]) => {
-    if (branch) {
-      setEditingBranch(branch);
-      resetBranch({
-        name: branch.name,
-        businessNumber: branch.businessNumber,
-        address: branch.address,
-        phone: branch.phone,
-        isHeadquarters: branch.isHeadquarters,
-      });
-    } else {
-      setEditingBranch(null);
-      resetBranch({
-        name: "",
-        businessNumber: "",
-        address: "",
-        phone: "",
-        isHeadquarters: false,
-      });
-    }
-    setBranchModalOpen(true);
-  };
-
-  const onSubmitBranch = async (data: BranchFormData) => {
-    try {
-      const branchData = {
-        name: data.name,
-        address: data.address,
-        businessNumber: data.businessNumber || "",
-        phone: data.phone || "",
-        isHeadquarters: data.isHeadquarters ?? false,
-      };
-
-      if (editingBranch) {
-        // Update existing branch
-        setBranches(
-          branches.map((b) =>
-            b.id === editingBranch.id ? { ...b, ...branchData } : b
-          )
-        );
-        toast.success("수정 완료", "사업장 정보가 수정되었습니다.");
-      } else {
-        // Add new branch
-        setBranches([
-          ...branches,
-          {
-            id: Date.now().toString(),
-            ...branchData,
-          },
-        ]);
-        toast.success("등록 완료", "사업장이 등록되었습니다.");
-      }
-      setBranchModalOpen(false);
-    } catch {
-      toast.error("저장 실패", "사업장 저장 중 오류가 발생했습니다.");
-    }
-  };
-
-  // Handle branch delete
-  const handleDeleteBranch = (id: string) => {
-    const branch = branches.find((b) => b.id === id);
-    if (branch?.isHeadquarters) {
-      toast.error("삭제 불가", "본사는 삭제할 수 없습니다.");
+  const onSubmitFiscal = (data: FiscalYearFormData) => {
+    const month = Number(data.fiscalYearStart.slice(5, 7));
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      toast.error("저장 실패", "회계연도 시작일이 올바르지 않습니다.");
       return;
     }
-    setBranchToDelete(id);
-    setDeleteModalOpen(true);
+    updateSettingsMutation.mutate({ fiscal_year_start: month });
   };
 
-  const confirmDeleteBranch = () => {
-    if (branchToDelete) {
-      setBranches(branches.filter((b) => b.id !== branchToDelete));
-      toast.success("삭제 완료", "사업장이 삭제되었습니다.");
-    }
-    setDeleteModalOpen(false);
-    setBranchToDelete(null);
+  // No upload endpoint exists; the server stores a logo URL (max 500 chars).
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.target.value = "";
+    notifyUnavailable("회사 로고 업로드");
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (loadError || !company) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-center">
+        <p className="text-destructive mb-2">회사 정보를 불러올 수 없습니다.</p>
+        <p className="text-sm text-muted-foreground">
+          {getErrorMessage(loadError, "잠시 후 다시 시도해주세요.")}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -295,7 +310,7 @@ export function CompanySettingsPage() {
               <Building2 className="h-5 w-5 mr-2" />
               기본 정보
             </CardTitle>
-            <Button type="submit" isLoading={isSubmitting}>
+            <Button type="submit" isLoading={updateCompanyMutation.isPending}>
               <Save className="h-4 w-4 mr-2" />
               저장
             </Button>
@@ -307,9 +322,9 @@ export function CompanySettingsPage() {
                 <label className="block text-sm font-medium mb-2">회사 로고</label>
                 <div className="flex items-center space-x-4">
                   <div className="w-24 h-24 border-2 border-dashed rounded-lg flex items-center justify-center bg-muted/50 overflow-hidden">
-                    {logoPreview ? (
+                    {company.logo ? (
                       <img
-                        src={logoPreview}
+                        src={company.logo}
                         alt="Company logo"
                         className="w-full h-full object-contain"
                       />
@@ -362,18 +377,25 @@ export function CompanySettingsPage() {
                 {...registerCompany("representativeName")}
               />
 
-              {/* Business Type */}
+              <div className="md:col-span-2 lg:col-span-3">
+                <FeatureUnavailable
+                  feature="업태·종목 저장"
+                  detail="서버의 회사 정보 API에 업태·종목 항목이 없어 저장되지 않습니다. 아래 두 항목은 입력할 수 없도록 잠갔습니다."
+                />
+              </div>
+
+              {/* Business Type - no server field */}
               <Input
                 label="업태"
                 placeholder="예: 서비스업"
-                {...registerCompany("businessType")}
+                disabled
               />
 
-              {/* Business Category */}
+              {/* Business Category - no server field */}
               <Input
                 label="종목"
                 placeholder="예: 소프트웨어 개발"
-                {...registerCompany("businessCategory")}
+                disabled
               />
 
               {/* Address */}
@@ -435,7 +457,7 @@ export function CompanySettingsPage() {
               <Calendar className="h-5 w-5 mr-2" />
               회계 기간 설정
             </CardTitle>
-            <Button type="submit" isLoading={isSubmitting}>
+            <Button type="submit" isLoading={updateSettingsMutation.isPending}>
               <Save className="h-4 w-4 mr-2" />
               저장
             </Button>
@@ -452,9 +474,15 @@ export function CompanySettingsPage() {
               <Input
                 type="date"
                 label="회계연도 종료일"
-                required
-                error={fiscalErrors.fiscalYearEnd?.message}
-                {...registerFiscal("fiscalYearEnd")}
+                readOnly
+                value={fiscalYearEnd}
+                helperText="시작일에서 자동 계산됩니다."
+              />
+            </div>
+            <div className="mt-4">
+              <FeatureUnavailable
+                feature="회계연도 종료일 개별 지정"
+                detail="서버는 회계연도 시작 '월'만 저장합니다. 시작일의 월만 반영되며 종료일은 저장되지 않고 자동 계산됩니다."
               />
             </div>
             <p className="text-sm text-muted-foreground mt-4">
@@ -472,12 +500,16 @@ export function CompanySettingsPage() {
             <MapPin className="h-5 w-5 mr-2" />
             사업장 관리
           </CardTitle>
-          <Button onClick={() => openBranchModal()}>
+          <Button onClick={() => notifyUnavailable("사업장 등록")}>
             <Plus className="h-4 w-4 mr-2" />
             사업장 추가
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <FeatureUnavailable
+            feature="사업장(지점) 관리"
+            detail="서버에 사업장 API가 없어 목록을 불러오거나 등록·수정·삭제할 수 없습니다."
+          />
           <Table>
             <TableHeader>
               <TableRow>
@@ -490,135 +522,15 @@ export function CompanySettingsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {branches.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    등록된 사업장이 없습니다.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                branches.map((branch) => (
-                  <TableRow key={branch.id}>
-                    <TableCell className="font-medium">{branch.name}</TableCell>
-                    <TableCell className="font-mono">
-                      {branch.businessNumber
-                        ? formatBusinessNumber(branch.businessNumber)
-                        : "-"}
-                    </TableCell>
-                    <TableCell>{branch.address}</TableCell>
-                    <TableCell>
-                      {branch.phone ? formatPhoneNumber(branch.phone) : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {branch.isHeadquarters ? (
-                        <Badge variant="default">본사</Badge>
-                      ) : (
-                        <Badge variant="secondary">지사</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openBranchModal(branch)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteBranch(branch.id)}
-                          disabled={branch.isHeadquarters}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  등록된 사업장이 없습니다.
+                </TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </CardContent>
       </Card>
-
-      {/* Branch Add/Edit Modal */}
-      <Modal
-        isOpen={branchModalOpen}
-        onClose={() => setBranchModalOpen(false)}
-        title={editingBranch ? "사업장 수정" : "사업장 등록"}
-        size="lg"
-      >
-        <form onSubmit={handleSubmitBranch(onSubmitBranch)} className="space-y-4">
-          <Input
-            label="사업장명"
-            required
-            placeholder="사업장 이름"
-            error={branchErrors.name?.message}
-            {...registerBranch("name")}
-          />
-          <Input
-            label="사업자등록번호"
-            placeholder="별도 사업자번호가 있는 경우"
-            {...registerBranch("businessNumber")}
-          />
-          <Input
-            label="주소"
-            required
-            placeholder="사업장 주소"
-            error={branchErrors.address?.message}
-            {...registerBranch("address")}
-          />
-          <Input
-            label="연락처"
-            placeholder="전화번호"
-            {...registerBranch("phone")}
-          />
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              className="rounded border-input"
-              {...registerBranch("isHeadquarters")}
-            />
-            <span className="text-sm">본사로 지정</span>
-          </label>
-          <div className="flex justify-end space-x-2 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setBranchModalOpen(false)}
-            >
-              취소
-            </Button>
-            <Button type="submit">
-              {editingBranch ? "수정" : "등록"}
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={deleteModalOpen}
-        onClose={() => setDeleteModalOpen(false)}
-        title="사업장 삭제"
-      >
-        <div className="space-y-4">
-          <p className="text-muted-foreground">
-            이 사업장을 삭제하시겠습니까? 해당 사업장과 관련된 데이터는 유지됩니다.
-          </p>
-          <div className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>
-              취소
-            </Button>
-            <Button variant="destructive" onClick={confirmDeleteBranch}>
-              삭제
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

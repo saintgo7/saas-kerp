@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // BaseModel contains common fields for all domain entities
@@ -19,8 +20,17 @@ type TenantModel struct {
 	CompanyID uuid.UUID `gorm:"type:uuid;not null;index" json:"company_id"`
 }
 
-// SoftDeleteModel adds soft delete capability
+// SoftDeleteModel adds soft delete capability.
+//
+// The field must be gorm.DeletedAt, not *time.Time: only that type makes GORM
+// turn Delete into an UPDATE and append `deleted_at IS NULL` to every query.
+// With a plain *time.Time the column exists, nothing ever writes it, and
+// Delete issues a hard DELETE - which is what made deleting a user that had
+// ever created a voucher fail with a foreign key violation.
+//
+// It is tagged json:"-" because gorm.DeletedAt marshals as
+// {"Time":...,"Valid":...}, which has no business in an API response.
 type SoftDeleteModel struct {
 	TenantModel
-	DeletedAt *time.Time `gorm:"index" json:"deleted_at,omitempty"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }

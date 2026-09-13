@@ -8,6 +8,9 @@ protobuf>=4.25.0
 # Browser Automation
 playwright>=1.40.0
 
+# Retry policy (src/scrapers/hometax.py)
+tenacity>=8.2.0
+
 # Configuration
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
@@ -21,7 +24,7 @@ loguru>=0.7.0
 httpx>=0.25.0
 
 # Encryption (SEED/ARIA for Korean government)
-cryptography>=41.0.0
+cryptography>=42.0.4  # 41.x carries PKCS#7/PKCS#12 and RSA PKCS#1 v1.5 advisories
 pycryptodome>=3.19.0
 
 # Cache

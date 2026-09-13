@@ -15,8 +15,8 @@ LIMIT $1 OFFSET $2;
 -- name: CreateCompany :one
 INSERT INTO companies (
     business_number,
-    company_name,
-    company_name_en,
+    name,
+    name_en,
     representative,
     business_type,
     business_item,
@@ -43,8 +43,8 @@ RETURNING *;
 
 -- name: UpdateCompany :one
 UPDATE companies SET
-    company_name = COALESCE(sqlc.narg('company_name'), company_name),
-    company_name_en = COALESCE(sqlc.narg('company_name_en'), company_name_en),
+    name = COALESCE(sqlc.narg('name'), name),
+    name_en = COALESCE(sqlc.narg('name_en'), name_en),
     representative = COALESCE(sqlc.narg('representative'), representative),
     business_type = COALESCE(sqlc.narg('business_type'), business_type),
     business_item = COALESCE(sqlc.narg('business_item'), business_item),

@@ -16,121 +16,18 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui";
-import { DateRangePicker } from "@/components/common";
+import {
+  DateRangePicker,
+  FeatureUnavailable,
+  notifyUnavailable,
+} from "@/components/common";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { ledgerApi } from "@/api";
-import type { SubsidiaryLedgerData } from "@/api/ledger";
+import { getErrorMessage } from "@/services/api";
 import type { Account } from "@/types";
 
-// Mock data for development
-const mockSubsidiaryData: SubsidiaryLedgerData[] = [
-  {
-    account: {
-      id: "4",
-      companyId: "1",
-      code: "109",
-      name: "외상매출금",
-      type: "asset",
-      level: 1,
-      isActive: true,
-    },
-    partnerId: "p1",
-    partnerName: "A상사",
-    openingBalance: 2000000,
-    entries: [
-      {
-        date: "2024-01-05",
-        voucherId: "v1",
-        voucherNumber: "2024-0001",
-        description: "상품매출",
-        debitAmount: 1100000,
-        creditAmount: 0,
-        balance: 3100000,
-        partnerId: "p1",
-        partnerName: "A상사",
-        partnerCode: "C001",
-      },
-      {
-        date: "2024-01-20",
-        voucherId: "v5",
-        voucherNumber: "2024-0025",
-        description: "대금입금",
-        debitAmount: 0,
-        creditAmount: 1000000,
-        balance: 2100000,
-        partnerId: "p1",
-        partnerName: "A상사",
-        partnerCode: "C001",
-      },
-    ],
-    totalDebit: 1100000,
-    totalCredit: 1000000,
-    closingBalance: 2100000,
-  },
-  {
-    account: {
-      id: "4",
-      companyId: "1",
-      code: "109",
-      name: "외상매출금",
-      type: "asset",
-      level: 1,
-      isActive: true,
-    },
-    partnerId: "p2",
-    partnerName: "B기업",
-    openingBalance: 5000000,
-    entries: [
-      {
-        date: "2024-01-10",
-        voucherId: "v2",
-        voucherNumber: "2024-0010",
-        description: "상품매출",
-        debitAmount: 3300000,
-        creditAmount: 0,
-        balance: 8300000,
-        partnerId: "p2",
-        partnerName: "B기업",
-        partnerCode: "C002",
-      },
-    ],
-    totalDebit: 3300000,
-    totalCredit: 0,
-    closingBalance: 8300000,
-  },
-  {
-    account: {
-      id: "4",
-      companyId: "1",
-      code: "109",
-      name: "외상매출금",
-      type: "asset",
-      level: 1,
-      isActive: true,
-    },
-    partnerId: "p3",
-    partnerName: "C산업",
-    openingBalance: 1500000,
-    entries: [
-      {
-        date: "2024-01-15",
-        voucherId: "v3",
-        voucherNumber: "2024-0015",
-        description: "대금입금",
-        debitAmount: 0,
-        creditAmount: 1500000,
-        balance: 0,
-        partnerId: "p3",
-        partnerName: "C산업",
-        partnerCode: "C003",
-      },
-    ],
-    totalDebit: 0,
-    totalCredit: 1500000,
-    closingBalance: 0,
-  },
-];
-
+// The backend exposes a single /ledger/account endpoint; there is no
+// partner-scoped subsidiary ledger yet, so this list only drives the picker.
 const subsidiaryAccounts: Account[] = [
   { id: "4", companyId: "1", code: "109", name: "외상매출금", type: "asset", level: 1, isActive: true },
   { id: "6", companyId: "1", code: "202", name: "외상매입금", type: "liability", level: 1, isActive: true },
@@ -160,10 +57,10 @@ export function SubsidiaryLedgerPage() {
     enabled: !!selectedAccountId && !!startDate && !!endDate,
   });
 
-  // Use mock data if no real data, wrapped in useMemo for stable reference
+  // Never substitute sample partners for a failed or missing response.
   const ledgerDataList = useMemo(() => {
-    return ledgerResponse?.data || (selectedAccountId ? mockSubsidiaryData : []);
-  }, [ledgerResponse?.data, selectedAccountId]);
+    return ledgerResponse?.data ?? [];
+  }, [ledgerResponse?.data]);
 
   // Filter by search term
   const filteredLedgerData = useMemo(() => {
@@ -227,7 +124,7 @@ export function SubsidiaryLedgerPage() {
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => notifyUnavailable("내보내기")}>
             <Download className="h-4 w-4 mr-2" />
             내보내기
           </Button>
@@ -237,6 +134,11 @@ export function SubsidiaryLedgerPage() {
           </Button>
         </div>
       </div>
+
+      <FeatureUnavailable
+        feature="보조원장"
+        detail="서버에 거래처별 보조원장 API가 아직 없습니다. 계정과목 목록은 예시이며, 조회는 실패할 수 있습니다."
+      />
 
       {/* Filters */}
       <Card>
@@ -303,7 +205,9 @@ export function SubsidiaryLedgerPage() {
       ) : error ? (
         <Card>
           <CardContent className="py-16 text-center">
-            <p className="text-destructive">데이터를 불러올 수 없습니다.</p>
+            <p className="text-destructive">
+              {getErrorMessage(error, "보조원장 조회에 실패했습니다.")}
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -451,7 +355,9 @@ export function SubsidiaryLedgerPage() {
 
                           {/* Entries */}
                           {data.entries.map((entry, idx) => (
-                            <TableRow key={idx}>
+                            <TableRow
+                              key={`${entry.voucherId}-${entry.date}-${entry.voucherNumber}-${idx}`}
+                            >
                               <TableCell>{formatDate(entry.date)}</TableCell>
                               <TableCell>
                                 <a

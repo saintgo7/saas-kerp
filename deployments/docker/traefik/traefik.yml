@@ -6,17 +6,23 @@ api:
   dashboard: true
   insecure: false  # Secure in production
 
+# Liveness endpoint used by the compose healthcheck
+ping:
+  entryPoint: traefik
+
 # Entry Points
 entryPoints:
   web:
     address: ":80"
-    # HTTP redirect disabled due to WSL port 443 issue
-    # http:
-    #   redirections:
-    #     entryPoint:
-    #       to: websecure
-    #       scheme: https
-    #       permanent: true
+    # Everything on :80 is redirected to :443. Traefik still answers the
+    # ACME HTTP-01 challenge on this entry point before applying the
+    # redirect, so Let's Encrypt issuance keeps working.
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
 
   websecure:
     address: ":443"
@@ -45,14 +51,18 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: "${ACME_EMAIL:-admin@example.com}"
+      # Traefik static configuration does NOT expand environment variables.
+      # This must stay a literal address; ACME_EMAIL in .env is documentation only.
+      email: "admin@abada.kr"
       storage: /letsencrypt/acme.json
       httpChallenge:
         entryPoint: web
 
   letsencrypt-staging:
     acme:
-      email: "${ACME_EMAIL:-admin@example.com}"
+      # Traefik static configuration does NOT expand environment variables.
+      # This must stay a literal address; ACME_EMAIL in .env is documentation only.
+      email: "admin@abada.kr"
       storage: /letsencrypt/acme-staging.json
       caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
       httpChallenge:

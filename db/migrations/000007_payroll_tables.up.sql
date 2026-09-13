@@ -225,7 +225,6 @@ CREATE TABLE social_insurance_rates (
 CREATE INDEX idx_social_insurance_rates_period ON social_insurance_rates(effective_year, effective_month);
 
 COMMENT ON TABLE social_insurance_rates IS 'Social insurance contribution rates';
-COMMENT ON COLUMN social_insurance_rates.nps IS 'National Pension Service rates';
 
 -- ============================================
 -- PAYROLL_BANK_TRANSFERS

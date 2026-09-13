@@ -8,8 +8,6 @@ import structlog
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeout
 
 from ..constants import (
-    AUTH_CERT,
-    AUTH_ID_PW,
     ERROR_MESSAGES,
     HOMETAX_MAIN_URL,
     SELECTORS,

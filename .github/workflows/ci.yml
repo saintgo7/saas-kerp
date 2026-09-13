@@ -1,13 +1,22 @@
 # K-ERP CI Pipeline
 # Runs on: push to any branch, pull requests to main/develop
+#
+# Policy: a failing check MUST turn the pipeline red.
+# `|| true` and `continue-on-error: true` are forbidden on anything that
+# verifies the code. They are allowed only on steps that publish artefacts or
+# coverage to a third-party service, where an outage there must not fail the
+# build. Every such use is annotated below.
 
 name: CI Pipeline
 
 on:
   push:
-    branches: [main, develop, 'phase/**', 'feature/**', 'release/**']
+    branches: [main, develop, 'phase/**', 'feature/**', 'release/**', 'fix/**']
   pull_request:
     branches: [main, develop]
+
+permissions:
+  contents: read
 
 env:
   GO_VERSION: '1.22'
@@ -61,31 +70,30 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: go vet
+        run: go vet ./...
+
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v1.61.0
           args: --timeout=5m
-        continue-on-error: true
 
       - name: Run unit tests
         env:
           DATABASE_URL: postgres://kerp_test:kerp_test_password@localhost:5432/kerp_test?sslmode=disable
           REDIS_URL: redis://localhost:6379
           APP_ENV: test
-        run: |
-          go test -v -race -coverprofile=coverage.out -covermode=atomic ./... || true
-        continue-on-error: true
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Run security tests
         env:
           DATABASE_URL: postgres://kerp_test:kerp_test_password@localhost:5432/kerp_test?sslmode=disable
           REDIS_URL: redis://localhost:6379
           APP_ENV: test
-        run: |
-          go test -v -tags=security ./tests/security/... || true
-        continue-on-error: true
+        run: go test -tags=security ./tests/security/...
 
+      # Non-gating: uploading to a third-party service must not fail the build.
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
@@ -126,24 +134,37 @@ jobs:
 
       - name: Install dependencies
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          if [ -f python-services/requirements.txt ]; then
-            pip install -r python-services/requirements.txt
-          fi
-          pip install pytest pytest-cov flake8 mypy grpcio-tools
+          # There is no aggregate python-services/requirements.txt; each service
+          # ships its own. Install all of them plus the shared test deps.
+          pip install -r python-services/requirements-test.txt
+          for req in python-services/*/requirements.txt; do
+            echo "Installing $req"
+            pip install -r "$req"
+          done
 
-      - name: Run flake8
-        run: |
-          flake8 python-services/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
-          flake8 python-services/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      # ruff (not flake8) is the linter declared in requirements-test.txt and
+      # in each service's pyproject.toml.
+      - name: Lint - syntax errors and undefined names (gating)
+        run: ruff check python-services/ --select E9,F63,F7,F82 --output-format=full
 
+      - name: Lint - full report (non-gating, exit code ignored on purpose)
+        run: ruff check python-services/ --statistics --exit-zero
+
+      # The old step looked for python-services/tests (which does not exist) and
+      # therefore never ran a single test. pytest.ini already points testpaths
+      # at tax-scraper/tests, insurance-edi/tests and shared/tests.
       - name: Run tests
-        run: |
-          if [ -d python-services/tests ]; then
-            pytest python-services/tests/ -v --cov=python-services --cov-report=xml
-          else
-            echo "No tests found, skipping..."
-          fi
+        working-directory: python-services
+        run: pytest --cov=. --cov-report=xml
+
+      - name: Upload python coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: python-services/coverage.xml
+          flags: python
+          fail_ci_if_error: false
         continue-on-error: true
 
   # ============================================
@@ -167,23 +188,20 @@ jobs:
       - name: Install dependencies
         working-directory: web
         run: npm ci
-        continue-on-error: true
 
       - name: Run ESLint
         working-directory: web
-        run: npm run lint || true
-        continue-on-error: true
+        run: npm run lint
 
       - name: Run type check
         working-directory: web
-        run: npm run typecheck || true
-        continue-on-error: true
+        run: npm run typecheck
 
       - name: Run unit tests with coverage
         working-directory: web
-        run: npm run test:coverage || npm run test -- --coverage || true
-        continue-on-error: true
+        run: npm run test:coverage
 
+      # Non-gating: third-party upload.
       - name: Upload frontend coverage
         uses: codecov/codecov-action@v4
         with:
@@ -194,12 +212,10 @@ jobs:
 
       - name: Build
         working-directory: web
-        run: npm run build || true
-        continue-on-error: true
+        run: npm run build
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
-        if: success()
         with:
           name: frontend-dist
           path: web/dist/
@@ -228,17 +244,14 @@ jobs:
       - name: Install dependencies
         working-directory: web
         run: npm ci
-        continue-on-error: true
 
       - name: Install Playwright browsers
         working-directory: web
         run: npx playwright install --with-deps chromium
-        continue-on-error: true
 
       - name: Run E2E tests
         working-directory: web
-        run: npx playwright test --project=chromium || true
-        continue-on-error: true
+        run: npx playwright test --project=chromium
         env:
           CI: true
 
@@ -283,29 +296,168 @@ jobs:
           push: false
           tags: kerp-worker:test
 
+      - name: Build Web image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./deployments/docker/Dockerfile.web
+          push: false
+          tags: kerp-web:test
+
+      # Regression guard for the tax-scraper Dockerfile, whose COPY paths were
+      # service-relative while compose builds it from the repository root.
+      - name: Build Tax Scraper image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./python-services/tax-scraper/Dockerfile
+          target: production
+          push: false
+          tags: kerp-tax-scraper:test
+
+      - name: Build Insurance EDI image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./python-services/insurance-edi/Dockerfile
+          target: production
+          push: false
+          tags: kerp-insurance-edi:test
+
+  # ============================================
+  # Deployment configuration validation
+  # ============================================
+  compose-validate:
+    name: Compose Config
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Placeholder values only - this job proves the files interpolate, it
+      # never touches a real environment.
+      - name: Validate production compose renders
+        working-directory: deployments/docker
+        env:
+          DB_PASSWORD: ci-placeholder-not-a-secret-0000000000
+          JWT_SECRET: ci-placeholder-not-a-secret-0000000000
+          MINIO_ROOT_USER: kerp_admin
+          MINIO_PASSWORD: ci-placeholder-not-a-secret-0000000000
+          MEILI_KEY: ci-placeholder-not-a-secret-0000000000
+          GRAFANA_USER: admin
+          GRAFANA_PASSWORD: ci-placeholder-not-a-secret-0000000000
+          ARIA_ENCRYPTION_KEY: 000102030405060708090a0b0c0d0e0f
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
+
+      # F-17 regression guard. The frontend is built with VITE_API_URL=/api/v1
+      # and the Go router registers engine.Group("/api").Group("/v1"), so every
+      # proxy hop must preserve the /api prefix. A deleted nginx.conf used to
+      # strip it (`proxy_pass http://api_backend/`), and an unused
+      # `strip-api-prefix` middleware sat in the Traefik config inviting the
+      # same mistake. Neither may come back.
+      - name: API prefix must be preserved by every proxy hop
+        run: |
+          set -euo pipefail
+          rc=0
+
+          # Match real YAML keys, not the explanatory comments about them.
+          if grep -rnE '^[[:space:]]*stripPrefix[[:space:]]*:' deployments/docker/traefik/; then
+            echo "FAIL: a stripPrefix middleware exists in the Traefik config."
+            echo "      The backend serves /api/v1/*; stripping /api yields 404."
+            rc=1
+          else
+            echo "OK: no stripPrefix directive in the Traefik config"
+          fi
+
+          if grep -rnE '^[[:space:]]*proxy_pass[[:space:]]' deployments/docker/nginx/ 2>/dev/null; then
+            echo "FAIL: nginx now proxies the API. There must be exactly one"
+            echo "      reverse proxy in front of the API (Traefik), and a"
+            echo "      trailing slash on proxy_pass silently strips /api."
+            rc=1
+          else
+            echo "OK: the web image's nginx serves static files only"
+          fi
+
+          python3 - <<'PYEOF'
+          import sys, yaml
+          routes = yaml.safe_load(open('deployments/docker/traefik/dynamic/routes.yml'))
+          api = routes['http']['routers']['api-router']
+          assert 'websecure' in api['entryPoints'], api['entryPoints']
+          assert not any('strip' in m for m in api.get('middlewares', [])), api['middlewares']
+          print("OK: api-router terminates on websecure with no strip middleware")
+          PYEOF
+
+          exit $rc
+
+      # Each of these must FAIL to render. If a guard is ever weakened back to
+      # `${VAR:-default}`, this step catches it.
+      - name: Required secrets must fail closed
+        working-directory: deployments/docker
+        env:
+          DB_PASSWORD: ci-placeholder-not-a-secret-0000000000
+          JWT_SECRET: ci-placeholder-not-a-secret-0000000000
+          MINIO_ROOT_USER: kerp_admin
+          MINIO_PASSWORD: ci-placeholder-not-a-secret-0000000000
+          MEILI_KEY: ci-placeholder-not-a-secret-0000000000
+          GRAFANA_USER: admin
+          GRAFANA_PASSWORD: ci-placeholder-not-a-secret-0000000000
+          ARIA_ENCRYPTION_KEY: 000102030405060708090a0b0c0d0e0f
+        run: |
+          set -uo pipefail
+          rc=0
+          for var in JWT_SECRET DB_PASSWORD ARIA_ENCRYPTION_KEY MINIO_PASSWORD MEILI_KEY GRAFANA_PASSWORD; do
+            if env -u "$var" docker compose -f docker-compose.yml config -q 2>/dev/null; then
+              echo "FAIL: compose still renders with $var unset"
+              rc=1
+            else
+              echo "OK: compose refuses to render without $var"
+            fi
+          done
+          exit $rc
+
   # ============================================
   # CI Status Summary
   # ============================================
   ci-status:
     name: CI Status
     runs-on: ubuntu-latest
-    needs: [backend, python-services, frontend, docker-build]
+    needs: [backend, python-services, frontend, docker-build, compose-validate]
     if: always()
 
     steps:
       - name: Check results
+        env:
+          BACKEND: ${{ needs.backend.result }}
+          PYTHON: ${{ needs.python-services.result }}
+          FRONTEND: ${{ needs.frontend.result }}
+          DOCKER: ${{ needs.docker-build.result }}
+          COMPOSE: ${{ needs.compose-validate.result }}
         run: |
+          set -euo pipefail
           echo "==================================="
           echo "CI Pipeline Results"
           echo "==================================="
-          echo "Backend:    ${{ needs.backend.result }}"
-          echo "Python:     ${{ needs.python-services.result }}"
-          echo "Frontend:   ${{ needs.frontend.result }}"
-          echo "Docker:     ${{ needs.docker-build.result }}"
+          printf 'Backend:   %s\n' "$BACKEND"
+          printf 'Python:    %s\n' "$PYTHON"
+          printf 'Frontend:  %s\n' "$FRONTEND"
+          printf 'Docker:    %s\n' "$DOCKER"
+          printf 'Compose:   %s\n' "$COMPOSE"
           echo "==================================="
 
-          if [ "${{ needs.backend.result }}" == "failure" ]; then
-            echo "Backend CI failed!"
+          failed=0
+          for result in "$BACKEND" "$PYTHON" "$FRONTEND" "$DOCKER" "$COMPOSE"; do
+            case "$result" in
+              success|skipped) ;;
+              *) failed=1 ;;
+            esac
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            echo "CI failed - at least one job did not succeed."
             exit 1
           fi
 

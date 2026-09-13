@@ -36,13 +36,14 @@ import {
   TableCell,
   Modal,
 } from "@/components/ui";
+import { FeatureUnavailable, notifyUnavailable } from "@/components/common";
 import { formatCurrency, formatDate, formatBusinessNumber, cn } from "@/lib/utils";
 import { INVOICE_STATUS } from "@/constants";
-import { toast } from "@/stores/ui";
 import type { InvoiceStatus } from "@/types";
 
-// Mock data for received invoices (purchases)
-const mockReceivedInvoices = [
+// Sample rows shown behind the FeatureUnavailable banner: the tax invoice
+// routes are not registered on the server, so nothing here is real data.
+const sampleReceivedInvoices = [
   {
     id: "1",
     invoiceNumber: "20240115-A001",
@@ -236,8 +237,8 @@ const invoiceSchema = z.object({
 
 type InvoiceFormData = z.infer<typeof invoiceSchema>;
 
-// Mock suppliers for search
-const mockSuppliers = [
+// Sample suppliers used only to populate the search modal.
+const sampleSuppliers = [
   {
     bizNo: "1234567890",
     name: "(주)원자재공급",
@@ -274,12 +275,11 @@ export function InvoiceReceivedPage() {
   // Modal states
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState<(typeof mockReceivedInvoices)[0] | null>(
+  const [selectedInvoice, setSelectedInvoice] = useState<(typeof sampleReceivedInvoices)[0] | null>(
     null
   );
   const [showSupplierSearch, setShowSupplierSearch] = useState(false);
   const [supplierSearchQuery, setSupplierSearchQuery] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
   // Form setup
@@ -330,7 +330,7 @@ export function InvoiceReceivedPage() {
 
   // Filtered invoices
   const filteredInvoices = useMemo(() => {
-    return mockReceivedInvoices.filter((invoice) => {
+    return sampleReceivedInvoices.filter((invoice) => {
       const matchesSearch =
         invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
         invoice.supplierName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -377,7 +377,7 @@ export function InvoiceReceivedPage() {
   };
 
   // Select supplier from search
-  const selectSupplier = (supplier: (typeof mockSuppliers)[0]) => {
+  const selectSupplier = (supplier: (typeof sampleSuppliers)[0]) => {
     setValue("supplierBizNo", supplier.bizNo);
     setValue("supplierName", supplier.name);
     setValue("supplierCeoName", supplier.ceoName);
@@ -389,7 +389,7 @@ export function InvoiceReceivedPage() {
   };
 
   // Filter suppliers for search modal
-  const filteredSuppliers = mockSuppliers.filter(
+  const filteredSuppliers = sampleSuppliers.filter(
     (s) =>
       s.name.includes(supplierSearchQuery) ||
       s.bizNo.includes(supplierSearchQuery) ||
@@ -428,13 +428,13 @@ export function InvoiceReceivedPage() {
   };
 
   // Open detail modal
-  const openDetailModal = (invoice: (typeof mockReceivedInvoices)[0]) => {
+  const openDetailModal = (invoice: (typeof sampleReceivedInvoices)[0]) => {
     setSelectedInvoice(invoice);
     setShowDetailModal(true);
   };
 
   // Open edit modal
-  const openEditModal = (invoice: (typeof mockReceivedInvoices)[0]) => {
+  const openEditModal = (invoice: (typeof sampleReceivedInvoices)[0]) => {
     setIsEditing(true);
     setSelectedInvoice(invoice);
     reset({
@@ -463,26 +463,21 @@ export function InvoiceReceivedPage() {
     setShowRegisterModal(true);
   };
 
-  // Submit handler
-  const onSubmit = async (data: InvoiceFormData) => {
-    setIsSubmitting(true);
-    try {
-      console.log("Invoice data:", data);
-      if (isEditing) {
-        toast.success("수정 완료", "매입 세금계산서가 수정되었습니다.");
-      } else {
-        toast.success("등록 완료", "매입 세금계산서가 등록되었습니다.");
-      }
-      setShowRegisterModal(false);
-    } catch {
-      toast.error("저장 실패", "세금계산서 저장 중 오류가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
+  // The tax invoice routes are not registered on the server, so nothing can be
+  // saved from this screen yet. Say so instead of faking success.
+  const onSubmit = () => {
+    notifyUnavailable(
+      isEditing ? "매입 세금계산서 수정" : "매입 세금계산서 등록"
+    );
   };
 
   return (
     <div className="space-y-6">
+      <FeatureUnavailable
+        feature="매입 세금계산서"
+        detail="서버에 세금계산서 API가 아직 연결되지 않았습니다. 아래 목록은 예시이며, 등록·수정한 내용은 저장되지 않습니다."
+      />
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -490,7 +485,10 @@ export function InvoiceReceivedPage() {
           <p className="text-muted-foreground">매입 세금계산서를 등록하고 관리합니다.</p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() => notifyUnavailable("Excel 업로드")}
+          >
             <Upload className="h-4 w-4 mr-2" />
             Excel 업로드
           </Button>
@@ -575,7 +573,10 @@ export function InvoiceReceivedPage() {
                 </option>
               ))}
             </select>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => notifyUnavailable("내보내기")}
+            >
               <Download className="h-4 w-4 mr-2" />
               내보내기
             </Button>
@@ -656,12 +657,20 @@ export function InvoiceReceivedPage() {
                               수정
                             </button>
                           )}
-                          <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted">
+                          <button
+                            type="button"
+                            onClick={() => notifyUnavailable("PDF 다운로드")}
+                            className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted"
+                          >
                             <Download className="h-4 w-4 mr-2" />
                             PDF 다운로드
                           </button>
                           {invoice.status === "draft" && (
-                            <button className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive">
+                            <button
+                              type="button"
+                              onClick={() => notifyUnavailable("매입 세금계산서 삭제")}
+                              className="flex items-center w-full px-3 py-2 text-sm hover:bg-muted text-destructive"
+                            >
                               <Trash2 className="h-4 w-4 mr-2" />
                               삭제
                             </button>
@@ -936,7 +945,7 @@ export function InvoiceReceivedPage() {
               <X className="h-4 w-4 mr-2" />
               취소
             </Button>
-            <Button type="submit" isLoading={isSubmitting}>
+            <Button type="submit">
               <Save className="h-4 w-4 mr-2" />
               {isEditing ? "수정" : "등록"}
             </Button>
@@ -1138,7 +1147,10 @@ export function InvoiceReceivedPage() {
                   수정
                 </Button>
               )}
-              <Button variant="outline">
+              <Button
+                variant="outline"
+                onClick={() => notifyUnavailable("PDF 다운로드")}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 PDF 다운로드
               </Button>

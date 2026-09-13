@@ -10,15 +10,15 @@ package errors
 
 const (
 	// Authentication errors (AUTH_)
-	CodeUnauthorized       = "AUTH_001"
-	CodeTokenExpired       = "AUTH_002"
-	CodeInvalidCredentials = "AUTH_003"
-	CodeAccountLocked      = "AUTH_004"
-	CodeAccountInactive    = "AUTH_005"
-	CodeTokenInvalid       = "AUTH_006"
+	CodeUnauthorized        = "AUTH_001"
+	CodeTokenExpired        = "AUTH_002"
+	CodeInvalidCredentials  = "AUTH_003"
+	CodeAccountLocked       = "AUTH_004"
+	CodeAccountInactive     = "AUTH_005"
+	CodeTokenInvalid        = "AUTH_006"
 	CodeRefreshTokenInvalid = "AUTH_007"
-	CodeMFARequired        = "AUTH_008"
-	CodeMFAInvalid         = "AUTH_009"
+	CodeMFARequired         = "AUTH_008"
+	CodeMFAInvalid          = "AUTH_009"
 
 	// Validation errors (VAL_)
 	CodeValidation    = "VAL_001"
@@ -28,10 +28,10 @@ const (
 	CodeOutOfRange    = "VAL_005"
 
 	// Resource errors (RES_)
-	CodeNotFound      = "RES_001"
-	CodeAlreadyExists = "RES_002"
-	CodeConflict      = "RES_003"
-	CodeEmailExists   = "RES_004"
+	CodeNotFound             = "RES_001"
+	CodeAlreadyExists        = "RES_002"
+	CodeConflict             = "RES_003"
+	CodeEmailExists          = "RES_004"
 	CodeBusinessNumberExists = "RES_005"
 
 	// Permission errors (PERM_)
@@ -55,15 +55,15 @@ const (
 
 // HTTP status code mapping
 var HTTPStatusCodes = map[string]int{
-	CodeUnauthorized:       401,
-	CodeTokenExpired:       401,
-	CodeInvalidCredentials: 401,
-	CodeAccountLocked:      403,
-	CodeAccountInactive:    403,
-	CodeTokenInvalid:       401,
+	CodeUnauthorized:        401,
+	CodeTokenExpired:        401,
+	CodeInvalidCredentials:  401,
+	CodeAccountLocked:       403,
+	CodeAccountInactive:     403,
+	CodeTokenInvalid:        401,
 	CodeRefreshTokenInvalid: 401,
-	CodeMFARequired:        401,
-	CodeMFAInvalid:         401,
+	CodeMFARequired:         401,
+	CodeMFAInvalid:          401,
 
 	CodeValidation:    400,
 	CodeInvalidInput:  400,
@@ -71,10 +71,10 @@ var HTTPStatusCodes = map[string]int{
 	CodeInvalidFormat: 400,
 	CodeOutOfRange:    400,
 
-	CodeNotFound:      404,
-	CodeAlreadyExists: 409,
-	CodeConflict:      409,
-	CodeEmailExists:   409,
+	CodeNotFound:             404,
+	CodeAlreadyExists:        409,
+	CodeConflict:             409,
+	CodeEmailExists:          409,
 	CodeBusinessNumberExists: 409,
 
 	CodeForbidden:        403,

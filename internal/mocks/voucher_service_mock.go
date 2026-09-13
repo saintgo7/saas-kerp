@@ -87,14 +87,14 @@ func (m *MockVoucherService) AddEntry(ctx context.Context, voucherID uuid.UUID, 
 }
 
 // UpdateEntry mocks the UpdateEntry method
-func (m *MockVoucherService) UpdateEntry(ctx context.Context, entry *domain.VoucherEntry) error {
-	args := m.Called(ctx, entry)
+func (m *MockVoucherService) UpdateEntry(ctx context.Context, companyID, voucherID uuid.UUID, entry *domain.VoucherEntry) error {
+	args := m.Called(ctx, companyID, voucherID, entry)
 	return args.Error(0)
 }
 
 // RemoveEntry mocks the RemoveEntry method
-func (m *MockVoucherService) RemoveEntry(ctx context.Context, entryID uuid.UUID) error {
-	args := m.Called(ctx, entryID)
+func (m *MockVoucherService) RemoveEntry(ctx context.Context, companyID, voucherID, entryID uuid.UUID) error {
+	args := m.Called(ctx, companyID, voucherID, entryID)
 	return args.Error(0)
 }
 
