@@ -213,7 +213,10 @@ func (m *Manager) dial(ctx context.Context, addr string) (*grpc.ClientConn, erro
 	ctx, cancel := context.WithTimeout(ctx, m.config.DialTimeout)
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctx, addr, opts...)
+	// DialContext is deprecated since grpc 1.63 but supported throughout 1.x.
+	// NewClient switches the default resolver from passthrough to dns, so the
+	// migration is a behaviour change and is left for its own commit.
+	conn, err := grpc.DialContext(ctx, addr, opts...) //nolint:staticcheck // SA1019, see above
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial %s: %w", addr, err)
 	}

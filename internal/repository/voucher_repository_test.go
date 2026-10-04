@@ -5,10 +5,12 @@ package repository_test
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -23,25 +25,31 @@ import (
 // VoucherRepositoryTestSuite is an integration test suite for VoucherRepository
 type VoucherRepositoryTestSuite struct {
 	suite.Suite
-	container   testcontainers.Container
-	db          *gorm.DB
-	repo        repository.VoucherRepository
-	accountRepo repository.AccountRepository
-	companyID   uuid.UUID
-	accountID1  uuid.UUID
-	accountID2  uuid.UUID
+	container  testcontainers.Container
+	db         *gorm.DB
+	repo       repository.VoucherRepository
+	companyID  uuid.UUID
+	userID     uuid.UUID
+	accountID1 uuid.UUID
+	accountID2 uuid.UUID
 }
 
 // SetupSuite runs once before all tests
 func (s *VoucherRepositoryTestSuite) SetupSuite() {
 	ctx := context.Background()
 
+	// Schema comes from the real migrations (not AutoMigrate), applied by the
+	// container's init-scripts step in file-name order.
+	migrations, err := filepath.Glob("../../db/migrations/*.up.sql")
+	require.NoError(s.T(), err)
+	require.NotEmpty(s.T(), migrations)
+
 	// Start PostgreSQL container
-	pgContainer, err := postgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:16-alpine"),
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("test"),
-		postgres.WithPassword("test"),
+	pgContainer, err := tcpostgres.Run(ctx, "postgres:16-alpine",
+		tcpostgres.WithInitScripts(migrations...),
+		tcpostgres.WithDatabase("testdb"),
+		tcpostgres.WithUsername("test"),
+		tcpostgres.WithPassword("test"),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
@@ -60,19 +68,28 @@ func (s *VoucherRepositoryTestSuite) SetupSuite() {
 	require.NoError(s.T(), err)
 	s.db = db
 
-	// Run migrations
-	err = s.db.AutoMigrate(
-		&domain.Account{},
-		&domain.Voucher{},
-		&domain.VoucherEntry{},
-	)
+	// Create test company (vouchers and accounts reference companies)
+	s.companyID = uuid.New()
+	err = s.db.Create(&domain.Company{
+		BaseModel: domain.BaseModel{ID: s.companyID},
+		Code:      "TEST",
+		Name:      "Test Company",
+		Status:    domain.CompanyStatusActive,
+	}).Error
 	require.NoError(s.T(), err)
 
-	// Create required extensions
-	s.db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
-
-	// Create test company ID
-	s.companyID = uuid.New()
+	// Create test user (vouchers.submitted_by/approved_by reference users)
+	s.userID = uuid.New()
+	err = s.db.Create(&domain.User{
+		TenantModel: domain.TenantModel{
+			BaseModel: domain.BaseModel{ID: s.userID},
+			CompanyID: s.companyID,
+		},
+		Email:        "voucher-test@example.com",
+		PasswordHash: "not-a-real-hash",
+		Name:         "Voucher Tester",
+	}).Error
+	require.NoError(s.T(), err)
 
 	// Create test accounts
 	s.accountID1 = uuid.New()
@@ -115,7 +132,7 @@ func (s *VoucherRepositoryTestSuite) SetupSuite() {
 // TearDownSuite runs once after all tests
 func (s *VoucherRepositoryTestSuite) TearDownSuite() {
 	if s.container != nil {
-		s.container.Terminate(context.Background())
+		s.NoError(s.container.Terminate(context.Background()))
 	}
 }
 
@@ -142,10 +159,8 @@ func (s *VoucherRepositoryTestSuite) newTestVoucher() *domain.Voucher {
 		TotalCredit: 1000,
 		Entries: []domain.VoucherEntry{
 			{
-				TenantModel: domain.TenantModel{
-					BaseModel: domain.BaseModel{ID: uuid.New()},
-					CompanyID: s.companyID,
-				},
+				BaseModel:    domain.BaseModel{ID: uuid.New()},
+				CompanyID:    s.companyID,
 				AccountID:    s.accountID1,
 				LineNo:       1,
 				DebitAmount:  1000,
@@ -153,10 +168,8 @@ func (s *VoucherRepositoryTestSuite) newTestVoucher() *domain.Voucher {
 				Description:  "Debit entry",
 			},
 			{
-				TenantModel: domain.TenantModel{
-					BaseModel: domain.BaseModel{ID: uuid.New()},
-					CompanyID: s.companyID,
-				},
+				BaseModel:    domain.BaseModel{ID: uuid.New()},
+				CompanyID:    s.companyID,
 				AccountID:    s.accountID2,
 				LineNo:       2,
 				DebitAmount:  0,
@@ -213,7 +226,7 @@ func (s *VoucherRepositoryTestSuite) TestCreate_WithEmptyEntries() {
 func (s *VoucherRepositoryTestSuite) TestFindByID_Success() {
 	ctx := context.Background()
 	voucher := s.newTestVoucher()
-	s.repo.Create(ctx, voucher)
+	s.Require().NoError(s.repo.Create(ctx, voucher))
 
 	result, err := s.repo.FindByID(ctx, s.companyID, voucher.ID)
 
@@ -238,7 +251,7 @@ func (s *VoucherRepositoryTestSuite) TestFindByID_NotFound() {
 func (s *VoucherRepositoryTestSuite) TestFindByID_WrongCompanyID() {
 	ctx := context.Background()
 	voucher := s.newTestVoucher()
-	s.repo.Create(ctx, voucher)
+	s.Require().NoError(s.repo.Create(ctx, voucher))
 
 	// Try to find with different company ID
 	differentCompanyID := uuid.New()
@@ -256,7 +269,7 @@ func (s *VoucherRepositoryTestSuite) TestFindByID_WrongCompanyID() {
 func (s *VoucherRepositoryTestSuite) TestFindByNo_Success() {
 	ctx := context.Background()
 	voucher := s.newTestVoucher()
-	s.repo.Create(ctx, voucher)
+	s.Require().NoError(s.repo.Create(ctx, voucher))
 
 	result, err := s.repo.FindByNo(ctx, s.companyID, voucher.VoucherNo)
 
@@ -282,7 +295,7 @@ func (s *VoucherRepositoryTestSuite) TestFindByNo_NotFound() {
 func (s *VoucherRepositoryTestSuite) TestUpdate_Success() {
 	ctx := context.Background()
 	voucher := s.newTestVoucher()
-	s.repo.Create(ctx, voucher)
+	s.Require().NoError(s.repo.Create(ctx, voucher))
 
 	// Update voucher
 	voucher.Description = "Updated description"
@@ -302,7 +315,7 @@ func (s *VoucherRepositoryTestSuite) TestUpdate_Success() {
 func (s *VoucherRepositoryTestSuite) TestDelete_Success() {
 	ctx := context.Background()
 	voucher := s.newTestVoucher()
-	s.repo.Create(ctx, voucher)
+	s.Require().NoError(s.repo.Create(ctx, voucher))
 
 	err := s.repo.Delete(ctx, s.companyID, voucher.ID)
 
@@ -329,7 +342,7 @@ func (s *VoucherRepositoryTestSuite) TestFindAll_WithPagination() {
 	for i := 0; i < 5; i++ {
 		voucher := s.newTestVoucher()
 		voucher.VoucherNo = fmt.Sprintf("TEST-2024-%06d", i+1)
-		s.repo.Create(ctx, voucher)
+		s.Require().NoError(s.repo.Create(ctx, voucher))
 	}
 
 	filter := repository.VoucherFilter{
@@ -352,12 +365,12 @@ func (s *VoucherRepositoryTestSuite) TestFindAll_FilterByStatus() {
 	draftVoucher := s.newTestVoucher()
 	draftVoucher.VoucherNo = "DRAFT-001"
 	draftVoucher.Status = domain.VoucherStatusDraft
-	s.repo.Create(ctx, draftVoucher)
+	s.Require().NoError(s.repo.Create(ctx, draftVoucher))
 
 	pendingVoucher := s.newTestVoucher()
 	pendingVoucher.VoucherNo = "PENDING-001"
 	pendingVoucher.Status = domain.VoucherStatusPending
-	s.repo.Create(ctx, pendingVoucher)
+	s.Require().NoError(s.repo.Create(ctx, pendingVoucher))
 
 	statusFilter := domain.VoucherStatusDraft
 	filter := repository.VoucherFilter{
@@ -379,7 +392,7 @@ func (s *VoucherRepositoryTestSuite) TestFindAll_FilterByDateRange() {
 	// Create voucher with specific date
 	voucher := s.newTestVoucher()
 	voucher.VoucherDate = time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
-	s.repo.Create(ctx, voucher)
+	s.Require().NoError(s.repo.Create(ctx, voucher))
 
 	from := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 6, 30, 0, 0, 0, 0, time.UTC)
@@ -408,17 +421,17 @@ func (s *VoucherRepositoryTestSuite) TestFindByDateRange_Success() {
 	voucher1 := s.newTestVoucher()
 	voucher1.VoucherNo = "DATE-001"
 	voucher1.VoucherDate = time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
-	s.repo.Create(ctx, voucher1)
+	s.Require().NoError(s.repo.Create(ctx, voucher1))
 
 	voucher2 := s.newTestVoucher()
 	voucher2.VoucherNo = "DATE-002"
 	voucher2.VoucherDate = time.Date(2024, 6, 20, 0, 0, 0, 0, time.UTC)
-	s.repo.Create(ctx, voucher2)
+	s.Require().NoError(s.repo.Create(ctx, voucher2))
 
 	voucher3 := s.newTestVoucher()
 	voucher3.VoucherNo = "DATE-003"
 	voucher3.VoucherDate = time.Date(2024, 7, 5, 0, 0, 0, 0, time.UTC)
-	s.repo.Create(ctx, voucher3)
+	s.Require().NoError(s.repo.Create(ctx, voucher3))
 
 	from := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 6, 30, 0, 0, 0, 0, time.UTC)
@@ -440,7 +453,7 @@ func (s *VoucherRepositoryTestSuite) TestFindByStatus_Success() {
 	pendingVoucher := s.newTestVoucher()
 	pendingVoucher.VoucherNo = "STATUS-001"
 	pendingVoucher.Status = domain.VoucherStatusPending
-	s.repo.Create(ctx, pendingVoucher)
+	s.Require().NoError(s.repo.Create(ctx, pendingVoucher))
 
 	results, err := s.repo.FindByStatus(ctx, s.companyID, domain.VoucherStatusPending)
 
@@ -457,13 +470,11 @@ func (s *VoucherRepositoryTestSuite) TestCreateEntry_Success() {
 	ctx := context.Background()
 	voucher := s.newTestVoucher()
 	voucher.Entries = []domain.VoucherEntry{} // Empty entries
-	s.repo.Create(ctx, voucher)
+	s.Require().NoError(s.repo.Create(ctx, voucher))
 
 	entry := &domain.VoucherEntry{
-		TenantModel: domain.TenantModel{
-			BaseModel: domain.BaseModel{ID: uuid.New()},
-			CompanyID: s.companyID,
-		},
+		BaseModel:    domain.BaseModel{ID: uuid.New()},
+		CompanyID:    s.companyID,
 		VoucherID:    voucher.ID,
 		AccountID:    s.accountID1,
 		LineNo:       1,
@@ -484,7 +495,7 @@ func (s *VoucherRepositoryTestSuite) TestCreateEntry_Success() {
 func (s *VoucherRepositoryTestSuite) TestDeleteEntriesByVoucher_Success() {
 	ctx := context.Background()
 	voucher := s.newTestVoucher()
-	s.repo.Create(ctx, voucher)
+	s.Require().NoError(s.repo.Create(ctx, voucher))
 
 	err := s.repo.DeleteEntriesByVoucher(ctx, s.companyID, voucher.ID)
 
@@ -502,10 +513,10 @@ func (s *VoucherRepositoryTestSuite) TestDeleteEntriesByVoucher_Success() {
 func (s *VoucherRepositoryTestSuite) TestUpdateStatus_Success() {
 	ctx := context.Background()
 	voucher := s.newTestVoucher()
-	s.repo.Create(ctx, voucher)
+	s.Require().NoError(s.repo.Create(ctx, voucher))
 
 	// Update status to pending
-	userID := uuid.New()
+	userID := s.userID
 	now := time.Now()
 	voucher.Status = domain.VoucherStatusPending
 	voucher.SubmittedAt = &now
@@ -582,10 +593,16 @@ func (s *VoucherRepositoryTestSuite) TestMultiTenancy_IsolatesData() {
 	// Create voucher for company 1
 	voucher1 := s.newTestVoucher()
 	voucher1.VoucherNo = "COMPANY1-001"
-	s.repo.Create(ctx, voucher1)
+	s.Require().NoError(s.repo.Create(ctx, voucher1))
 
 	// Create voucher for different company
 	company2ID := uuid.New()
+	s.Require().NoError(s.db.Create(&domain.Company{
+		BaseModel: domain.BaseModel{ID: company2ID},
+		Code:      "TEST2",
+		Name:      "Other Company",
+		Status:    domain.CompanyStatusActive,
+	}).Error)
 	voucher2 := &domain.Voucher{
 		TenantModel: domain.TenantModel{
 			BaseModel: domain.BaseModel{ID: uuid.New()},
@@ -596,7 +613,7 @@ func (s *VoucherRepositoryTestSuite) TestMultiTenancy_IsolatesData() {
 		VoucherType: domain.VoucherTypeGeneral,
 		Status:      domain.VoucherStatusDraft,
 	}
-	s.db.Create(voucher2)
+	s.Require().NoError(s.db.Create(voucher2).Error)
 
 	// Query for company 1 should only return company 1's vouchers
 	filter := repository.VoucherFilter{CompanyID: s.companyID}
