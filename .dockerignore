@@ -19,6 +19,7 @@
 credentials.json
 docs/.env_ssh
 docs/SERVER_ACCESS_GUIDE.*
+ADMIN_CRED
 
 # --- VCS / 이력 ---------------------------------------------------------------
 .git

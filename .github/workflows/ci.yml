@@ -353,6 +353,7 @@ jobs:
           set -euo pipefail
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.abada65.yml config -q
 
       # F-17 regression guard. The frontend is built with VITE_API_URL=/api/v1
       # and the Go router registers engine.Group("/api").Group("/v1"), so every
@@ -374,13 +375,23 @@ jobs:
             echo "OK: no stripPrefix directive in the Traefik config"
           fi
 
-          if grep -rnE '^[[:space:]]*proxy_pass[[:space:]]' deployments/docker/nginx/ 2>/dev/null; then
+          if grep -rnE --exclude=nginx-abada65.conf '^[[:space:]]*proxy_pass[[:space:]]' deployments/docker/nginx/ 2>/dev/null; then
             echo "FAIL: nginx now proxies the API. There must be exactly one"
             echo "      reverse proxy in front of the API (Traefik), and a"
             echo "      trailing slash on proxy_pass silently strips /api."
             rc=1
           else
             echo "OK: the web image's nginx serves static files only"
+          fi
+
+          # abada-65 has no Traefik: nginx-abada65.conf (mounted, not baked)
+          # is the one proxy there. Its upstream must carry no URI path.
+          if ! grep -qE '^[[:space:]]*set \$kerp_api http://api:8080;$' deployments/docker/nginx/nginx-abada65.conf \
+             || grep -nE '^[[:space:]]*proxy_pass[[:space:]]+[^$[:space:]]' deployments/docker/nginx/nginx-abada65.conf; then
+            echo "FAIL: nginx-abada65.conf must proxy only via \$kerp_api = http://api:8080 (no path)."
+            rc=1
+          else
+            echo "OK: nginx-abada65.conf preserves the /api prefix"
           fi
 
           python3 - <<'PYEOF'

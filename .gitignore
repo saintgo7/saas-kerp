@@ -107,6 +107,7 @@ docs/design/
 # 서버 접속 정보 문서 — 개인키·비밀번호 포함, 커밋 금지
 docs/SERVER_ACCESS_GUIDE.*
 docs/.env_ssh
+ADMIN_CRED
 *.p12
 *.pfx
 *_rsa

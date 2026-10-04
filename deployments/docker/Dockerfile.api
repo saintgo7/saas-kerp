@@ -50,6 +50,12 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s -X main.Version=${VERSION}" \
     -o /app/server \
     ./cmd/api
+# Migration tool, so a fresh database can be migrated with the same image:
+#   docker-compose run --rm --no-deps --entrypoint /app/migrate api up
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s" \
+    -o /app/migrate \
+    ./cmd/migrate
 
 # =============================================================================
 # Stage 3: Production
@@ -67,6 +73,7 @@ RUN addgroup -g 1000 kerp && \
 
 # Copy binary from builder
 COPY --from=builder /app/server /app/server
+COPY --from=builder /app/migrate /app/migrate
 
 # Copy migrations (if exists)
 COPY --from=builder /app/db/migrations /app/db/migrations
