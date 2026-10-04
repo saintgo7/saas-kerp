@@ -348,6 +348,7 @@ jobs:
           GRAFANA_USER: admin
           GRAFANA_PASSWORD: ci-placeholder-not-a-secret-0000000000
           ARIA_ENCRYPTION_KEY: 000102030405060708090a0b0c0d0e0f
+          KERP_HR_FIELD_KEY: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
         run: |
           set -euo pipefail
           docker compose -f docker-compose.yml config -q
@@ -406,10 +407,11 @@ jobs:
           GRAFANA_USER: admin
           GRAFANA_PASSWORD: ci-placeholder-not-a-secret-0000000000
           ARIA_ENCRYPTION_KEY: 000102030405060708090a0b0c0d0e0f
+          KERP_HR_FIELD_KEY: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
         run: |
           set -uo pipefail
           rc=0
-          for var in JWT_SECRET DB_PASSWORD ARIA_ENCRYPTION_KEY MINIO_PASSWORD MEILI_KEY GRAFANA_PASSWORD; do
+          for var in JWT_SECRET DB_PASSWORD ARIA_ENCRYPTION_KEY KERP_HR_FIELD_KEY MINIO_PASSWORD MEILI_KEY GRAFANA_PASSWORD; do
             if env -u "$var" docker compose -f docker-compose.yml config -q 2>/dev/null; then
               echo "FAIL: compose still renders with $var unset"
               rc=1
