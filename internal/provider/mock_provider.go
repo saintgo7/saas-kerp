@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -97,7 +98,7 @@ func (p *MockTaxInvoiceProvider) Issue(ctx context.Context, companyID uuid.UUID,
 			Success:      false,
 			ErrorCode:    "MOCK_ERROR",
 			ErrorMessage: p.failMessage,
-		}, fmt.Errorf(p.failMessage)
+		}, errors.New(p.failMessage)
 	}
 
 	// Generate mock NTS confirm number
@@ -127,7 +128,7 @@ func (p *MockTaxInvoiceProvider) Cancel(ctx context.Context, companyID uuid.UUID
 			Success:      false,
 			ErrorCode:    "MOCK_ERROR",
 			ErrorMessage: p.failMessage,
-		}, fmt.Errorf(p.failMessage)
+		}, errors.New(p.failMessage)
 	}
 
 	// Check if invoice exists
@@ -151,7 +152,7 @@ func (p *MockTaxInvoiceProvider) Cancel(ctx context.Context, companyID uuid.UUID
 // Search searches for tax invoices
 func (p *MockTaxInvoiceProvider) Search(ctx context.Context, companyID uuid.UUID, filter *TaxInvoiceSearchFilter) (*TaxInvoiceSearchResult, error) {
 	if p.shouldFail {
-		return nil, fmt.Errorf(p.failMessage)
+		return nil, errors.New(p.failMessage)
 	}
 
 	// Return all stored invoices (simplified mock)
@@ -173,7 +174,7 @@ func (p *MockTaxInvoiceProvider) Search(ctx context.Context, companyID uuid.UUID
 // GetByConfirmNumber retrieves a tax invoice by confirm number
 func (p *MockTaxInvoiceProvider) GetByConfirmNumber(ctx context.Context, companyID uuid.UUID, confirmNumber string) (*TaxInvoiceData, error) {
 	if p.shouldFail {
-		return nil, fmt.Errorf(p.failMessage)
+		return nil, errors.New(p.failMessage)
 	}
 
 	inv, exists := p.invoices[confirmNumber]

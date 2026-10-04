@@ -68,7 +68,7 @@ func EnsureStream(js nats.JetStreamContext, cfg *nats.StreamConfig) (*nats.Strea
 // CloseNATS closes the NATS connection
 func CloseNATS(nc *nats.Conn) {
 	if nc != nil {
-		nc.Drain()
+		_ = nc.Drain()
 		nc.Close()
 	}
 }

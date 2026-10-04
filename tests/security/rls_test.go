@@ -1,20 +1,19 @@
-//go:build integration
-// +build integration
+//go:build integration || security
+// +build integration security
 
 package security
 
 import (
 	"bytes"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/saintgo7/saas-kerp/internal/auth"
@@ -526,7 +525,7 @@ func TestInputValidation_SQLInjection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/search?q="+tc.query, nil)
+			req := httptest.NewRequest("GET", "/search?q="+url.QueryEscape(tc.query), nil)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 
