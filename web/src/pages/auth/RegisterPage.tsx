@@ -109,7 +109,9 @@ export function RegisterPage() {
       </CardHeader>
 
       <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        {/* noValidate: as on LoginPage, the browser's required/type="email"
+            check would block submit before the zod messages can show. */}
+        <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {step === 1 && (
             <>
               <Input
