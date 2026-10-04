@@ -124,6 +124,9 @@ func (r *accountRepositoryGorm) FindAll(ctx context.Context, filter AccountFilte
 			Desc:   filter.SortDesc,
 		})
 	}
+	// sort_order is not unique (the standard chart leaves it at 0), so without a
+	// unique tiebreaker OFFSET paging can repeat or skip rows between pages.
+	query = query.Order("code")
 
 	// Apply pagination
 	if filter.PageSize > 0 {

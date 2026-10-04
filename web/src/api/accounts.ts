@@ -141,6 +141,21 @@ export const accountsApi = {
     return mapPaginated(response, toAccount);
   },
 
+  /**
+   * GET /accounts, every page. The API caps page_size at 100 and the standard
+   * chart has 109 accounts, so a single page silently left some out (e.g. 4101
+   * 상품매출 was missing from the voucher picker).
+   */
+  listAll: async (params?: Omit<AccountListParams, "page" | "pageSize">) => {
+    const first = await accountsApi.list({ ...params, pageSize: 100 });
+    const items = [...first.data.items];
+    for (let page = 2; page <= first.data.totalPages; page++) {
+      const next = await accountsApi.list({ ...params, page, pageSize: 100 });
+      items.push(...next.data.items);
+    }
+    return { ...first, data: { ...first.data, items } };
+  },
+
   /** GET /accounts/tree */
   tree: async (type?: AccountType) => {
     const response = await apiClient.get<AccountWire[]>(

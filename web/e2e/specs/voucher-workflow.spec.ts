@@ -1,40 +1,32 @@
 import { test, expect, Page } from '@playwright/test';
 
-// Helper function to login (to be used when auth is working)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function login(page: Page, email: string, password: string) {
+// These specs drive the real API: the voucher pages load accounts and the
+// session is checked server-side, so a fake token in localStorage is torn down
+// on the first 401. CI seeds a demo admin (db/seed/004_demo_company.sql) and
+// passes its credentials in E2E_USER_EMAIL / E2E_USER_PASSWORD.
+const E2E_USER_EMAIL = process.env.E2E_USER_EMAIL;
+const E2E_USER_PASSWORD = process.env.E2E_USER_PASSWORD;
+const hasBackendUser = !!E2E_USER_EMAIL && !!E2E_USER_PASSWORD;
+
+// Account pickers are native <select>s with a "계정선택" placeholder; the
+// header's 전표유형 select is a combobox too, so match on the placeholder.
+function accountSelects(page: Page) {
+  return page
+    .locator('select')
+    .filter({ has: page.locator('option', { hasText: '계정선택' }) });
+}
+
+async function login(page: Page) {
   await page.goto('/login');
-  await page.getByLabel(/이메일/).fill(email);
-  await page.getByLabel(/비밀번호/).fill(password);
+  await page.getByLabel(/이메일/).fill(E2E_USER_EMAIL!);
+  await page.getByLabel(/비밀번호/).fill(E2E_USER_PASSWORD!);
   await page.getByRole('button', { name: '로그인' }).click();
   await expect(page).toHaveURL(/.*dashboard/, { timeout: 10000 });
 }
 
-// Helper to set auth state directly (for testing without actual login)
-async function setAuthState(page: Page) {
-  await page.evaluate(() => {
-    const mockUser = {
-      id: 'test-user-id',
-      email: 'test@example.com',
-      name: 'Test User',
-      role: 'admin',
-      companyId: 'test-company-id',
-    };
-
-    localStorage.setItem('kerp_access_token', 'test-access-token');
-    localStorage.setItem('kerp_refresh_token', 'test-refresh-token');
-    localStorage.setItem(
-      'kerp_user',
-      JSON.stringify({ state: { user: mockUser, isAuthenticated: true } })
-    );
-  });
-}
-
 test.describe('Voucher Workflow', () => {
-  // Skip these tests when running in CI without backend
-  test.skip(() => {
-    return process.env.CI === 'true' && !process.env.BACKEND_URL;
-  });
+  // Needs a running API with a seeded user (see login above).
+  test.skip(!hasBackendUser, 'E2E_USER_EMAIL/E2E_USER_PASSWORD not set');
 
   // ==========================================================================
   // Voucher Form Page Tests
@@ -42,7 +34,7 @@ test.describe('Voucher Workflow', () => {
 
   test.describe('Voucher Form Page', () => {
     test.beforeEach(async ({ page }) => {
-      await setAuthState(page);
+      await login(page);
     });
 
     test('should display voucher form', async ({ page }) => {
@@ -66,8 +58,7 @@ test.describe('Voucher Workflow', () => {
       await page.goto('/accounting/voucher/new');
 
       // Should have 2 account selects
-      const accountSelects = page.getByRole('combobox');
-      await expect(accountSelects).toHaveCount(2);
+      await expect(accountSelects(page)).toHaveCount(2);
     });
 
     test('should add new entry row', async ({ page }) => {
@@ -75,8 +66,7 @@ test.describe('Voucher Workflow', () => {
 
       await page.getByRole('button', { name: /분개 추가/ }).click();
 
-      const accountSelects = page.getByRole('combobox');
-      await expect(accountSelects).toHaveCount(3);
+      await expect(accountSelects(page)).toHaveCount(3);
     });
 
     test('should show unbalanced badge initially', async ({ page }) => {
@@ -129,11 +119,8 @@ test.describe('Voucher Workflow', () => {
       await page.getByLabel(/적요/).fill('Test voucher');
 
       // Select accounts
-      await page.getByRole('combobox').first().click();
-      await page.getByText('101 현금').click();
-
-      await page.getByRole('combobox').nth(1).click();
-      await page.getByText('401 상품매출').click();
+      await accountSelects(page).first().selectOption({ label: '110101 현금' });
+      await accountSelects(page).nth(1).selectOption({ label: '4101 상품매출' });
 
       // Enter unbalanced amounts
       const numberInputs = page.locator('input[type="number"]');
@@ -167,7 +154,7 @@ test.describe('Voucher Workflow', () => {
 
   test.describe('Voucher List Page', () => {
     test.beforeEach(async ({ page }) => {
-      await setAuthState(page);
+      await login(page);
     });
 
     test('should display voucher list page', async ({ page }) => {
@@ -203,12 +190,12 @@ test.describe('Voucher Workflow', () => {
 
   test.describe('Complete Workflow', () => {
     test.beforeEach(async ({ page }) => {
-      await setAuthState(page);
+      await login(page);
     });
 
-    test.skip('should create, view, and manage voucher', async ({ page }) => {
-      // This test requires backend API
-      // Skipped until backend is available
+    test('should create, view, and manage voucher', async ({ page }) => {
+      // Unique per run so re-runs against the same database stay unambiguous.
+      const description = `Test voucher - E2E ${Date.now()}`;
 
       // 1. Navigate to voucher list
       await page.goto('/accounting/voucher');
@@ -217,14 +204,11 @@ test.describe('Voucher Workflow', () => {
       await page.getByRole('link', { name: /전표 작성|신규/ }).click();
 
       // 3. Fill voucher form
-      await page.getByLabel(/적요/).fill('Test voucher - E2E');
+      await page.getByLabel(/적요/).fill(description);
 
       // Select accounts
-      await page.getByRole('combobox').first().click();
-      await page.getByText('101 현금').click();
-
-      await page.getByRole('combobox').nth(1).click();
-      await page.getByText('401 상품매출').click();
+      await accountSelects(page).first().selectOption({ label: '110101 현금' });
+      await accountSelects(page).nth(1).selectOption({ label: '4101 상품매출' });
 
       // Enter balanced amounts
       const numberInputs = page.locator('input[type="number"]');
@@ -241,7 +225,7 @@ test.describe('Voucher Workflow', () => {
       await expect(page).toHaveURL(/.*accounting.*voucher/);
 
       // 6. New voucher should appear in list
-      await expect(page.getByText('Test voucher - E2E')).toBeVisible();
+      await expect(page.getByText(description)).toBeVisible();
     });
   });
 });
@@ -251,12 +235,13 @@ test.describe('Voucher Workflow', () => {
 // ==========================================================================
 
 test.describe('Accessibility', () => {
-  test('voucher form should have proper labels', async ({ page }) => {
-    // Set auth state
-    await page.evaluate(() => {
-      localStorage.setItem('kerp_access_token', 'test-token');
-    });
+  test.skip(!hasBackendUser, 'E2E_USER_EMAIL/E2E_USER_PASSWORD not set');
 
+  test.beforeEach(async ({ page }) => {
+    await login(page);
+  });
+
+  test('voucher form should have proper labels', async ({ page }) => {
     await page.goto('/accounting/voucher/new');
 
     // Check that important form fields have labels
@@ -265,12 +250,9 @@ test.describe('Accessibility', () => {
   });
 
   test('voucher form should be keyboard navigable', async ({ page }) => {
-    // Set auth state
-    await page.evaluate(() => {
-      localStorage.setItem('kerp_access_token', 'test-token');
-    });
-
     await page.goto('/accounting/voucher/new');
+    // The route is lazy-loaded; tab only once the form is on screen.
+    await expect(page.getByLabel(/전표일자/)).toBeVisible();
 
     // Tab through form elements
     await page.keyboard.press('Tab');

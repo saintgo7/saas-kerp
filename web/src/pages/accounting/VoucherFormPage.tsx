@@ -111,8 +111,8 @@ export function VoucherFormPage() {
     isError: isAccountsError,
     error: accountsError,
   } = useQuery({
-    queryKey: ["accounts", "list", { pageSize: 100, isActive: true }],
-    queryFn: () => accountsApi.list({ pageSize: 100, isActive: true }),
+    queryKey: ["accounts", "list", "all", { isActive: true }],
+    queryFn: () => accountsApi.listAll({ isActive: true }),
   });
 
   const accountOptions = useMemo(

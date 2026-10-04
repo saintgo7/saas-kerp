@@ -56,7 +56,9 @@ export function LoginPage() {
       </CardHeader>
 
       <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        {/* noValidate: the browser's type="email" check would block submit and
+            hide the zod messages, so a malformed address got no inline error. */}
+        <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <Input
             type="email"
             label="이메일"

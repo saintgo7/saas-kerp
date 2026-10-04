@@ -93,23 +93,32 @@ test.describe('Authentication', () => {
     test('should display registration form', async ({ page }) => {
       await page.goto('/register');
 
+      // Two-step wizard: company info first, then account info.
       await expect(page.getByRole('heading', { name: '회원가입' })).toBeVisible();
-      await expect(page.getByLabel(/이메일/)).toBeVisible();
-      await expect(page.getByLabel(/비밀번호/)).toBeVisible();
-      await expect(page.getByLabel(/이름/)).toBeVisible();
       await expect(page.getByLabel(/회사명/)).toBeVisible();
       await expect(page.getByLabel(/사업자등록번호/)).toBeVisible();
+
+      await page.getByLabel(/회사명/).fill('테스트 주식회사');
+      await page.getByLabel(/사업자등록번호/).fill('123-45-67890');
+      await page.getByRole('button', { name: '다음' }).click();
+
+      await expect(page.getByLabel(/이름/)).toBeVisible();
+      await expect(page.getByLabel(/이메일/)).toBeVisible();
+      await expect(page.getByLabel(/^비밀번호\*?$/)).toBeVisible();
+      await expect(page.getByRole('button', { name: '가입하기' })).toBeVisible();
     });
 
     test('should validate required fields', async ({ page }) => {
       await page.goto('/register');
 
-      await page.getByRole('button', { name: '회원가입' }).click();
+      await page.getByRole('button', { name: '다음' }).click();
 
-      // At least one validation error should appear
-      await expect(page.locator('.text-destructive')).toHaveCount(1, {
+      await expect(page.getByText('회사명은 최소 2자 이상이어야 합니다.')).toBeVisible({
         timeout: 5000,
       });
+      await expect(
+        page.getByText('올바른 사업자등록번호 형식이 아닙니다.')
+      ).toBeVisible();
     });
 
     test('should navigate to login page', async ({ page }) => {
@@ -150,26 +159,26 @@ test.describe('Authentication', () => {
   // ==========================================================================
 
   test.describe('Session Management', () => {
-    test.skip('should persist login state after page reload', async ({
-      page,
-    }) => {
-      // This test requires setting up auth state
-      // Skipped until we have proper auth mocking in E2E
+    // Needs a running API with a seeded user (see voucher-workflow.spec.ts).
+    test.skip(
+      !process.env.E2E_USER_EMAIL || !process.env.E2E_USER_PASSWORD,
+      'E2E_USER_EMAIL/E2E_USER_PASSWORD not set'
+    );
 
+    test('should persist login state after page reload', async ({ page }) => {
       await page.goto('/login');
 
-      // TODO: Mock successful login
-      // await page.getByLabel(/이메일/).fill('test@example.com');
-      // await page.getByLabel(/비밀번호/).fill('password123');
-      // await page.getByRole('button', { name: '로그인' }).click();
+      await page.getByLabel(/이메일/).fill(process.env.E2E_USER_EMAIL!);
+      await page.getByLabel(/비밀번호/).fill(process.env.E2E_USER_PASSWORD!);
+      await page.getByRole('button', { name: '로그인' }).click();
 
-      // await expect(page).toHaveURL(/.*dashboard/);
+      await expect(page).toHaveURL(/.*dashboard/, { timeout: 10000 });
 
-      // // Reload page
-      // await page.reload();
+      // Reload page
+      await page.reload();
 
-      // // Should still be on dashboard
-      // await expect(page).toHaveURL(/.*dashboard/);
+      // Should still be on dashboard
+      await expect(page).toHaveURL(/.*dashboard/);
     });
   });
 });

@@ -38,12 +38,11 @@ export function GeneralLedgerPage() {
     isLoading: isAccountsLoading,
     error: accountsError,
   } = useQuery({
-    queryKey: ["accounts", "list", selectedAccountType],
+    queryKey: ["accounts", "list", "all", selectedAccountType],
     queryFn: () =>
-      accountsApi.list({
+      accountsApi.listAll({
         type: selectedAccountType || undefined,
         isActive: true,
-        pageSize: 100,
       }),
   });
 
