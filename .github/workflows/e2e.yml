@@ -1,0 +1,119 @@
+# E2E Tests - reusable workflow
+#
+# One definition of the Playwright E2E job, called by Test Orchestrator (push to
+# main, nightly, dispatch) and by CI Pipeline (pull requests), so both run the
+# same specs against the same in-job stack.
+#
+# The specs live in web/e2e (own Playwright config; its webServer starts the
+# Vite dev server on :3000, which proxies /api to the API on :8080). Logged-in
+# specs use the demo admin from db/seed, created here with a per-run random
+# password, so everything runs inside the job: never point this at a real site.
+
+name: E2E Tests
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.22'
+  NODE_VERSION: '20'
+
+jobs:
+  e2e:
+    name: Playwright
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: kerp_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://test:test@localhost:5432/kerp_test?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Migrate and seed database
+        run: |
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+          migrate -path db/migrations -database "$DATABASE_URL" up
+
+          # Throwaway password for this run's demo admin; the seed refuses to run
+          # without a hash supplied at run time.
+          E2E_USER_PASSWORD=$(openssl rand -hex 16)
+          echo "::add-mask::$E2E_USER_PASSWORD"
+          echo "E2E_USER_PASSWORD=$E2E_USER_PASSWORD" >> "$GITHUB_ENV"
+          hash=$(psql "$DATABASE_URL" -tAc "SELECT crypt('$E2E_USER_PASSWORD', gen_salt('bf', 10))")
+          for f in db/seed/*.sql; do
+            PGOPTIONS="-c kerp.demo_admin_password_hash=$hash" \
+              psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+
+      - name: Build and start API
+        env:
+          KERP_DATABASE_HOST: localhost
+          KERP_DATABASE_PORT: 5432
+          KERP_DATABASE_NAME: kerp_test
+          KERP_DATABASE_USER: test
+          KERP_DATABASE_PASSWORD: test
+          # The suite logs in once per test from one IP; the 1 req/s credential
+          # limiter would turn that into 429s. Not under test here.
+          KERP_RATELIMIT_ENABLED: 'false'
+        run: |
+          go build -o bin/api ./cmd/api
+          KERP_JWT_SECRET=$(openssl rand -hex 32) nohup ./bin/api > api.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:8080/health > /dev/null && exit 0
+            sleep 1
+          done
+          echo "API did not become healthy"; cat api.log; exit 1
+
+      - name: Install web dependencies and Playwright browser
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        working-directory: web
+        env:
+          E2E_USER_EMAIL: admin@demo.co.kr
+        run: npx playwright test -c e2e/playwright.config.ts --project=chromium
+
+      - name: Upload E2E artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-report
+          path: |
+            web/playwright-report/
+            web/test-results/
+            api.log
+          retention-days: 7
+
