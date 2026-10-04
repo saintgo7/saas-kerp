@@ -1,0 +1,11 @@
+-- Intentionally a no-op.
+--
+-- The up migration only ADDS rows: the standard chart for companies that had
+-- none. Once a company exists those accounts are indistinguishable from the
+-- ones it uses in vouchers, and voucher_entries reference them, so deleting
+-- them here would either fail on the foreign keys or destroy accounting data.
+--
+-- The create_standard_accounts() function is kept as well: db/seed/004 calls
+-- it, and db/seed/002 no longer defines it, so dropping it would leave the demo
+-- seed - and registration, if this code is still running - without it.
+SELECT 1;
