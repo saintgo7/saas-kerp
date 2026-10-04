@@ -51,12 +51,13 @@ var exactWeakSecrets = map[string]bool{
 // length or entropy, which is what stops `.env.example` values from booting a
 // staging or production server.
 //
-// Every token here is at least five characters long. Shorter ones ("xxx",
-// "aaaa", "0000") occur inside genuinely random base64 often enough to matter --
-// a 64-character secret hits a given three-character run about once in four
-// thousand -- and rejecting a good secret with a confusing message is its own
-// kind of failure. Runs of a repeated character are caught by hasLongRun
-// instead, which random strings essentially never trigger.
+// Every token here is at least seven characters long, so a generated secret
+// contains one by chance far too rarely to matter: a lower-cased 64-character
+// base64 secret hits a given seven-letter run about once in six hundred million.
+// Shorter words live in placeholderWords, which only match whole words. A five
+// letter token matched as a bare substring ("dummy", "fixme") turned up in about
+// one generated secret in two hundred thousand and made CI flaky. Runs of a
+// repeated character are caught by hasLongRun instead.
 var placeholderTokens = []string{
 	"changeme",
 	"change-me",
@@ -69,9 +70,6 @@ var placeholderTokens = []string{
 	"replaceme",
 	"placeholder",
 	"example",
-	"sample",
-	"your-",
-	"your_",
 	"yoursecret",
 	"yourkey",
 	"secret-key",
@@ -83,12 +81,9 @@ var placeholderTokens = []string{
 	"supersecret",
 	"insecure",
 	"notsecure",
-	"dummy",
 	"default",
 	"password",
-	"passwd",
 	"letmein",
-	"qwerty",
 	"deadbeef",
 	"random-string",
 	"randomstring",
@@ -96,12 +91,29 @@ var placeholderTokens = []string{
 	"atleast",
 	"32-chars",
 	"32chars",
-	"fixme",
 	"test-secret",
 	"testsecret",
 	"localhost",
 	"kerp-api",
-	"lorem",
+}
+
+// placeholderWords are short placeholder words that are rejected only when they
+// stand as a whole word, i.e. bounded on both sides by the start or end of the
+// value or by a character that is not a letter or digit ("dummy-secret",
+// "your_secret_here", "x/fixme/y"). A generated secret is one unbroken run of
+// letters and digits (hex), or has a separator ("+", "/", or "-", "_" in the URL
+// alphabet) only about once every thirty characters (base64), so it isolates one
+// of these words by chance about once in ten million secrets at worst ("your"),
+// while a human-written placeholder separates its words. "Kd8dummyRp2" is
+// accepted: letters inside a random run carry no sign of human authorship.
+var placeholderWords = map[string]bool{
+	"your":   true,
+	"dummy":  true,
+	"sample": true,
+	"passwd": true,
+	"qwerty": true,
+	"fixme":  true,
+	"lorem":  true,
 }
 
 // separatorStripper removes the word separators a human uses inside a
@@ -135,6 +147,11 @@ func ValidateSecret(name, secret string) error {
 	for _, token := range placeholderTokens {
 		if strings.Contains(normalized, token) || strings.Contains(compact, token) {
 			return fmt.Errorf("%s looks like a placeholder (contains %q) and must be replaced (generate one with: openssl rand -base64 48)", name, token)
+		}
+	}
+	for _, word := range strings.FieldsFunc(normalized, isNotWordRune) {
+		if placeholderWords[word] {
+			return fmt.Errorf("%s looks like a placeholder (contains %q) and must be replaced (generate one with: openssl rand -base64 48)", name, word)
 		}
 	}
 
@@ -178,6 +195,11 @@ func SecretFingerprint(secret string) string {
 	}
 	sum := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(sum[:])[:8]
+}
+
+// isNotWordRune reports whether r separates words: anything but a letter or digit.
+func isNotWordRune(r rune) bool {
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 }
 
 // distinctRunes counts the distinct runes in s.

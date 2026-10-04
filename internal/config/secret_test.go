@@ -1,9 +1,9 @@
 package config
 
 import (
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"math/rand"
 	"strings"
 	"testing"
 )
@@ -27,6 +27,14 @@ func TestValidateSecret_RejectsShippedPlaceholders(t *testing.T) {
 		"abcdefghijklmnopqrstuvwxyzabcdefghijklmn",
 		"0123456789012345678901234567890123456789",
 		"password-password-password-password-1234",
+		"changeme",
+		"your-secret-here",
+		"CHANGE_ME_TO_A_REAL_SECRET_BEFORE_DEPLOY",
+		"dummy-secret",
+		"FIXME",
+		"lorem ipsum dolor sit amet consectetur",
+		"Xq7#mZ2!pL9",
+		"kerp1234kerp1234",
 	}
 
 	for _, secret := range placeholders {
@@ -80,31 +88,73 @@ func TestValidateSecret_RejectsEmpty(t *testing.T) {
 	}
 }
 
-func TestValidateSecret_AcceptsGeneratedSecrets(t *testing.T) {
-	// What `openssl rand -base64 48` and `openssl rand -hex 32` produce must pass,
-	// otherwise the check is unusable in practice. The iteration count is high on
-	// purpose: an earlier version of the placeholder list contained "xxx", which
-	// a random base64 secret hits roughly once in four thousand, and a small
-	// sample would not have caught it.
-	for i := 0; i < 20000; i++ {
-		raw := make([]byte, 48)
-		if _, err := rand.Read(raw); err != nil {
-			t.Fatalf("rand.Read: %v", err)
+// Placeholder words padded with random-looking characters to a legal length must
+// still be rejected as placeholders, not let through by the length or entropy
+// checks: the word check has to hold on its own.
+func TestValidateSecret_RejectsPlaceholderWordsInsideRandomValues(t *testing.T) {
+	const random = "Kd8Rp2Ns6Vt9Yc3Hb7Lq1Zg5Ax0Ju4Fo8Wm2PeR6"
+	for _, secret := range []string{
+		"Kd8Rp2Ns-dummy-6Vt9Yc3Hb7Lq1Zg5Ax0Ju4Fo8Wm2Pe",
+		"dummy-secret-" + random,
+		random + "_FIXME",
+		"your_" + random,
+		"Lorem." + random,
+		random + "/sample/x",
+		"CHANGE_ME_" + random,
+		random + "changeme",
+	} {
+		err := ValidateSecret("jwt.secret", secret)
+		if err == nil {
+			t.Errorf("ValidateSecret accepted %q", secret)
+			continue
 		}
-		secret := base64.StdEncoding.EncodeToString(raw)
+		if !strings.Contains(err.Error(), "placeholder") {
+			t.Errorf("ValidateSecret(%q) rejected for the wrong reason: %v", secret, err)
+		}
+	}
+}
+
+// A short placeholder word that occurs inside an unbroken random run is chance,
+// not authorship. Rejecting it is what made the generated-secret test flaky.
+func TestValidateSecret_AcceptsShortWordsInsideRandomRuns(t *testing.T) {
+	for _, secret := range []string{
+		"Kd8Rp2NsdummyVt9Yc3Hb7Lq1Zg5Ax0Ju4Fo8Wm2PeR6",
+		"Kd8Rp2Ns6Vt9Yc3FIXMEHb7Lq1Zg5Ax0Ju4Fo8Wm2PeR6",
+		"yourKd8Rp2Ns6Vt9Yc3Hb7Lq1Zg5Ax0Ju4Fo8Wm2PeR6",
+	} {
 		if err := ValidateSecret("jwt.secret", secret); err != nil {
-			t.Fatalf("ValidateSecret rejected a generated secret %q: %v", secret, err)
+			t.Errorf("ValidateSecret rejected a random value that merely contains a short word: %v", err)
+		}
+	}
+}
+
+func TestValidateSecret_AcceptsGeneratedSecrets(t *testing.T) {
+	// What `openssl rand -base64 48`, `openssl rand -hex 32` and URL-safe base64
+	// generators produce must pass, otherwise the check is unusable in practice.
+	// The sample is large and the seed fixed: a placeholder token that collides
+	// with random output once in a few hundred thousand secrets fails here every
+	// time instead of failing one CI run in ten.
+	const samples = 200000
+	r := rand.New(rand.NewSource(20261005))
+	fill := func(b []byte) {
+		for i := range b {
+			b[i] = byte(r.Int63())
 		}
 	}
 
-	for i := 0; i < 20000; i++ {
-		raw := make([]byte, 32)
-		if _, err := rand.Read(raw); err != nil {
-			t.Fatalf("rand.Read: %v", err)
+	raw48 := make([]byte, 48)
+	raw32 := make([]byte, 32)
+	for i := 0; i < samples; i++ {
+		fill(raw48)
+		if secret := base64.StdEncoding.EncodeToString(raw48); ValidateSecret("jwt.secret", secret) != nil {
+			t.Fatalf("ValidateSecret rejected a base64 secret %q: %v", secret, ValidateSecret("jwt.secret", secret))
 		}
-		secret := hex.EncodeToString(raw)
-		if err := ValidateSecret("jwt.secret", secret); err != nil {
-			t.Fatalf("ValidateSecret rejected a hex secret %q: %v", secret, err)
+		if secret := base64.RawURLEncoding.EncodeToString(raw48); ValidateSecret("jwt.secret", secret) != nil {
+			t.Fatalf("ValidateSecret rejected a base64url secret %q: %v", secret, ValidateSecret("jwt.secret", secret))
+		}
+		fill(raw32)
+		if secret := hex.EncodeToString(raw32); ValidateSecret("jwt.secret", secret) != nil {
+			t.Fatalf("ValidateSecret rejected a hex secret %q: %v", secret, ValidateSecret("jwt.secret", secret))
 		}
 	}
 }
@@ -155,9 +205,9 @@ func TestSecretFingerprint(t *testing.T) {
 }
 
 // A placeholder token must not be something a generated secret can contain by
-// chance. The hex alphabet is the tight case: `openssl rand -hex 32` draws on
-// sixteen symbols, so a short all-hex token collides often enough to reject good
-// secrets.
+// chance. Bare substrings must be long; short words must be plain words, since
+// they are only ever compared against whole words. The hex alphabet is the tight
+// case: `openssl rand -hex 32` draws on sixteen symbols.
 func TestPlaceholderTokensCannotCollide(t *testing.T) {
 	const hexAlphabet = "0123456789abcdef"
 
@@ -171,11 +221,17 @@ func TestPlaceholderTokensCannotCollide(t *testing.T) {
 	}
 
 	for _, token := range placeholderTokens {
-		if len(token) < 5 {
-			t.Errorf("placeholder token %q is too short: it will reject generated secrets by chance", token)
+		if len(token) < 7 {
+			t.Errorf("placeholder token %q is too short to match as a substring: move it to placeholderWords", token)
 		}
 		if len(token) < 8 && isHexOnly(token) {
 			t.Errorf("placeholder token %q is short and all-hex: it collides with `openssl rand -hex` output", token)
+		}
+	}
+
+	for word := range placeholderWords {
+		if len(word) < 4 || strings.IndexFunc(word, isNotWordRune) >= 0 || strings.ToLower(word) != word {
+			t.Errorf("placeholder word %q must be a lower-case word of at least four letters or digits", word)
 		}
 	}
 }
