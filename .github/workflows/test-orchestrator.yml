@@ -474,7 +474,9 @@ jobs:
           # Merge coverage files if any exist
           if find coverage/ -name "*.out" -type f 2>/dev/null | grep -q .; then
             echo "mode: atomic" > coverage/merged.out
-            find coverage/ -name "*.out" -type f -exec tail -n +2 {} \; >> coverage/merged.out 2>/dev/null || true
+            # merged.out matches *.out too; tailing it into itself never hits EOF
+            # and fills the runner disk.
+            find coverage/ -name "*.out" ! -name merged.out -type f -exec tail -n +2 {} \; >> coverage/merged.out 2>/dev/null || true
 
             # Generate report
             if [ -s coverage/merged.out ]; then
