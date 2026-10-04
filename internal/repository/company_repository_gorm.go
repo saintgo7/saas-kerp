@@ -22,8 +22,9 @@ func NewCompanyRepository(db *gorm.DB) CompanyRepository {
 // Create inserts the company together with its standard chart of accounts.
 //
 // A company without accounts cannot write a single voucher, and nothing else
-// creates them: create_standard_accounts() (db/migrations/000024) used to be
-// reached only from the demo seed, so every registered company started empty.
+// creates them: create_standard_accounts() (db/migrations/000024, its parent
+// links fixed in 000025) used to be reached only from the demo seed, so every
+// registered company started empty.
 // Doing it here covers every way the application creates a company. Both
 // inserts share one transaction - a savepoint inside the caller's, when Create
 // runs in a UnitOfWork as registration does - so a company never exists

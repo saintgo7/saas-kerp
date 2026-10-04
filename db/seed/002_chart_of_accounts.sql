@@ -1,7 +1,8 @@
 -- K-ERP v0.2 Seed: Standard Korean Chart of Accounts (K-IFRS)
 --
 -- create_standard_accounts(company_id) is defined by
--- db/migrations/000024_standard_chart_of_accounts.up.sql, so it exists on every
+-- db/migrations/000024_standard_chart_of_accounts.up.sql (current body in
+-- 000025_account_class_parents.up.sql), so it exists on every
 -- migrated database whether or not this seed is run. Registration calls it for
 -- each new company (CompanyRepository.Create), and 004_demo_company calls it for
 -- the demo company.

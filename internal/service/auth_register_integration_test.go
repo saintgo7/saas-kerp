@@ -20,6 +20,7 @@ import (
 
 	"github.com/saintgo7/saas-kerp/internal/auth"
 	"github.com/saintgo7/saas-kerp/internal/config"
+	"github.com/saintgo7/saas-kerp/internal/domain"
 	"github.com/saintgo7/saas-kerp/internal/repository"
 	"github.com/saintgo7/saas-kerp/internal/service"
 )
@@ -115,4 +116,34 @@ func TestRegisterCreatesStandardChartOfAccounts(t *testing.T) {
 	require.Equal(t, want, chartOf(second))
 	require.Equal(t, want, chartOf(first), "registering another company must not change the first one's chart")
 	require.Equal(t, chart{Total: 1, Codes: 1}, chartOf(otherID), "an existing company's own chart must be untouched")
+
+	// The tree GET /accounts/tree returns: the five classes as roots, every
+	// group (11, 21, 41, ...) under its class, and all 109 accounts reachable.
+	accounts := repository.NewAccountRepository(db)
+	for _, id := range []uuid.UUID{first, second} {
+		roots, err := accounts.GetTree(ctx, id)
+		require.NoError(t, err)
+		var codes []string
+		for _, r := range roots {
+			codes = append(codes, r.Code)
+		}
+		require.Equal(t, []string{"1", "2", "3", "4", "5"}, codes, "tree roots")
+		require.Equal(t, 109, countNodes(roots), "every account is in the tree")
+
+		var misplaced []string
+		require.NoError(t, db.Raw(`
+			SELECT a.code FROM accounts a LEFT JOIN accounts p ON p.id = a.parent_id
+			WHERE a.company_id = ? AND length(a.code) > 1
+			  AND p.code IS DISTINCT FROM (CASE WHEN length(a.code) = 2 THEN left(a.code, 1)
+			                                    ELSE left(a.code, length(a.code) - 2) END)`, id).Scan(&misplaced).Error)
+		require.Empty(t, misplaced, "accounts not under their standard parent")
+	}
+}
+
+func countNodes(accounts []domain.Account) int {
+	n := len(accounts)
+	for _, a := range accounts {
+		n += countNodes(a.Children)
+	}
+	return n
 }
