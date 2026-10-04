@@ -132,3 +132,7 @@ test-results/
 
 # 테스트가 런타임에 생성하는 스크린샷 (test_hometax_crawl.py)
 python-services/tax-scraper/tests/screenshots/
+
+# 로컬 전용 도구 설정(추적 제외)
+.claude/
+CLAUDE.md
