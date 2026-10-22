@@ -114,7 +114,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to acquire a connection: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", advisoryLockID); err != nil {
 		return fmt.Errorf("failed to acquire the migration lock: %w", err)

@@ -273,19 +273,19 @@ func (c *TaxInvoiceClient) Login(ctx context.Context, req *LoginRequest) (*Login
 		return nil, rpcError("Hometax login", err)
 	}
 	if resp == nil {
-		return nil, errors.New("Hometax login returned an empty response")
+		return nil, errors.New("login to Hometax returned an empty response")
 	}
 
 	// A success with no session id is not a success: every later call is
 	// scoped by that id, so accepting it would hand the caller a session it
 	// cannot use and hide the real failure.
 	if resp.GetSuccess() && resp.GetSessionId() == "" {
-		return nil, errors.New("Hometax login reported success without a session id")
+		return nil, errors.New("login to Hometax reported success without a session id")
 	}
 
 	expiresAt, err := parseScraperTime(resp.GetExpiresAt())
 	if err != nil {
-		return nil, fmt.Errorf("Hometax login returned an unreadable session expiry: %w", err)
+		return nil, fmt.Errorf("login to Hometax returned an unreadable session expiry: %w", err)
 	}
 
 	return &LoginResponse{
@@ -323,7 +323,7 @@ func (c *TaxInvoiceClient) Logout(ctx context.Context, companyID, sessionID stri
 		return rpcError("Hometax logout", err)
 	}
 	if resp == nil {
-		return errors.New("Hometax logout returned an empty response")
+		return errors.New("logout from Hometax returned an empty response")
 	}
 
 	// Report a refused logout rather than swallowing it. A caller that
@@ -334,7 +334,7 @@ func (c *TaxInvoiceClient) Logout(ctx context.Context, companyID, sessionID stri
 		if msg == "" {
 			msg = "no reason given"
 		}
-		return fmt.Errorf("Hometax logout was refused: %s", msg)
+		return fmt.Errorf("logout from Hometax was refused: %s", msg)
 	}
 
 	return nil
@@ -385,14 +385,14 @@ func (c *TaxInvoiceClient) GetTaxInvoices(ctx context.Context, req *GetTaxInvoic
 		return nil, rpcError("Hometax invoice retrieval", err)
 	}
 	if resp == nil {
-		return nil, errors.New("Hometax invoice retrieval returned an empty response")
+		return nil, errors.New("invoice retrieval from Hometax returned an empty response")
 	}
 
 	invoices := make([]TaxInvoice, 0, len(resp.GetInvoices()))
 	for _, pbInvoice := range resp.GetInvoices() {
 		invoice, err := invoiceFromProto(pbInvoice)
 		if err != nil {
-			return nil, fmt.Errorf("Hometax invoice retrieval returned an unusable invoice: %w", err)
+			return nil, fmt.Errorf("invoice retrieval from Hometax returned an unusable invoice: %w", err)
 		}
 		invoices = append(invoices, invoice)
 	}

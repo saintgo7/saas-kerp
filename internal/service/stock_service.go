@@ -123,10 +123,10 @@ func (s *stockService) Adjust(ctx context.Context, in *AdjustStockInput) (*domai
 	err := s.stockRepo.WithTransaction(ctx, func(repo repository.StockRepository) error {
 		current := 0.0
 		stock, err := repo.Get(ctx, in.CompanyID, in.ProductID, in.WarehouseID)
-		switch {
-		case err == nil:
+		switch err {
+		case nil:
 			current = stock.Quantity
-		case err == domain.ErrStockNotFound:
+		case domain.ErrStockNotFound:
 			// No balance row yet: the current quantity is zero and
 			// ApplyMovement will create the row.
 		default:

@@ -465,7 +465,7 @@ func (s *TaxInvoiceService) SyncFromHometax(ctx context.Context, companyID uuid.
 			return synced, fmt.Errorf("failed to get invoices from Hometax (page %d): %w", page, err)
 		}
 		if !resp.Success {
-			return synced, fmt.Errorf("Hometax sync failed (page %d): %s", page, resp.ErrorMessage)
+			return synced, fmt.Errorf("sync with Hometax failed (page %d): %s", page, resp.ErrorMessage)
 		}
 		if len(resp.Invoices) == 0 {
 			break
