@@ -33,7 +33,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
           cache: true
           cache-dependency-path: go.sum
 
@@ -235,7 +235,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
 
       # Go license check
       - name: Check Go licenses

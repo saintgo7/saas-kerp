@@ -4,7 +4,7 @@
 # ==============================================================================
 # Stage 1: Base Go Environment
 # ==============================================================================
-FROM golang:1.22-alpine AS go-base
+FROM golang:1.26-alpine AS go-base
 
 # Install system dependencies
 RUN apk add --no-cache \

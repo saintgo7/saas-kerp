@@ -70,7 +70,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
           cache: true
 
       - name: Check Go formatting
@@ -157,7 +157,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
           cache: true
 
       # `|| echo "build skipped"` turned a compile failure into a green check.

@@ -35,7 +35,7 @@ on:
         default: 'unit,integration'
 
 env:
-  GO_VERSION: '1.22'
+  GO_VERSION: '1.26'
   PYTHON_VERSION: '3.12'
   NODE_VERSION: '20'
 
@@ -114,9 +114,9 @@ jobs:
 
       - name: golangci-lint
         if: needs.detect-changes.outputs.go_changed == 'true'
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v1.61.0
+          version: v2.12.2
           args: --timeout=5m
 
       - name: Set up Python

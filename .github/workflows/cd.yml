@@ -55,7 +55,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
           cache: true
 
       # No `|| true`. A commit that does not compile must never be deployed.
